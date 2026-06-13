@@ -1,0 +1,74 @@
+import type { FastifyInstance } from 'fastify';
+import type { ProviderId } from '../providers/types';
+import type { SettingsRepository } from '../storage/settingsRepository';
+
+export type BridgeSettings = {
+  defaultProvider: ProviderId;
+  defaultWorkspace: string;
+  permissionTimeoutMs: number | 'never';
+  wechatThrottle: {
+    minIntervalMs: number;
+    chunkSize: number;
+  };
+  highRiskCommandPolicy: 'per_request' | 'deny' | 'allow';
+};
+
+export function registerSettingsRoutes(input: {
+  app: FastifyInstance;
+  settings: SettingsRepository;
+  defaultWorkspace: string;
+}): void {
+  input.app.get('/api/settings', async () => readSettings(input.settings, input.defaultWorkspace));
+
+  input.app.post<{ Body: Partial<BridgeSettings> }>('/api/settings', async (request) => {
+    const next = normalizeSettings({
+      ...readSettings(input.settings, input.defaultWorkspace),
+      ...request.body,
+    }, input.defaultWorkspace);
+    for (const [key, value] of Object.entries(next)) input.settings.set(`settings.${key}`, value);
+    return { ok: true };
+  });
+}
+
+function readSettings(settings: SettingsRepository, defaultWorkspace: string): BridgeSettings {
+  return normalizeSettings({
+    defaultProvider: settings.get('settings.defaultProvider'),
+    defaultWorkspace: settings.get('settings.defaultWorkspace'),
+    permissionTimeoutMs: settings.get('settings.permissionTimeoutMs'),
+    wechatThrottle: settings.get('settings.wechatThrottle'),
+    highRiskCommandPolicy: settings.get('settings.highRiskCommandPolicy'),
+  }, defaultWorkspace);
+}
+
+function normalizeSettings(input: Partial<Record<keyof BridgeSettings, unknown>>, defaultWorkspace: string): BridgeSettings {
+  return {
+    defaultProvider: input.defaultProvider === 'codex' ? 'codex' : 'claude-code',
+    defaultWorkspace: typeof input.defaultWorkspace === 'string' && input.defaultWorkspace.trim()
+      ? input.defaultWorkspace
+      : defaultWorkspace,
+    permissionTimeoutMs: normalizeTimeout(input.permissionTimeoutMs),
+    wechatThrottle: normalizeThrottle(input.wechatThrottle),
+    highRiskCommandPolicy: normalizeHighRiskPolicy(input.highRiskCommandPolicy),
+  };
+}
+
+function normalizeTimeout(value: unknown): number | 'never' {
+  if (value === 'never') return 'never';
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  return 60_000;
+}
+
+function normalizeThrottle(value: unknown): BridgeSettings['wechatThrottle'] {
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const minIntervalMs = typeof record.minIntervalMs === 'number' && record.minIntervalMs >= 0 ? record.minIntervalMs : 500;
+    const chunkSize = typeof record.chunkSize === 'number' && record.chunkSize > 0 ? record.chunkSize : 1000;
+    return { minIntervalMs, chunkSize };
+  }
+  return { minIntervalMs: 500, chunkSize: 1000 };
+}
+
+function normalizeHighRiskPolicy(value: unknown): BridgeSettings['highRiskCommandPolicy'] {
+  if (value === 'deny' || value === 'allow') return value;
+  return 'per_request';
+}
