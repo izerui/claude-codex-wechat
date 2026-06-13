@@ -57,4 +57,10 @@ CREATE TABLE IF NOT EXISTS message_log (
   text TEXT,
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `;

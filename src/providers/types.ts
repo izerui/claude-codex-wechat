@@ -53,6 +53,10 @@ export interface NativeProviderAdapter {
     attachments?: Array<{ localPath: string; mimeType?: string }>;
   }): AsyncIterable<ProviderEvent>;
   stopSession(bridgeSessionId: string): Promise<void>;
+  decidePermission?(input: {
+    requestId: string;
+    decision: Exclude<PermissionChoice, 'approve_for_session'>;
+  }): Promise<void>;
   listRecoverableSessions?(): Promise<ProviderSessionCandidate[]>;
   attachSession?(candidateId: string): Promise<ProviderSession>;
 }

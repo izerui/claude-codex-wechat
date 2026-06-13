@@ -61,6 +61,30 @@ export class SessionManager {
     return next;
   }
 
+  updateActiveSession(chatId: string, patch: Partial<Pick<BridgeSessionRecord, 'cwd' | 'providerId' | 'providerSessionId' | 'status' | 'lastActivityAt'>>): BridgeSessionRecord | null {
+    const existing = this.getActiveSession(chatId);
+    if (!existing) return null;
+    const next = { ...existing, ...patch };
+    this.sessions.set(existing.id, next);
+    return next;
+  }
+
+  archiveSession(id: string, archivedAt = Date.now()): BridgeSessionRecord {
+    const existing = this.sessions.get(id);
+    if (!existing) throw new Error(`Unknown bridge session: ${id}`);
+    const next: BridgeSessionRecord = {
+      ...existing,
+      status: 'closed',
+      archivedAt,
+      lastActivityAt: archivedAt,
+    };
+    this.sessions.set(id, next);
+    if (this.activeByChat.get(existing.chatId) === id) {
+      this.activeByChat.delete(existing.chatId);
+    }
+    return next;
+  }
+
   listSessions(): BridgeSessionRecord[] {
     return [...this.sessions.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   }

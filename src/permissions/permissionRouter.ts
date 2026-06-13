@@ -27,6 +27,10 @@ export class PermissionRouter {
     return [...this.requests.values()].filter((request) => request.status === 'pending');
   }
 
+  getRequest(requestId: string): StoredPermissionRequest | null {
+    return this.requests.get(requestId) ?? null;
+  }
+
   decide(input: { requestId: string; userId: string; decision: PermissionDecision }): { ok: true } | { ok: false; error: string } {
     const request = this.requests.get(input.requestId);
     if (!request) return { ok: false, error: 'permission_request_not_found' };

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { BridgeEventHub } from './events';
 import { mapWechatInboundToChannelMessage } from '../channels/wechat-clawbot/messageMapping';
 import type { WechatClawbotInboundPayload } from '../channels/wechat-clawbot/types';
+import type { MessageRouter } from '../session/messageRouter';
 import type { PairingRepository } from '../storage/pairingRepository';
 import type { UserRepository } from '../storage/userRepository';
 
@@ -10,6 +11,7 @@ export function registerChannelRoutes(input: {
   users: UserRepository;
   pairings: PairingRepository;
   events: BridgeEventHub;
+  messageRouter?: MessageRouter;
 }): void {
   input.app.post<{ Body: WechatClawbotInboundPayload }>('/api/channel/wechat/inbound', async (request, reply) => {
     const message = mapWechatInboundToChannelMessage(request.body);
@@ -27,6 +29,7 @@ export function registerChannelRoutes(input: {
       return reply.code(202).send({ ok: true, status: 'pairing_required', code: pairing.code });
     }
 
+    await input.messageRouter?.handleMessage(message);
     return reply.send({ ok: true, status: 'accepted' });
   });
 }
