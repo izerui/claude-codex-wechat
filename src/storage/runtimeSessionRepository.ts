@@ -104,6 +104,14 @@ export class RuntimeSessionRepository {
     `).all() as Record<string, unknown>[];
     return rows.map(mapSessionRow);
   }
+
+  archiveAllActive(archivedAt = Date.now()): void {
+    this.db.prepare(`
+      UPDATE bridge_sessions
+      SET archived_at = ?, status = 'closed'
+      WHERE archived_at IS NULL
+    `).run(archivedAt);
+  }
 }
 
 function mapSessionRow(row: Record<string, unknown>): RuntimeSessionRecord {

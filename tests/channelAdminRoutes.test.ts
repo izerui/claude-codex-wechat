@@ -38,7 +38,7 @@ describe('channel admin routes', () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const { app, users } = createDaemonServer({ db });
-    const created = users.createUser({ platform: 'wechat-clawbot', platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'codex', defaultCwd: '/tmp/project' });
+    const created = users.createUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'codex', defaultCwd: '/tmp/project' });
 
     const response = await app.inject({ method: 'GET', url: '/api/channel/users' });
 
@@ -61,17 +61,20 @@ describe('channel admin routes', () => {
     const provider = new FakeProviderAdapter('claude-code');
     const { app, users, sessions } = createDaemonServer({ db, channel, providers: [provider] });
     users.createUser({
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
       defaultProvider: 'claude-code',
       defaultCwd: '/tmp/project',
     });
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/channel/wechat/inbound',
-      payload: { id: 'm1', chatId: 'chat-a', senderId: 'wx_user_1', text: 'hello' },
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hello' },
+      timestamp: 1,
     });
 
     const active = sessions.getActiveSession('chat-a');
@@ -91,10 +94,13 @@ describe('channel admin routes', () => {
       expect.objectContaining({ id: active!.id, status: 'closed' }),
     ]);
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/channel/wechat/inbound',
-      payload: { id: 'm2', chatId: 'chat-a', senderId: 'wx_user_1', text: 'second hello' },
+    await channel.emitIncoming({
+      id: 'm2',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'second hello' },
+      timestamp: 2,
     });
     const next = sessions.getActiveSession('chat-a');
     expect(next).not.toBeNull();
@@ -123,17 +129,20 @@ describe('channel admin routes', () => {
     const provider = new FakeProviderAdapter('claude-code');
     const { app, users, sessions } = createDaemonServer({ db, channel, providers: [provider] });
     users.createUser({
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
       defaultProvider: 'claude-code',
       defaultCwd: '/tmp/project',
     });
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/channel/wechat/inbound',
-      payload: { id: 'm1', chatId: 'chat-a', senderId: 'wx_user_1', text: 'run tests' },
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'run tests' },
+      timestamp: 1,
     });
 
     const active = sessions.getActiveSession('chat-a');
@@ -156,17 +165,20 @@ describe('channel admin routes', () => {
     const provider = new FakeProviderAdapter('claude-code');
     const { app, users } = createDaemonServer({ db, channel, providers: [provider] });
     users.createUser({
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
       defaultProvider: 'claude-code',
       defaultCwd: '/tmp/project',
     });
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/channel/wechat/inbound',
-      payload: { id: 'm1', chatId: 'chat-a', senderId: 'wx_user_1', text: 'run tests' },
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'run tests' },
+      timestamp: 1,
     });
 
     const sessions = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
@@ -242,6 +254,52 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
+  it('applies updated default provider and workspace to new WeChat sessions', async () => {
+    const db = new Database(':memory:');
+    db.exec(schemaSql);
+    const channel = new MockChannelAdapter();
+    const { app, users, sessions } = createDaemonServer({
+      db,
+      channel,
+      providers: [new FakeProviderAdapter('claude-code'), new FakeProviderAdapter('codex')],
+    });
+    users.createUser({
+      platform: 'weixin',
+      platformUserId: 'wx_user_1',
+      role: 'user',
+      defaultProvider: 'claude-code',
+      defaultCwd: '/tmp/original',
+    });
+
+    const update = await app.inject({
+      method: 'POST',
+      url: '/api/settings',
+      payload: {
+        defaultProvider: 'codex',
+        defaultWorkspace: '/tmp/codex-project',
+        permissionTimeoutMs: 60_000,
+        wechatThrottle: { minIntervalMs: 500, chunkSize: 1000 },
+        highRiskCommandPolicy: 'per_request',
+      },
+    });
+    expect(update.statusCode).toBe(200);
+
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-codex',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hello codex' },
+      timestamp: 1,
+    });
+
+    expect(sessions.getActiveSession('chat-codex')).toMatchObject({
+      providerId: 'codex',
+      cwd: '/tmp/codex-project',
+    });
+    await app.close();
+  });
+
   it('reports both Claude and Codex provider status', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
@@ -254,6 +312,47 @@ describe('channel admin routes', () => {
       claude: expect.anything(),
       codex: expect.anything(),
     });
+    await app.close();
+  });
+
+  it('syncs channel settings by clearing active runtime sessions', async () => {
+    const db = new Database(':memory:');
+    db.exec(schemaSql);
+    const channel = new MockChannelAdapter();
+    const provider = new FakeProviderAdapter('claude-code');
+    const { app, users } = createDaemonServer({ db, channel, providers: [provider] });
+    users.createUser({
+      platform: 'weixin',
+      platformUserId: 'wx_user_1',
+      role: 'user',
+      defaultProvider: 'claude-code',
+      defaultCwd: '/tmp/project',
+    });
+
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hello' },
+      timestamp: 1,
+    });
+    const before = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
+    expect(before.json()).toHaveLength(1);
+
+    const sync = await app.inject({
+      method: 'POST',
+      url: '/api/channel/settings/sync',
+      payload: { platform: 'weixin' },
+    });
+
+    expect(sync.statusCode).toBe(200);
+    expect(sync.json()).toEqual({ ok: true });
+
+    const after = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
+    expect(after.json()).toEqual([
+      expect.objectContaining({ status: 'closed', archivedAt: expect.any(Number) }),
+    ]);
     await app.close();
   });
 });

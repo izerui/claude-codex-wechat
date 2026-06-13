@@ -4,7 +4,7 @@
 
 `local-agent-wechat-bridge` 是一个本地运行的桥接层，用来把：
 
-- 个人微信 clawbot（通过 HTTP adapter 接入）
+- 微信 channel（默认通过 AionCore / OpenClaw 风格 direct 模式接入）
 - 本地原生 `claude` / `codex` CLI
 
 连接起来，并提供一个本地管理页用于：
@@ -81,8 +81,10 @@ export BRIDGE_CONFIG=/absolute/path/to/config.json
   "databasePath": "/Users/you/.local-agent-wechat-bridge/bridge.sqlite",
   "wechat": {
     "enabled": true,
-    "baseUrl": "http://127.0.0.1:3001",
-    "token": "your-clawbot-token"
+    "mode": "direct",
+    "baseUrl": "https://ilinkai.weixin.qq.com",
+    "token": "your-weixin-bot-token",
+    "accountId": "your-weixin-account-id"
   },
   "providers": {
     "claude": {
@@ -111,55 +113,40 @@ export BRIDGE_CONFIG=/absolute/path/to/config.json
 
 ---
 
-## 4. WeChat clawbot 接入
+## 4. WeChat 接入
 
-当前桥接层假设现有 clawbot 以 HTTP 方式接入。
+当前主路径默认对齐 `AionCore` / `openclaw-weixin` 的 direct 模式。
 
-### 入站：clawbot -> bridge
+### 扫码登录
 
-```http
-POST /api/channel/wechat/inbound
-Content-Type: application/json
-```
-
-Body 示例：
-
-```json
-{
-  "id": "wx_msg_1",
-  "chatId": "wx_chat_1",
-  "senderId": "wx_user_1",
-  "senderName": "Alice",
-  "text": "hello",
-  "isGroup": false,
-  "mentionedSelf": false,
-  "raw": {}
-}
-```
-
-### 出站：bridge -> clawbot
-
-bridge 会向：
-
-```text
-<wechat.baseUrl>/send
-```
-
-发送：
-
-```json
-{
-  "chatId": "wx_chat_1",
-  "kind": "text",
-  "text": "reply"
-}
-```
-
-如果配置了 `wechat.token`，bridge 会带：
+管理页通过：
 
 ```http
-Authorization: Bearer <token>
+GET /api/channel/weixin/login
 ```
+
+提供 SSE 登录事件流：
+
+- `qr`
+- `scanned`
+- `done`
+- `error`
+
+`done` 事件返回：
+
+- `accountId`
+- `botToken`
+- `baseUrl`
+
+前端收到后会自动启用 `weixin` channel。
+
+### 收消息
+
+当前主实现通过官方 `getupdates` 长轮询拉取微信消息，而不是依赖外部 webhook。
+
+### 发消息
+
+当前主实现通过官方 `sendmessage` 发送微信消息，并自动带回 `context_token`。
 
 ---
 

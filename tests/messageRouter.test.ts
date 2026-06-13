@@ -8,7 +8,7 @@ import type { AuthorizedUserRecord } from '../src/storage/userRepository';
 
 const authorizedUser: AuthorizedUserRecord = {
   id: 'user_a',
-  platform: 'wechat-clawbot',
+  platform: 'weixin',
   platformUserId: 'wx_user_1',
   role: 'user',
   defaultProvider: 'claude-code',
@@ -33,7 +33,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm1',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: 'run tests' },
@@ -64,7 +64,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm1',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: 'hello' },
@@ -91,7 +91,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm1',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: 'run tests' },
@@ -101,7 +101,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm2',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: '/approve pr_fake_1' },
@@ -128,7 +128,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm1',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: '/new codex' },
@@ -140,7 +140,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm2',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: 'review this repo' },
@@ -167,7 +167,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm1',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: '/cwd /tmp/other-project' },
@@ -177,7 +177,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm2',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: '/status' },
@@ -203,7 +203,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm1',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: 'hello' },
@@ -214,7 +214,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm2',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: '/stop' },
@@ -240,7 +240,7 @@ describe('MessageRouter', () => {
 
     await router.handleMessage({
       id: 'm1',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: 'first run' },
@@ -248,7 +248,7 @@ describe('MessageRouter', () => {
     });
     await router.handleMessage({
       id: 'm2',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: '/stop' },
@@ -256,7 +256,7 @@ describe('MessageRouter', () => {
     });
     await router.handleMessage({
       id: 'm3',
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
       content: { type: 'text', text: 'second run' },

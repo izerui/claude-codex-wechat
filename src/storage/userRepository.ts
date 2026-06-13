@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { BridgeDatabase } from './db';
+import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import type { ProviderId } from '../providers/types';
 
 export type AuthorizedUserRecord = {
@@ -28,7 +29,10 @@ export class UserRepository {
 
   findByPlatformUser(platform: string, platformUserId: string): AuthorizedUserRecord | null {
     const row = this.db.prepare(`
-      SELECT * FROM authorized_users WHERE platform = ? AND platform_user_id = ?
+      SELECT * FROM authorized_users
+      WHERE platform = ? AND platform_user_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
     `).get(platform, platformUserId) as Record<string, unknown> | undefined;
     return row ? mapAuthorizedUserRow(row) : null;
   }
@@ -38,6 +42,25 @@ export class UserRepository {
       SELECT * FROM authorized_users ORDER BY created_at DESC
     `).all() as Record<string, unknown>[];
     return rows.map(mapAuthorizedUserRow);
+  }
+
+  updateDefaultsForPlatform(platform: string, patch: { defaultProvider?: ProviderId; defaultCwd?: string }): void {
+    const assignments: string[] = [];
+    const values: Array<string> = [];
+    if (patch.defaultProvider) {
+      assignments.push('default_provider = ?');
+      values.push(patch.defaultProvider);
+    }
+    if (patch.defaultCwd) {
+      assignments.push('default_cwd = ?');
+      values.push(patch.defaultCwd);
+    }
+    if (assignments.length === 0) return;
+    this.db.prepare(`
+      UPDATE authorized_users
+      SET ${assignments.join(', ')}
+      WHERE platform = ?
+    `).run(...values, platform);
   }
 
   revokeUser(id: string): { ok: true } | { ok: false; error: string } {

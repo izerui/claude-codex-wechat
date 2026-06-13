@@ -2,8 +2,10 @@
   "databasePath": "/Users/you/.local-agent-wechat-bridge/bridge.sqlite",
   "wechat": {
     "enabled": true,
-    "baseUrl": "http://127.0.0.1:3001",
-    "token": "replace-with-your-clawbot-token"
+    "mode": "direct",
+    "baseUrl": "https://ilinkai.weixin.qq.com",
+    "token": "replace-with-weixin-bot-token",
+    "accountId": "replace-with-weixin-account-id"
   },
   "providers": {
     "claude": {

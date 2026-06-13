@@ -2,10 +2,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-export type WechatClawbotConfig = {
+export type WeixinConfig = {
   enabled: boolean;
   baseUrl?: string;
   token?: string;
+  accountId?: string;
 };
 
 export type ProviderCommandConfig = {
@@ -14,7 +15,7 @@ export type ProviderCommandConfig = {
 
 export type BridgeConfig = {
   databasePath?: string;
-  wechat?: WechatClawbotConfig;
+  wechat?: WeixinConfig;
   providers?: {
     claude?: ProviderCommandConfig;
     codex?: ProviderCommandConfig;
@@ -70,12 +71,13 @@ function normalizeProviderCommand(raw: unknown, envFallback: string | undefined)
   return command ? { command } : undefined;
 }
 
-function normalizeWechatConfig(raw: unknown): WechatClawbotConfig | undefined {
+function normalizeWechatConfig(raw: unknown): WeixinConfig | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const record = raw as Record<string, unknown>;
   return {
     enabled: record.enabled === true,
     baseUrl: typeof record.baseUrl === 'string' && record.baseUrl ? record.baseUrl : undefined,
     token: typeof record.token === 'string' && record.token ? record.token : undefined,
+    accountId: typeof record.accountId === 'string' && record.accountId ? record.accountId : undefined,
   };
 }

@@ -1,13 +1,13 @@
 # local-agent-wechat-bridge
 
-A local bridge service that connects an existing WeChat clawbot HTTP endpoint to native local Claude Code and Codex CLI sessions.
+A local bridge service that connects a WeChat channel to native local Claude Code and Codex CLI sessions.
 
 ## What it does
 
-- Accepts inbound WeChat messages from an existing clawbot via HTTP
-- Routes messages into native non-ACP Claude Code / Codex providers
+- Logs into the WeChat channel through the AionCore/OpenClaw-style direct flow
+- Routes WeChat messages into native non-ACP Claude Code / Codex providers
 - Persists sessions, permission requests, message logs, and settings in SQLite
-- Provides a local admin UI for pairing, revoke, session stop/archive, permission approval, and provider status
+- Provides a local admin UI for pairing, revoke, session stop/archive, permission approval, provider status, and WeChat channel login
 
 ## Quick start
 
@@ -44,8 +44,10 @@ Key fields:
 
 - `databasePath`
 - `wechat.enabled`
+- `wechat.mode`
 - `wechat.baseUrl`
 - `wechat.token`
+- `wechat.accountId`
 - `providers.claude.command`
 - `providers.codex.command`
 

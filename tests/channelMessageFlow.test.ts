@@ -8,6 +8,7 @@ import { PermissionRequestRepository } from '../src/storage/permissionRequestRep
 import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
 import { schemaSql } from '../src/storage/schema';
 import { UserRepository } from '../src/storage/userRepository';
+import { PRIMARY_WEIXIN_PLATFORM } from '../src/channels/platforms';
 
 function memoryDb() {
   const db = new Database(':memory:');
@@ -15,27 +16,29 @@ function memoryDb() {
   return db;
 }
 
-describe('wechat channel routes', () => {
-  it('creates pending pairing for unauthorized inbound user', async () => {
+describe('channel message flow', () => {
+  it('creates pending pairing for unauthorized incoming user', async () => {
     const db = memoryDb();
-    const { app, pairings } = createDaemonServer({ db });
+    const channel = new MockChannelAdapter();
+    const { app, pairings } = createDaemonServer({ db, channel });
 
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/channel/wechat/inbound',
-      payload: { id: 'm1', chatId: 'chat-a', senderId: 'wx_user_1', senderName: 'Alice', text: 'hello' },
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1', displayName: 'Alice' },
+      content: { type: 'text', text: 'hello' },
+      timestamp: 1,
     });
 
-    expect(response.statusCode).toBe(202);
-    expect(response.json()).toMatchObject({ ok: true, status: 'pairing_required' });
     expect(pairings.listPending()).toHaveLength(1);
     await app.close();
   });
 
-  it('accepts inbound message from authorized user and requires pairing again after revoke', async () => {
+  it('accepts authorized message flow and requires pairing again after revoke', async () => {
     const db = memoryDb();
     const users = new UserRepository(db);
-    const created = users.createUser({ platform: 'wechat-clawbot', platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'claude-code', defaultCwd: '/tmp/project' });
+    const created = users.createUser({ platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'claude-code', defaultCwd: '/tmp/project' });
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
@@ -45,14 +48,15 @@ describe('wechat channel routes', () => {
       providers: [new FakeProviderAdapter('claude-code')],
     });
 
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/channel/wechat/inbound',
-      payload: { id: 'm1', chatId: 'chat-a', senderId: 'wx_user_1', text: 'run tests' },
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'run tests' },
+      timestamp: 1,
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true, status: 'accepted' });
     expect(sessions.listSessions()).toHaveLength(1);
     expect(permissions.getPendingRequests()).toHaveLength(1);
     expect(sent).toEqual([
@@ -79,20 +83,22 @@ describe('wechat channel routes', () => {
     const revoke = await app.inject({ method: 'POST', url: `/api/channel/users/${created.id}/revoke` });
     expect(revoke.statusCode).toBe(200);
 
-    const second = await app.inject({
-      method: 'POST',
-      url: '/api/channel/wechat/inbound',
-      payload: { id: 'm2', chatId: 'chat-a', senderId: 'wx_user_1', text: 'run again' },
+    await channel.emitIncoming({
+      id: 'm2',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'run again' },
+      timestamp: 2,
     });
-    expect(second.statusCode).toBe(202);
-    expect(second.json()).toMatchObject({ ok: true, status: 'pairing_required' });
+    expect(new PermissionRequestRepository(db).listPending()).toHaveLength(1);
     await app.close();
   });
 
-  it('switches provider and reports status through inbound commands', async () => {
+  it('switches provider and reports status through incoming commands', async () => {
     const db = memoryDb();
     const users = new UserRepository(db);
-    users.createUser({ platform: 'wechat-clawbot', platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'claude-code', defaultCwd: '/tmp/project' });
+    users.createUser({ platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'claude-code', defaultCwd: '/tmp/project' });
     const channel = new MockChannelAdapter();
     const sent: string[] = [];
     channel.onSent((message) => sent.push(message.text));
@@ -102,17 +108,23 @@ describe('wechat channel routes', () => {
       providers: [new FakeProviderAdapter('claude-code'), new FakeProviderAdapter('codex')],
     });
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/channel/wechat/inbound',
-      payload: { id: 'm1', chatId: 'chat-a', senderId: 'wx_user_1', text: '/new codex' },
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/new codex' },
+      timestamp: 1,
     });
     expect(sessions.getActiveSession('chat-a')).toMatchObject({ providerId: 'codex' });
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/channel/wechat/inbound',
-      payload: { id: 'm2', chatId: 'chat-a', senderId: 'wx_user_1', text: '/status' },
+    await channel.emitIncoming({
+      id: 'm2',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/status' },
+      timestamp: 2,
     });
 
     expect(sent[0]).toContain('Started new codex session');

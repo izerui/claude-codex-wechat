@@ -1,5 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import type { WechatClawbotConfig } from '../daemon/config';
+import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
+import { WeixinDirectLoginClient } from '../channels/weixin-direct/loginClient';
+import type { WeixinConfig } from '../daemon/config';
+import type { BridgeEventHub } from '../daemon/events';
 import type { MessageLogRepository } from '../storage/messageLogRepository';
 import type { PairingRepository } from '../storage/pairingRepository';
 import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
@@ -17,32 +20,95 @@ export function registerChannelAdminRoutes(input: {
   settings?: SettingsRepository;
   messageLog?: MessageLogRepository;
   users: UserRepository;
-  wechat?: WechatClawbotConfig;
+  wechat?: WeixinConfig;
+  events?: BridgeEventHub;
 }): void {
   let wechat = input.wechat ?? readWechatSettings(input.settings);
 
   input.app.get('/api/channel/plugins', async () => [toWechatPluginStatus(wechat, input.users)]);
 
   input.app.post<{ Body: { plugin_id: string; config?: Record<string, unknown> } }>('/api/channel/plugins/enable', async (request, reply) => {
-    if (request.body.plugin_id !== 'wechat-clawbot' && request.body.plugin_id !== 'weixin') {
+    if (request.body.plugin_id !== 'weixin') {
       return reply.code(400).send({ ok: false, error: 'unknown_channel_plugin' });
     }
     const config = request.body.config ?? {};
     const credentials = typeof config.credentials === 'object' && config.credentials ? config.credentials as Record<string, unknown> : {};
-    const baseUrl = typeof config.baseUrl === 'string' ? config.baseUrl : typeof credentials.baseUrl === 'string' ? credentials.baseUrl : undefined;
+    const previousWechat = wechat ?? readWechatSettings(input.settings);
+    const baseUrl = typeof config.baseUrl === 'string'
+      ? config.baseUrl
+      : typeof credentials.baseUrl === 'string'
+        ? credentials.baseUrl
+        : previousWechat?.baseUrl;
     const token = typeof config.token === 'string' ? config.token : typeof credentials.bot_token === 'string' ? credentials.bot_token : undefined;
+    const accountId = typeof credentials.account_id === 'string'
+      ? credentials.account_id
+      : previousWechat?.accountId;
     if (!baseUrl) return reply.code(400).send({ ok: false, error: 'wechat_base_url_required' });
-    wechat = { enabled: true, baseUrl, token };
+    wechat = { enabled: true, baseUrl, token, accountId };
     writeWechatSettings(input.settings, wechat);
+    input.events?.emit({
+      type: 'channel.plugin-status-changed',
+      plugin_id: 'weixin',
+      status: toWechatPluginStatus(wechat, input.users),
+    });
     return { ok: true };
   });
 
+  input.app.get('/api/channel/weixin/login', async (_request, reply) => {
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    });
+
+    try {
+      const client = new WeixinDirectLoginClient();
+      const qr = await client.fetchQrCode();
+      reply.raw.write(`event: qr\n`);
+      reply.raw.write(`data: ${JSON.stringify({ qrcodeData: qr.qrcodeData })}\n\n`);
+
+      while (true) {
+        await new Promise((resolve) => setTimeout(resolve, client.pollIntervalMs));
+        const status = await client.pollQrCodeStatus(qr.ticket);
+        if (status.status === 'waiting') continue;
+        if (status.status === 'scanned') {
+          reply.raw.write(`event: scanned\n`);
+          reply.raw.write('data: {}\n\n');
+          continue;
+        }
+        if (status.status === 'confirmed') {
+          reply.raw.write(`event: done\n`);
+          reply.raw.write(`data: ${JSON.stringify({
+            accountId: status.accountId,
+            botToken: status.botToken,
+            baseUrl: status.baseUrl,
+          })}\n\n`);
+          break;
+        }
+        reply.raw.write(`event: error\n`);
+        reply.raw.write(`data: ${JSON.stringify({ message: 'QR code expired' })}\n\n`);
+        break;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      reply.raw.write(`event: error\n`);
+      reply.raw.write(`data: ${JSON.stringify({ message })}\n\n`);
+    }
+    reply.raw.end();
+    return reply.hijack();
+  });
+
   input.app.post<{ Body: { plugin_id: string } }>('/api/channel/plugins/disable', async (request, reply) => {
-    if (request.body.plugin_id !== 'wechat-clawbot' && request.body.plugin_id !== 'weixin') {
+    if (request.body.plugin_id !== 'weixin') {
       return reply.code(400).send({ ok: false, error: 'unknown_channel_plugin' });
     }
     wechat = { enabled: false };
     writeWechatSettings(input.settings, wechat);
+    input.events?.emit({
+      type: 'channel.plugin-status-changed',
+      plugin_id: 'weixin',
+      status: toWechatPluginStatus(wechat, input.users),
+    });
     return { ok: true };
   });
 
@@ -53,14 +119,28 @@ export function registerChannelAdminRoutes(input: {
     if (!pairing || pairing.status !== 'pending') return reply.code(400).send({ ok: false, error: 'pairing_not_pending' });
     const result = input.pairings.approve(request.params.code);
     if (!result.ok) return reply.code(400).send(result);
-    if (!input.users.findByPlatformUser('wechat-clawbot', pairing.platformUserId)) {
-      input.users.createUser({
-        platform: 'wechat-clawbot',
+    const defaults = readBridgeDefaults(input.settings);
+    if (!input.users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, pairing.platformUserId)) {
+      const created = input.users.createUser({
+        platform: PRIMARY_WEIXIN_PLATFORM,
         platformUserId: pairing.platformUserId,
         displayName: pairing.displayName,
         role: 'user',
-        defaultProvider: 'claude-code',
-        defaultCwd: process.cwd(),
+        defaultProvider: defaults.defaultProvider,
+        defaultCwd: defaults.defaultWorkspace,
+      });
+      input.events?.emit({
+        type: 'channel.user-authorized',
+        user: {
+          id: created.id,
+          platformUserId: created.platformUserId,
+          platformType: 'weixin',
+          display_name: created.displayName,
+          authorizedAt: created.createdAt,
+          lastActive: created.lastActiveAt,
+          defaultProvider: created.defaultProvider,
+          defaultCwd: created.defaultCwd,
+        },
       });
     }
     return result;
@@ -81,6 +161,15 @@ export function registerChannelAdminRoutes(input: {
   });
 
   input.app.get('/api/channel/sessions', async () => input.sessions?.list() ?? []);
+
+  input.app.post<{ Body: { platform: string } }>('/api/channel/settings/sync', async (_request) => {
+    const archivedAt = Date.now();
+    for (const session of input.sessions?.list() ?? []) {
+      if (!session.archivedAt) input.sessionManager?.archiveSession(session.id, archivedAt);
+    }
+    input.sessions?.archiveAllActive(archivedAt);
+    return { ok: true };
+  });
 
   input.app.get<{ Params: { id: string } }>('/api/channel/sessions/:id/messages', async (request, reply) => {
     const runtimeSession = input.sessions?.findById(request.params.id);
@@ -108,21 +197,21 @@ export function registerChannelAdminRoutes(input: {
   });
 }
 
-function toWechatPluginStatus(wechat: WechatClawbotConfig | undefined, users: UserRepository) {
+function toWechatPluginStatus(wechat: WeixinConfig | undefined, users: UserRepository) {
   return {
-    id: 'wechat-clawbot',
-    type: 'weixin',
-    name: 'WeChat clawbot',
+    id: PRIMARY_WEIXIN_PLATFORM,
+    type: 'weixin' as const,
+    name: 'WeChat channel' as const,
     enabled: wechat?.enabled === true,
     connected: wechat?.enabled === true && Boolean(wechat.baseUrl),
     status: wechat?.enabled === true ? 'configured' : 'disabled',
-    activeUsers: users.listUsers().filter((user) => user.platform === 'wechat-clawbot').length,
+    activeUsers: users.listUsers().filter((user) => user.platform === PRIMARY_WEIXIN_PLATFORM).length,
     hasToken: Boolean(wechat?.token),
-    botUsername: undefined,
+    botUsername: wechat?.accountId,
   };
 }
 
-function readWechatSettings(settings: SettingsRepository | undefined): WechatClawbotConfig | undefined {
+function readWechatSettings(settings: SettingsRepository | undefined): WeixinConfig | undefined {
   const raw = settings?.get('channel.wechat');
   if (!raw || typeof raw !== 'object') return undefined;
   const record = raw as Record<string, unknown>;
@@ -130,9 +219,18 @@ function readWechatSettings(settings: SettingsRepository | undefined): WechatCla
     enabled: record.enabled === true,
     baseUrl: typeof record.baseUrl === 'string' ? record.baseUrl : undefined,
     token: typeof record.token === 'string' ? record.token : undefined,
+    accountId: typeof record.accountId === 'string' ? record.accountId : undefined,
   };
 }
 
-function writeWechatSettings(settings: SettingsRepository | undefined, wechat: WechatClawbotConfig): void {
+function writeWechatSettings(settings: SettingsRepository | undefined, wechat: WeixinConfig): void {
   settings?.set('channel.wechat', wechat);
+}
+
+function readBridgeDefaults(settings: SettingsRepository | undefined): { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string } {
+  const defaultProvider = settings?.get('settings.defaultProvider') === 'codex' ? 'codex' : 'claude-code';
+  const defaultWorkspace = typeof settings?.get('settings.defaultWorkspace') === 'string'
+    ? String(settings?.get('settings.defaultWorkspace'))
+    : process.cwd();
+  return { defaultProvider, defaultWorkspace };
 }

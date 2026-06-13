@@ -25,14 +25,14 @@ export class SessionManager {
     return id ? this.sessions.get(id) ?? null : null;
   }
 
-  getOrCreateSession(input: { chatId: string; ownerUserId: string }): BridgeSessionRecord {
+  getOrCreateSession(input: { chatId: string; ownerUserId: string; providerId?: ProviderId; cwd?: string }): BridgeSessionRecord {
     const existing = this.getActiveSession(input.chatId);
     if (existing && !existing.archivedAt) return existing;
     return this.createSession({
       chatId: input.chatId,
       ownerUserId: input.ownerUserId,
-      providerId: this.defaults.defaultProviderId,
-      cwd: this.defaults.defaultCwd,
+      providerId: input.providerId ?? this.defaults.defaultProviderId,
+      cwd: input.cwd ?? this.defaults.defaultCwd,
     });
   }
 

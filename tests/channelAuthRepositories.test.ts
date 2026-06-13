@@ -14,14 +14,14 @@ describe('channel auth repositories', () => {
   it('creates and finds authorized users', () => {
     const users = new UserRepository(createMemoryDb());
     const created = users.createUser({
-      platform: 'wechat-clawbot',
+      platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
       defaultProvider: 'claude-code',
       defaultCwd: '/tmp/project',
     });
 
-    expect(users.findByPlatformUser('wechat-clawbot', 'wx_user_1')).toMatchObject({
+    expect(users.findByPlatformUser('weixin', 'wx_user_1')).toMatchObject({
       id: created.id,
       platformUserId: 'wx_user_1',
       defaultProvider: 'claude-code',

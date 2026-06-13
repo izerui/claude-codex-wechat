@@ -27,4 +27,21 @@ describe('bridge config provider commands', () => {
       codex: { command: '/env/codex' },
     });
   });
+
+  it('normalizes wechat direct config fields', () => {
+    const directConfig = normalizeBridgeConfigForTest({
+      wechat: {
+        enabled: true,
+        baseUrl: 'https://ilinkai.weixin.qq.com',
+        token: 'tok_1',
+        accountId: 'acc_1',
+      },
+    });
+    expect(directConfig.wechat).toEqual({
+      enabled: true,
+      baseUrl: 'https://ilinkai.weixin.qq.com',
+      token: 'tok_1',
+      accountId: 'acc_1',
+    });
+  });
 });

@@ -4,8 +4,9 @@ import Database from 'better-sqlite3';
 import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
 import { registerSettingsRoutes } from '../admin/settingsRoutes';
 import type { ChannelAdapter } from '../channels/types';
-import { WechatClawbotAdapter } from '../channels/wechat-clawbot/adapter';
-import { WechatClawbotHttpClient } from '../channels/wechat-clawbot/client';
+import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
+import { WeixinDirectAdapter } from '../channels/weixin-direct/adapter';
+import { WeixinDirectApiClient } from '../channels/weixin-direct/apiClient';
 import { PermissionRouter } from '../permissions/permissionRouter';
 import { createDefaultProviders } from '../providers/defaultProviders';
 import type { NativeProviderAdapter } from '../providers/types';
@@ -20,33 +21,36 @@ import { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import { schemaSql } from '../storage/schema';
 import { SettingsRepository } from '../storage/settingsRepository';
 import { UserRepository } from '../storage/userRepository';
-import { registerChannelRoutes } from './channelRoutes';
-import type { WechatClawbotConfig, BridgeConfig } from './config';
+import type { WeixinConfig, BridgeConfig } from './config';
 import { BridgeEventHub } from './events';
 
 export function createDaemonServer(options: {
   db?: BridgeDatabase;
   channel?: ChannelAdapter;
   providers?: NativeProviderAdapter[];
-  wechat?: WechatClawbotConfig;
+  wechat?: WeixinConfig;
   providerCommands?: BridgeConfig['providers'];
 } = {}) {
   const app = Fastify({ logger: true });
   const events = new BridgeEventHub();
-  const sessions = new SessionManager({ defaultCwd: process.cwd(), defaultProviderId: 'claude-code' });
+  const db = options.db ?? new Database(':memory:');
+  db.exec(schemaSql);
+  const settings = new SettingsRepository(db);
+  const bridgeDefaults = readBridgeDefaults(settings);
+  const sessions = new SessionManager({
+    defaultCwd: bridgeDefaults.defaultWorkspace,
+    defaultProviderId: bridgeDefaults.defaultProvider,
+  });
   const permissions = new PermissionRouter();
   const providers = new ProviderRegistry({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
   });
-  const db = options.db ?? new Database(':memory:');
-  db.exec(schemaSql);
   const users = new UserRepository(db);
   const pairings = new PairingRepository(db);
   const runtimeSessions = new RuntimeSessionRepository(db);
   const permissionRequests = new PermissionRequestRepository(db);
   const messageLog = new MessageLogRepository(db);
-  const settings = new SettingsRepository(db);
   const providerAdapters = options.providers ?? createDefaultProviders({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
@@ -58,15 +62,21 @@ export function createDaemonServer(options: {
         permissions,
         providers: providerAdapters,
         sessions,
-        resolveUser: (message) => users.findByPlatformUser('wechat-clawbot', message.user.id),
+        resolveUser: (message) => users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, message.user.id),
         sessionRepository: runtimeSessions,
         permissionRepository: permissionRequests,
         messageLogRepository: messageLog,
+        pairingRepository: pairings,
+        events,
       })
     : undefined;
+  if (channel && messageRouter) {
+    channel.onMessage(async (message) => {
+      await messageRouter.handleMessage(message);
+    });
+  }
 
   void app.register(websocket);
-  registerChannelRoutes({ app, users, pairings, events, messageRouter });
   registerChannelAdminRoutes({
     app,
     users,
@@ -77,8 +87,9 @@ export function createDaemonServer(options: {
     settings,
     messageLog,
     wechat: options.wechat,
+    events,
   });
-  registerSettingsRoutes({ app, settings, defaultWorkspace: process.cwd() });
+  registerSettingsRoutes({ app, settings, defaultWorkspace: process.cwd(), users });
 
   app.get('/api/status', async () => ({
     ok: true,
@@ -102,12 +113,36 @@ export function createDaemonServer(options: {
     socket.on('close', unsubscribe);
   });
 
+  app.addHook('onReady', async () => {
+    await channel?.start({ background: true } as { background?: boolean });
+  });
+
+  app.addHook('onClose', async () => {
+    await channel?.stop();
+  });
+
   return { app, sessions, permissions, events, users, pairings };
 }
 
-function createWechatChannel(config: WechatClawbotConfig | undefined): ChannelAdapter | undefined {
-  if (config?.enabled !== true || !config.baseUrl) return undefined;
-  return new WechatClawbotAdapter({
-    client: new WechatClawbotHttpClient({ baseUrl: config.baseUrl, token: config.token }),
+function readBridgeDefaults(settings: SettingsRepository): { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string } {
+  const defaultProvider = settings.get('settings.defaultProvider') === 'codex' ? 'codex' : 'claude-code';
+  const defaultWorkspace = typeof settings.get('settings.defaultWorkspace') === 'string'
+    ? String(settings.get('settings.defaultWorkspace'))
+    : process.cwd();
+  return { defaultProvider, defaultWorkspace };
+}
+
+function createWechatChannel(config: WeixinConfig | undefined): ChannelAdapter | undefined {
+  if (config?.enabled !== true) return undefined;
+  if (!config.token || !config.baseUrl) return undefined;
+  const wechatUin = Buffer.from(
+    new Uint8Array(4).map(() => Math.floor(Math.random() * 256)),
+  ).toString('base64');
+  return new WeixinDirectAdapter({
+    api: new WeixinDirectApiClient({
+      baseUrl: config.baseUrl,
+      botToken: config.token,
+      wechatUin,
+    }),
   });
 }

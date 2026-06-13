@@ -1,10 +1,18 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
+const bridgePort = Number(process.env.BRIDGE_PORT ?? 8787);
+
 export default defineConfig({
   plugins: [react()],
   server: {
     host: '127.0.0.1',
     port: 5177,
+    proxy: {
+      '/api': {
+        target: `http://127.0.0.1:${bridgePort}`,
+        changeOrigin: false,
+      },
+    },
   },
 });

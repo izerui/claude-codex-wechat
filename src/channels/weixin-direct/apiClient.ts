@@ -1,0 +1,125 @@
+import { randomUUID } from 'node:crypto';
+
+export class WeixinDirectApiClient {
+  private readonly baseUrl: string;
+  private readonly botToken: string;
+  private readonly wechatUin: string;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(input: {
+    baseUrl: string;
+    botToken: string;
+    wechatUin: string;
+    fetchImpl?: typeof fetch;
+  }) {
+    this.baseUrl = input.baseUrl.replace(/\/+$/, '');
+    this.botToken = input.botToken;
+    this.wechatUin = input.wechatUin;
+    this.fetchImpl = input.fetchImpl ?? fetch;
+  }
+
+  async sendTextMessage(input: {
+    toUserId: string;
+    text: string;
+    contextToken?: string;
+  }): Promise<void> {
+    const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/sendmessage`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        AuthorizationType: 'ilink_bot_token',
+        Authorization: `Bearer ${this.botToken}`,
+        'X-WECHAT-UIN': this.wechatUin,
+      },
+      body: JSON.stringify({
+        msg: {
+          to_user_id: input.toUserId,
+          client_id: randomUUID(),
+          message_type: 2,
+          message_state: 2,
+          item_list: [
+            {
+              type: 1,
+              text_item: {
+                text: input.text,
+              },
+            },
+          ],
+          ...(input.contextToken ? { context_token: input.contextToken } : {}),
+        },
+        base_info: {},
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`weixin_send_message_failed:${response.status}`);
+    }
+  }
+
+  async getUpdates(buffer: string): Promise<{
+    nextBuffer: string;
+    messages: Array<{
+      id: string;
+      chatId: string;
+      userId: string;
+      text: string;
+      contextToken?: string;
+    }>;
+  }> {
+    const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/getupdates`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        AuthorizationType: 'ilink_bot_token',
+        Authorization: `Bearer ${this.botToken}`,
+        'X-WECHAT-UIN': this.wechatUin,
+      },
+      body: JSON.stringify({
+        get_updates_buf: buffer,
+        base_info: {},
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`weixin_get_updates_failed:${response.status}`);
+    }
+    const payload = await response.json() as {
+      msgs?: Array<{
+        from_user_id?: string;
+        context_token?: string;
+        msg_id?: string;
+        item_list?: Array<{
+          type?: number;
+          text_item?: { text?: string };
+          voice_item?: { text?: string };
+        }>;
+      }>;
+      get_updates_buf?: string;
+    };
+
+    const messages = (payload.msgs ?? [])
+      .map((message) => {
+        const text = (message.item_list ?? [])
+          .flatMap((item) => {
+            if (item.type === 1) return [item.text_item?.text?.trim() ?? ''];
+            if (item.type === 3) return [item.voice_item?.text?.trim() ?? ''];
+            return [];
+          })
+          .filter(Boolean)
+          .join('\n\n');
+        if (!message.from_user_id || !text) return null;
+        return {
+          id: message.msg_id ?? '',
+          chatId: message.from_user_id,
+          userId: message.from_user_id,
+          text,
+          ...(message.context_token ? { contextToken: message.context_token } : {}),
+        };
+      })
+      .filter((value): value is NonNullable<typeof value> => value !== null);
+
+    return {
+      nextBuffer: payload.get_updates_buf ?? '',
+      messages,
+    };
+  }
+}

@@ -8,6 +8,18 @@ export type PairingView = {
   status: string;
 };
 
+export type PairingEventView = {
+  code: string;
+  platformUserId: string;
+  platformType: 'weixin';
+  display_name?: string;
+  requestedAt: number;
+  expiresAt: number;
+};
+
+type BrowserLike = Partial<Pick<Location, 'host' | 'origin'>>;
+type WindowBridgeLike = { __bridgeApiOrigin?: string };
+
 export type AuthorizedUserView = {
   id: string;
   platform: string;
@@ -18,6 +30,29 @@ export type AuthorizedUserView = {
   defaultCwd: string;
   createdAt: number;
   lastActiveAt?: number;
+};
+
+export type AuthorizedUserEventView = {
+  id: string;
+  platformUserId: string;
+  platformType: 'weixin';
+  display_name?: string;
+  authorizedAt: number;
+  lastActive?: number;
+  defaultProvider: 'claude-code' | 'codex';
+  defaultCwd: string;
+};
+
+export type ChannelPluginView = {
+  id: string;
+  type: string;
+  name: string;
+  enabled: boolean;
+  connected: boolean;
+  status: string;
+  activeUsers: number;
+  hasToken: boolean;
+  botUsername?: string;
 };
 
 export type ProviderStatusView = {
@@ -77,8 +112,34 @@ export type MessageLogView = {
   createdAt: number;
 };
 
+export type BridgeWsEvent =
+  | { type: 'channel.pairing-requested'; pairing: PairingEventView }
+  | { type: 'channel.user-authorized'; user: AuthorizedUserEventView }
+  | { type: 'channel.plugin-status-changed'; plugin_id: 'weixin'; status: ChannelPluginView }
+  | { type: 'status'; message: string }
+  | { type: 'permission_requested'; requestId: string }
+  | { type: 'permission_decided'; requestId: string; decision: string };
+
+export function resolveApiBaseUrlForTest(windowLike: WindowBridgeLike, locationLike: BrowserLike): string {
+  if (typeof windowLike.__bridgeApiOrigin === 'string' && windowLike.__bridgeApiOrigin) {
+    return windowLike.__bridgeApiOrigin;
+  }
+  return typeof locationLike.origin === 'string' && locationLike.origin ? locationLike.origin : '';
+}
+
+function resolveApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    return resolveApiBaseUrlForTest(window as WindowBridgeLike, window.location);
+  }
+  return '';
+}
+
+export function resolveApiUrl(path: string): string {
+  return `${resolveApiBaseUrl()}${path}`;
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
+  const response = await fetch(resolveApiUrl(path), init);
   if (!response.ok) throw new Error(`${path}_failed:${response.status}`);
   return await response.json() as T;
 }
@@ -105,6 +166,44 @@ export async function rejectPairing(code: string): Promise<void> {
 
 export async function fetchAuthorizedUsers(): Promise<AuthorizedUserView[]> {
   return await requestJson('/api/channel/users');
+}
+
+export async function fetchChannelPlugins(): Promise<ChannelPluginView[]> {
+  return await requestJson('/api/channel/plugins');
+}
+
+export async function enableWeixinPlugin(input: { accountId: string; botToken: string; baseUrl?: string }): Promise<void> {
+  await requestJson('/api/channel/plugins/enable', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      plugin_id: 'weixin',
+      config: {
+        ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
+        credentials: {
+          account_id: input.accountId,
+          bot_token: input.botToken,
+          ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
+        },
+      },
+    }),
+  });
+}
+
+export async function disableWeixinPlugin(): Promise<void> {
+  await requestJson('/api/channel/plugins/disable', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ plugin_id: 'weixin' }),
+  });
+}
+
+export async function syncWeixinChannelSettings(): Promise<void> {
+  await requestJson('/api/channel/settings/sync', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ platform: 'weixin' }),
+  });
 }
 
 export async function revokeAuthorizedUser(id: string): Promise<void> {

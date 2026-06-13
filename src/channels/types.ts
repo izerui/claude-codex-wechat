@@ -1,6 +1,6 @@
 export type ChannelIncomingMessage = {
   id: string;
-  platform: 'wechat-clawbot' | 'mock-wechat';
+  platform: 'weixin' | 'mock-wechat';
   chatId: string;
   user: {
     id: string;
@@ -29,9 +29,13 @@ export type ChannelOutgoingMessage = {
 
 export type ChannelMessageHandler = (message: ChannelIncomingMessage) => Promise<void>;
 
+export type ChannelStartOptions = {
+  background?: boolean;
+};
+
 export interface ChannelAdapter {
   id: string;
-  start(): Promise<void>;
+  start(options?: ChannelStartOptions): Promise<void>;
   stop(): Promise<void>;
   onMessage(handler: ChannelMessageHandler): void;
   sendMessage(message: ChannelOutgoingMessage): Promise<void>;

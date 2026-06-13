@@ -8,6 +8,9 @@ import type { RuntimeSessionRepository } from '../storage/runtimeSessionReposito
 import type { AuthorizedUserRecord } from '../storage/userRepository';
 import { parseBridgeCommand } from './commandParser';
 import type { BridgeSessionRecord, SessionManager } from './sessionManager';
+import type { PairingRepository } from '../storage/pairingRepository';
+import type { BridgeEventHub } from '../daemon/events';
+import { ensurePairingForMessage } from '../channels/pairing';
 
 export class MessageRouter {
   private readonly providers = new Map<ProviderId, NativeProviderAdapter>();
@@ -22,29 +25,41 @@ export class MessageRouter {
       sessionRepository?: RuntimeSessionRepository;
       permissionRepository?: PermissionRequestRepository;
       messageLogRepository?: MessageLogRepository;
+      pairingRepository?: PairingRepository;
+      events?: BridgeEventHub;
     },
   ) {
     for (const provider of options.providers) this.providers.set(provider.id, provider);
   }
 
-  async handleMessage(message: ChannelIncomingMessage): Promise<void> {
+  async handleMessage(message: ChannelIncomingMessage): Promise<
+    { status: 'accepted' } | { status: 'pairing_required'; code: string }
+  > {
     const user = this.options.resolveUser(message);
-    if (!user) return;
-    if (message.content.type !== 'text' || !message.content.text) return;
+    if (!user) {
+      if (this.options.pairingRepository && this.options.events) {
+        const pairing = ensurePairingForMessage(this.options.pairingRepository, this.options.events, message);
+        return { status: 'pairing_required', code: pairing.code };
+      }
+      return { status: 'pairing_required', code: 'pairing_required' };
+    }
+    if (message.content.type !== 'text' || !message.content.text) return { status: 'accepted' };
 
     const command = parseBridgeCommand(message.content.text);
     if (command.kind === 'permission_decision') {
       await this.decidePermission({ requestId: command.requestId, userId: user.id, decision: command.decision });
-      return;
+      return { status: 'accepted' };
     }
     if (command.kind !== 'chat') {
       await this.handleCommand(message.chatId, user, command);
-      return;
+      return { status: 'accepted' };
     }
 
     const session = this.options.sessions.getOrCreateSession({
       chatId: message.chatId,
       ownerUserId: user.id,
+      providerId: user.defaultProvider,
+      cwd: user.defaultCwd,
     });
     this.persistSessionIfNeeded(session);
     this.options.messageLogRepository?.append({
@@ -123,6 +138,7 @@ export class MessageRouter {
         });
       }
     }
+    return { status: 'accepted' };
   }
 
   private async handleCommand(

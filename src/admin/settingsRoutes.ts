@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
+import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import type { ProviderId } from '../providers/types';
 import type { SettingsRepository } from '../storage/settingsRepository';
+import type { UserRepository } from '../storage/userRepository';
 
 export type BridgeSettings = {
   defaultProvider: ProviderId;
@@ -17,6 +19,7 @@ export function registerSettingsRoutes(input: {
   app: FastifyInstance;
   settings: SettingsRepository;
   defaultWorkspace: string;
+  users?: UserRepository;
 }): void {
   input.app.get('/api/settings', async () => readSettings(input.settings, input.defaultWorkspace));
 
@@ -26,6 +29,10 @@ export function registerSettingsRoutes(input: {
       ...request.body,
     }, input.defaultWorkspace);
     for (const [key, value] of Object.entries(next)) input.settings.set(`settings.${key}`, value);
+    input.users?.updateDefaultsForPlatform(PRIMARY_WEIXIN_PLATFORM, {
+      defaultProvider: next.defaultProvider,
+      defaultCwd: next.defaultWorkspace,
+    });
     return { ok: true };
   });
 }
