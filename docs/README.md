@@ -307,12 +307,8 @@ pnpm dev
 pnpm web
 ```
 
-3. 让 clawbot 往 bridge 发入站消息：
-
-```http
-POST /api/channel/wechat/inbound
-```
-
-4. 在管理页审批 pairing
-5. 在管理页观察 session / permissions / provider status
-6. 如需验证真实 provider contract，再显式运行 `BRIDGE_REAL_*` 测试
+3. 在管理页点击 **Scan to Login**，完成微信扫码登录
+4. 从微信发送第一条消息，触发 pairing
+5. 在管理页审批 pairing
+6. 在管理页观察 session / permissions / provider status
+7. 如需验证真实 provider contract，再显式运行 `BRIDGE_REAL_*` 测试
