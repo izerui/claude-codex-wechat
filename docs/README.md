@@ -209,6 +209,12 @@ claude --version
 
 - `--print + --output-format stream-json` 需要 `--verbose`
 
+常见状态：
+
+- `detected · <version>`：CLI 可用
+- `missing_binary`：当前 command path 找不到 `claude`
+- `command_failed`：CLI 存在，但执行 `--version` 或消息流命令失败
+
 ### Codex
 检测：
 
@@ -221,6 +227,12 @@ codex --version
 - 最小 contract 至少能完成执行并给出 `message_done`
 - 但真实输出未必总会给出 parser 之前假设的 `text_delta/session_state`
 - 因此当前 real contract 测试使用“已证实 contract”而不是过度假设
+
+常见状态：
+
+- `detected · <version>`：CLI 可用
+- `missing_binary`：当前 command path 找不到 `codex`
+- `command_failed`：CLI 存在，但执行 `--version` 或最小消息流命令失败
 
 ---
 
