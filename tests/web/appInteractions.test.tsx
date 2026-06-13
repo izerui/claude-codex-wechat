@@ -2,10 +2,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
+import type { AuthorizedUserView, BridgeSessionView } from '../../src/web/apiClient';
 
 function createFetchStub() {
   const calls: Array<{ url: string; method: string }> = [];
-  const state = {
+  const state: {
+    sessions: BridgeSessionView[];
+    users: AuthorizedUserView[];
+  } = {
     sessions: [
       {
         id: 'bs_1',
