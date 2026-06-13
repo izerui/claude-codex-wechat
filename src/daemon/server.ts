@@ -1,6 +1,7 @@
 import websocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import Database from 'better-sqlite3';
+import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
 import { PermissionRouter } from '../permissions/permissionRouter';
 import { SessionManager } from '../session/sessionManager';
 import type { BridgeDatabase } from '../storage/db';
@@ -22,6 +23,7 @@ export function createDaemonServer(options: { db?: BridgeDatabase } = {}) {
 
   void app.register(websocket);
   registerChannelRoutes({ app, users, pairings, events });
+  registerChannelAdminRoutes({ app, users, pairings });
 
   app.get('/api/status', async () => ({
     ok: true,

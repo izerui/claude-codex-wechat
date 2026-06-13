@@ -30,17 +30,27 @@ export class UserRepository {
     const row = this.db.prepare(`
       SELECT * FROM authorized_users WHERE platform = ? AND platform_user_id = ?
     `).get(platform, platformUserId) as Record<string, unknown> | undefined;
-    if (!row) return null;
-    return {
-      id: String(row.id),
-      platform: String(row.platform),
-      platformUserId: String(row.platform_user_id),
-      displayName: row.display_name ? String(row.display_name) : undefined,
-      role: row.role === 'admin' ? 'admin' : 'user',
-      defaultProvider: row.default_provider === 'codex' ? 'codex' : 'claude-code',
-      defaultCwd: String(row.default_cwd),
-      createdAt: Number(row.created_at),
-      lastActiveAt: typeof row.last_active_at === 'number' ? row.last_active_at : undefined,
-    };
+    return row ? mapAuthorizedUserRow(row) : null;
   }
+
+  listUsers(): AuthorizedUserRecord[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM authorized_users ORDER BY created_at DESC
+    `).all() as Record<string, unknown>[];
+    return rows.map(mapAuthorizedUserRow);
+  }
+}
+
+function mapAuthorizedUserRow(row: Record<string, unknown>): AuthorizedUserRecord {
+  return {
+    id: String(row.id),
+    platform: String(row.platform),
+    platformUserId: String(row.platform_user_id),
+    displayName: row.display_name ? String(row.display_name) : undefined,
+    role: row.role === 'admin' ? 'admin' : 'user',
+    defaultProvider: row.default_provider === 'codex' ? 'codex' : 'claude-code',
+    defaultCwd: String(row.default_cwd),
+    createdAt: Number(row.created_at),
+    lastActiveAt: typeof row.last_active_at === 'number' ? row.last_active_at : undefined,
+  };
 }
