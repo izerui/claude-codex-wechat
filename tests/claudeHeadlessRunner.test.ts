@@ -49,7 +49,7 @@ describe('ClaudeHeadlessRunner', () => {
     expect(calls).toEqual([
       {
         command: 'claude',
-        args: ['-p', '--output-format', 'stream-json', '--include-partial-messages', 'say hello'],
+        args: ['-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose', 'say hello'],
         cwd: '/tmp/project',
         input: '',
       },
@@ -133,6 +133,7 @@ describe('ClaudeHeadlessRunner', () => {
       '--output-format',
       'stream-json',
       '--include-partial-messages',
+      '--verbose',
       '--resume',
       'claude-session-1',
       'second',

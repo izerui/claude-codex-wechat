@@ -20,7 +20,12 @@ maybeReal('ClaudeHeadlessRunner real Claude CLI', () => {
       events.push(event);
     }
 
-    expect(events.some((event) => event.type === 'text_delta' && event.text.includes('bridge-ok'))).toBe(true);
+    const textEvents = events.filter((event) => event.type === 'text_delta');
+    if (textEvents.length === 0) {
+      console.log('Claude real events', JSON.stringify(events, null, 2));
+    }
+
+    expect(textEvents.some((event) => event.text.includes('bridge-ok'))).toBe(true);
     expect(events.some((event) => event.type === 'session_state')).toBe(true);
     expect(events.some((event) => event.type === 'message_done')).toBe(true);
   }, 120_000);
