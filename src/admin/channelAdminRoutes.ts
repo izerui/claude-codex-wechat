@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { WechatClawbotConfig } from '../daemon/config';
+import type { MessageLogRepository } from '../storage/messageLogRepository';
 import type { PairingRepository } from '../storage/pairingRepository';
 import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import type { SettingsRepository } from '../storage/settingsRepository';
@@ -14,6 +15,7 @@ export function registerChannelAdminRoutes(input: {
   sessionManager?: SessionManager;
   providers?: NativeProviderAdapter[];
   settings?: SettingsRepository;
+  messageLog?: MessageLogRepository;
   users: UserRepository;
   wechat?: WechatClawbotConfig;
 }): void {
@@ -79,6 +81,13 @@ export function registerChannelAdminRoutes(input: {
   });
 
   input.app.get('/api/channel/sessions', async () => input.sessions?.list() ?? []);
+
+  input.app.get<{ Params: { id: string } }>('/api/channel/sessions/:id/messages', async (request, reply) => {
+    const runtimeSession = input.sessions?.findById(request.params.id);
+    if (!runtimeSession) return reply.code(404).send({ ok: false, error: 'session_not_found' });
+    const logs = input.messageLog?.listForSession(request.params.id) ?? [];
+    return logs;
+  });
 
   input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/stop', async (request, reply) => {
     const runtimeSession = input.sessions?.findById(request.params.id);

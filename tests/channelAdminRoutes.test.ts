@@ -116,6 +116,39 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
+  it('lists message logs for a session', async () => {
+    const db = new Database(':memory:');
+    db.exec(schemaSql);
+    const channel = new MockChannelAdapter();
+    const provider = new FakeProviderAdapter('claude-code');
+    const { app, users, sessions } = createDaemonServer({ db, channel, providers: [provider] });
+    users.createUser({
+      platform: 'wechat-clawbot',
+      platformUserId: 'wx_user_1',
+      role: 'user',
+      defaultProvider: 'claude-code',
+      defaultCwd: '/tmp/project',
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/channel/wechat/inbound',
+      payload: { id: 'm1', chatId: 'chat-a', senderId: 'wx_user_1', text: 'run tests' },
+    });
+
+    const active = sessions.getActiveSession('chat-a');
+    expect(active).not.toBeNull();
+
+    const response = await app.inject({ method: 'GET', url: `/api/channel/sessions/${active!.id}/messages` });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([
+      expect.objectContaining({ direction: 'inbound', text: 'run tests' }),
+      expect.objectContaining({ direction: 'provider_event', providerEventType: 'text_delta', text: '收到：run tests' }),
+      expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
+    ]);
+    await app.close();
+  });
+
   it('exposes persisted sessions and permission decisions for admin UI', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);

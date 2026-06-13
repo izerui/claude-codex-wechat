@@ -3,6 +3,7 @@ import {
   archiveSession,
   decidePermission,
   fetchProviderStatus,
+  fetchSessionMessages,
   fetchSessions,
   fetchSettings,
   fetchStatus,
@@ -10,6 +11,7 @@ import {
   updateSettings,
   type BridgeSessionView,
   type BridgeSettingsView,
+  type MessageLogView,
   type PermissionRequestView,
   type ProviderStatusView,
   type StatusView,
@@ -81,6 +83,8 @@ function Dashboard(input: {
 }) {
   const claudeStatus = formatProviderStatus(input.providerStatus?.claude);
   const codexStatus = formatProviderStatus(input.providerStatus?.codex);
+  const claudeCommand = readProviderCommand(input.providerStatus?.claude);
+  const codexCommand = readProviderCommand(input.providerStatus?.codex);
 
   return (
     <section style={styles.section}>
@@ -89,11 +93,17 @@ function Dashboard(input: {
         <Metric label="Daemon" value={input.status?.ok ? 'online' : 'unknown'} />
         <Metric label="Active sessions" value={String(input.activeSessionCount)} />
         <Metric label="Pending permissions" value={String(input.status?.permissions.length ?? 0)} />
-        <Metric label="Claude" value={claudeStatus} />
-        <Metric label="Codex" value={codexStatus} />
+        <Metric label="Claude" value={claudeStatus} detail={claudeCommand ?? undefined} />
+        <Metric label="Codex" value={codexStatus} detail={codexCommand ?? undefined} />
       </div>
     </section>
   );
+}
+
+function readProviderCommand(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  return typeof record.command === 'string' && record.command ? record.command : null;
 }
 
 function formatProviderStatus(value: unknown): string {
@@ -106,11 +116,12 @@ function formatProviderStatus(value: unknown): string {
   return 'unknown';
 }
 
-function Metric(input: { label: string; value: string }) {
+function Metric(input: { label: string; value: string; detail?: string }) {
   return (
     <div style={styles.metric}>
       <div style={styles.metricLabel}>{input.label}</div>
       <div style={styles.metricValue}>{input.value}</div>
+      {input.detail ? <div style={styles.muted}>{input.detail}</div> : null}
     </div>
   );
 }
@@ -119,10 +130,18 @@ function SessionsPanel(input: {
   sessions: BridgeSessionView[];
   onRefresh: () => Promise<void>;
 }) {
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [logs, setLogs] = useState<MessageLogView[]>([]);
+
   const runAction = async (action: 'stop' | 'archive', sessionId: string) => {
     if (action === 'stop') await stopSession(sessionId);
     else await archiveSession(sessionId);
     await input.onRefresh();
+  };
+
+  const showLogs = async (sessionId: string) => {
+    setSelectedSessionId(sessionId);
+    setLogs(await fetchSessionMessages(sessionId));
   };
 
   return (
@@ -153,6 +172,7 @@ function SessionsPanel(input: {
                   <td style={styles.td}>{session.status}</td>
                   <td style={styles.td}>
                     <div style={styles.actions}>
+                      <button type="button" style={styles.button} onClick={() => void showLogs(session.id)}>Logs</button>
                       {!session.archivedAt && session.status !== 'closed' && (
                         <button type="button" style={styles.button} onClick={() => void runAction('stop', session.id)}>Stop</button>
                       )}
@@ -167,6 +187,24 @@ function SessionsPanel(input: {
           </table>
         </div>
       )}
+      {selectedSessionId ? (
+        <div style={{ marginTop: 16 }}>
+          <h3 style={styles.sectionTitle}>Message log · {selectedSessionId}</h3>
+          {logs.length === 0 ? <p style={styles.empty}>No messages recorded.</p> : (
+            <ul style={styles.list}>
+              {logs.map((log) => (
+                <li key={log.id} style={styles.listItem}>
+                  <div>
+                    <strong>{log.direction}</strong>
+                    {log.providerEventType ? ` · ${log.providerEventType}` : ''}
+                  </div>
+                  <div style={styles.muted}>{log.text ?? ''}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

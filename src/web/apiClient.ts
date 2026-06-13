@@ -67,6 +67,16 @@ export type BridgeSettingsView = {
   highRiskCommandPolicy: 'per_request' | 'deny' | 'allow';
 };
 
+export type MessageLogView = {
+  id: string;
+  bridgeSessionId: string;
+  direction: 'inbound' | 'outbound' | 'provider_event';
+  platformMessageId?: string;
+  providerEventType?: string;
+  text?: string;
+  createdAt: number;
+};
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) throw new Error(`${path}_failed:${response.status}`);
@@ -103,6 +113,10 @@ export async function revokeAuthorizedUser(id: string): Promise<void> {
 
 export async function fetchSessions(): Promise<BridgeSessionView[]> {
   return await requestJson('/api/channel/sessions');
+}
+
+export async function fetchSessionMessages(id: string): Promise<MessageLogView[]> {
+  return await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/messages`);
 }
 
 export async function stopSession(id: string): Promise<void> {

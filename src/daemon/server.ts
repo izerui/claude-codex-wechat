@@ -75,6 +75,7 @@ export function createDaemonServer(options: {
     sessionManager: sessions,
     providers: providerAdapters,
     settings,
+    messageLog,
     wechat: options.wechat,
   });
   registerSettingsRoutes({ app, settings, defaultWorkspace: process.cwd() });
