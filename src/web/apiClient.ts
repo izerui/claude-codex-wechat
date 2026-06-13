@@ -97,6 +97,10 @@ export async function fetchAuthorizedUsers(): Promise<AuthorizedUserView[]> {
   return await requestJson('/api/channel/users');
 }
 
+export async function revokeAuthorizedUser(id: string): Promise<void> {
+  await requestJson(`/api/channel/users/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
+}
+
 export async function fetchSessions(): Promise<BridgeSessionView[]> {
   return await requestJson('/api/channel/sessions');
 }

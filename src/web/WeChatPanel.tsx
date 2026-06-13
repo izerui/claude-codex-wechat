@@ -4,6 +4,7 @@ import {
   fetchAuthorizedUsers,
   fetchPairings,
   rejectPairing,
+  revokeAuthorizedUser,
   type AuthorizedUserView,
   type PairingView,
 } from './apiClient';
@@ -34,6 +35,11 @@ export function WeChatPanel() {
     await refresh();
   };
 
+  const revoke = async (userId: string) => {
+    await revokeAuthorizedUser(userId);
+    await refresh();
+  };
+
   return (
     <section style={{ marginTop: 24 }}>
       <h2>WeChat channel</h2>
@@ -59,8 +65,9 @@ export function WeChatPanel() {
       {users.length === 0 ? <p>No authorized users.</p> : (
         <ul>
           {users.map((user) => (
-            <li key={user.id}>
-              <strong>{user.displayName ?? user.platformUserId}</strong> · {user.defaultProvider} · {user.defaultCwd}
+            <li key={user.id} style={{ marginBottom: 12 }}>
+              <strong>{user.displayName ?? user.platformUserId}</strong> · {user.defaultProvider} · {user.defaultCwd}{' '}
+              <button type="button" onClick={() => void revoke(user.id)}>Revoke</button>
             </li>
           ))}
         </ul>
