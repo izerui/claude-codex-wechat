@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchStatus } from './apiClient';
+import { WeChatPanel } from './WeChatPanel';
 
 export function App() {
   const [status, setStatus] = useState<unknown>(null);
@@ -16,6 +17,7 @@ export function App() {
         <h2>Daemon status</h2>
         {error ? <pre>{error}</pre> : <pre>{JSON.stringify(status, null, 2)}</pre>}
       </section>
+      <WeChatPanel />
     </main>
   );
 }
