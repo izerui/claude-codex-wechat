@@ -19,6 +19,9 @@ describe('channel admin routes', () => {
     expect(approve.statusCode).toBe(200);
     expect(approve.json()).toEqual({ ok: true });
 
+    const usersAfterApprove = await app.inject({ method: 'GET', url: '/api/channel/users' });
+    expect(usersAfterApprove.json()).toMatchObject([{ platformUserId: 'wx_user_1', defaultProvider: 'claude-code' }]);
+
     const reject = await app.inject({ method: 'POST', url: `/api/channel/pairings/${rejectMe.code}/reject` });
     expect(reject.statusCode).toBe(200);
     expect(reject.json()).toEqual({ ok: true });

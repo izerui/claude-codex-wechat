@@ -51,6 +51,13 @@ export class PairingRepository {
     return rows.map(mapPairingRow);
   }
 
+  findByCode(code: string): PairingRecord | null {
+    const row = this.db.prepare(`
+      SELECT * FROM pairing_requests WHERE code = ?
+    `).get(code) as Record<string, unknown> | undefined;
+    return row ? mapPairingRow(row) : null;
+  }
+
   approve(code: string): { ok: true } | { ok: false; error: string } {
     return this.updateStatus(code, 'approved');
   }
