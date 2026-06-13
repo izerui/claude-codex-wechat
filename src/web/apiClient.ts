@@ -101,6 +101,14 @@ export async function fetchSessions(): Promise<BridgeSessionView[]> {
   return await requestJson('/api/channel/sessions');
 }
 
+export async function stopSession(id: string): Promise<void> {
+  await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/stop`, { method: 'POST' });
+}
+
+export async function archiveSession(id: string): Promise<void> {
+  await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/archive`, { method: 'POST' });
+}
+
 export async function decidePermission(input: {
   requestId: string;
   userId: string;

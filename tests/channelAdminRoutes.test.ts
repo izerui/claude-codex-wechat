@@ -75,6 +75,10 @@ describe('channel admin routes', () => {
     expect(stop.json()).toEqual({ ok: true });
     expect(provider.stoppedSessions).toEqual([active!.id]);
 
+    const stopMissing = await app.inject({ method: 'POST', url: '/api/channel/sessions/does-not-exist/stop' });
+    expect(stopMissing.statusCode).toBe(404);
+    expect(stopMissing.json()).toEqual({ ok: false, error: 'session_not_found' });
+
     const listed = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
     expect(listed.json()).toEqual([
       expect.objectContaining({ id: active!.id, status: 'closed' }),
@@ -92,6 +96,10 @@ describe('channel admin routes', () => {
     const archive = await app.inject({ method: 'POST', url: `/api/channel/sessions/${next!.id}/archive` });
     expect(archive.statusCode).toBe(200);
     expect(archive.json()).toEqual({ ok: true });
+
+    const archiveMissing = await app.inject({ method: 'POST', url: '/api/channel/sessions/does-not-exist/archive' });
+    expect(archiveMissing.statusCode).toBe(404);
+    expect(archiveMissing.json()).toEqual({ ok: false, error: 'session_not_found' });
 
     const afterArchive = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
     expect(afterArchive.json()).toEqual([

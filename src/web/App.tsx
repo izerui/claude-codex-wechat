@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  archiveSession,
   decidePermission,
   fetchProviderStatus,
   fetchSessions,
   fetchSettings,
   fetchStatus,
+  stopSession,
   updateSettings,
   type BridgeSessionView,
   type BridgeSettingsView,
@@ -62,7 +64,7 @@ export function App() {
 
       <Dashboard status={status} providerStatus={providerStatus} activeSessionCount={activeSessions.length} />
       <WeChatPanel />
-      <SessionsPanel sessions={sessions} />
+      <SessionsPanel sessions={sessions} onRefresh={refresh} />
       <PermissionsPanel permissions={permissions} onDecision={refresh} />
       {settings && <SettingsPanel settings={settings} onSave={async (next) => {
         await updateSettings(next);
@@ -99,7 +101,16 @@ function Metric(input: { label: string; value: string }) {
   );
 }
 
-function SessionsPanel(input: { sessions: BridgeSessionView[] }) {
+function SessionsPanel(input: {
+  sessions: BridgeSessionView[];
+  onRefresh: () => Promise<void>;
+}) {
+  const runAction = async (action: 'stop' | 'archive', sessionId: string) => {
+    if (action === 'stop') await stopSession(sessionId);
+    else await archiveSession(sessionId);
+    await input.onRefresh();
+  };
+
   return (
     <section style={styles.section}>
       <h2 style={styles.sectionTitle}>Sessions</h2>
@@ -114,6 +125,7 @@ function SessionsPanel(input: { sessions: BridgeSessionView[] }) {
                 <th style={styles.th}>Provider session</th>
                 <th style={styles.th}>CWD</th>
                 <th style={styles.th}>Status</th>
+                <th style={styles.th}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -125,6 +137,16 @@ function SessionsPanel(input: { sessions: BridgeSessionView[] }) {
                   <td style={styles.td}>{session.providerSessionId ?? '-'}</td>
                   <td style={styles.td}>{session.cwd}</td>
                   <td style={styles.td}>{session.status}</td>
+                  <td style={styles.td}>
+                    <div style={styles.actions}>
+                      {!session.archivedAt && session.status !== 'closed' && (
+                        <button type="button" style={styles.button} onClick={() => void runAction('stop', session.id)}>Stop</button>
+                      )}
+                      {!session.archivedAt && (
+                        <button type="button" style={styles.dangerButton} onClick={() => void runAction('archive', session.id)}>Archive</button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
