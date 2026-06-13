@@ -20,14 +20,65 @@ export type AuthorizedUserView = {
   lastActiveAt?: number;
 };
 
+export type ProviderStatusView = {
+  claude?: unknown;
+  codex?: unknown;
+};
+
+export type BridgeSessionView = {
+  id: string;
+  chatId: string;
+  ownerUserId: string;
+  providerId: string;
+  providerSessionId?: string;
+  cwd: string;
+  status: string;
+  createdAt: number;
+  lastActivityAt: number;
+  archivedAt?: number;
+};
+
+export type PermissionRequestView = {
+  id: string;
+  bridgeSessionId: string;
+  providerId: string;
+  toolName: string;
+  summary: string;
+  details?: unknown;
+  status: string;
+  requestedAt: number;
+  expiresAt?: number;
+};
+
+export type StatusView = {
+  ok: boolean;
+  sessions: BridgeSessionView[];
+  permissions: PermissionRequestView[];
+};
+
+export type BridgeSettingsView = {
+  defaultProvider: 'claude-code' | 'codex';
+  defaultWorkspace: string;
+  permissionTimeoutMs: number | 'never';
+  wechatThrottle: {
+    minIntervalMs: number;
+    chunkSize: number;
+  };
+  highRiskCommandPolicy: 'per_request' | 'deny' | 'allow';
+};
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   if (!response.ok) throw new Error(`${path}_failed:${response.status}`);
   return await response.json() as T;
 }
 
-export async function fetchStatus(): Promise<unknown> {
+export async function fetchStatus(): Promise<StatusView> {
   return await requestJson('/api/status');
+}
+
+export async function fetchProviderStatus(): Promise<ProviderStatusView> {
+  return await requestJson('/api/providers/status');
 }
 
 export async function fetchPairings(): Promise<PairingView[]> {
@@ -44,4 +95,32 @@ export async function rejectPairing(code: string): Promise<void> {
 
 export async function fetchAuthorizedUsers(): Promise<AuthorizedUserView[]> {
   return await requestJson('/api/channel/users');
+}
+
+export async function fetchSessions(): Promise<BridgeSessionView[]> {
+  return await requestJson('/api/channel/sessions');
+}
+
+export async function decidePermission(input: {
+  requestId: string;
+  userId: string;
+  decision: 'approve' | 'deny' | 'abort';
+}): Promise<void> {
+  await requestJson('/api/permissions/decide', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchSettings(): Promise<BridgeSettingsView> {
+  return await requestJson('/api/settings');
+}
+
+export async function updateSettings(settings: BridgeSettingsView): Promise<void> {
+  await requestJson('/api/settings', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
 }
