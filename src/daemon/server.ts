@@ -60,7 +60,16 @@ export function createDaemonServer(options: {
 
   void app.register(websocket);
   registerChannelRoutes({ app, users, pairings, events, messageRouter });
-  registerChannelAdminRoutes({ app, users, pairings, sessions: runtimeSessions, settings, wechat: options.wechat });
+  registerChannelAdminRoutes({
+    app,
+    users,
+    pairings,
+    sessions: runtimeSessions,
+    sessionManager: sessions,
+    providers: providerAdapters,
+    settings,
+    wechat: options.wechat,
+  });
   registerSettingsRoutes({ app, settings, defaultWorkspace: process.cwd() });
 
   app.get('/api/status', async () => ({
