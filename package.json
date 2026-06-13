@@ -1,0 +1,33 @@
+{
+  "name": "local-agent-wechat-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "web": "vite --host 127.0.0.1",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build:web": "vite build"
+  },
+  "dependencies": {
+    "@fastify/websocket": "latest",
+    "@vitejs/plugin-react": "latest",
+    "better-sqlite3": "latest",
+    "fastify": "latest",
+    "nanoid": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "tsx": "latest",
+    "vite": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}
