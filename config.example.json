@@ -1,0 +1,16 @@
+{
+  "databasePath": "/Users/you/.local-agent-wechat-bridge/bridge.sqlite",
+  "wechat": {
+    "enabled": true,
+    "baseUrl": "http://127.0.0.1:3001",
+    "token": "replace-with-your-clawbot-token"
+  },
+  "providers": {
+    "claude": {
+      "command": "/opt/homebrew/bin/claude"
+    },
+    "codex": {
+      "command": "/opt/homebrew/bin/codex"
+    }
+  }
+}
