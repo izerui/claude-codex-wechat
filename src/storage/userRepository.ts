@@ -39,6 +39,13 @@ export class UserRepository {
     `).all() as Record<string, unknown>[];
     return rows.map(mapAuthorizedUserRow);
   }
+
+  revokeUser(id: string): { ok: true } | { ok: false; error: string } {
+    const result = this.db.prepare(`
+      DELETE FROM authorized_users WHERE id = ?
+    `).run(id);
+    return result.changes > 0 ? { ok: true } : { ok: false, error: 'user_not_found' };
+  }
 }
 
 function mapAuthorizedUserRow(row: Record<string, unknown>): AuthorizedUserRecord {

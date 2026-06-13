@@ -34,16 +34,23 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
-  it('lists authorized users', async () => {
+  it('lists and revokes authorized users', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const { app, users } = createDaemonServer({ db });
-    users.createUser({ platform: 'wechat-clawbot', platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'codex', defaultCwd: '/tmp/project' });
+    const created = users.createUser({ platform: 'wechat-clawbot', platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'codex', defaultCwd: '/tmp/project' });
 
     const response = await app.inject({ method: 'GET', url: '/api/channel/users' });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject([{ platformUserId: 'wx_user_1', defaultProvider: 'codex' }]);
+
+    const revoke = await app.inject({ method: 'POST', url: `/api/channel/users/${created.id}/revoke` });
+    expect(revoke.statusCode).toBe(200);
+    expect(revoke.json()).toEqual({ ok: true });
+
+    const after = await app.inject({ method: 'GET', url: '/api/channel/users' });
+    expect(after.json()).toEqual([]);
     await app.close();
   });
 

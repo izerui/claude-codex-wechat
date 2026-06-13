@@ -72,6 +72,12 @@ export function registerChannelAdminRoutes(input: {
 
   input.app.get('/api/channel/users', async () => input.users.listUsers());
 
+  input.app.post<{ Params: { id: string } }>('/api/channel/users/:id/revoke', async (request, reply) => {
+    const result = input.users.revokeUser(request.params.id);
+    if (!result.ok) return reply.code(404).send(result);
+    return result;
+  });
+
   input.app.get('/api/channel/sessions', async () => input.sessions?.list() ?? []);
 
   input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/stop', async (request, reply) => {
