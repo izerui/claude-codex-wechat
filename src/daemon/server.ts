@@ -21,7 +21,7 @@ import { schemaSql } from '../storage/schema';
 import { SettingsRepository } from '../storage/settingsRepository';
 import { UserRepository } from '../storage/userRepository';
 import { registerChannelRoutes } from './channelRoutes';
-import type { WechatClawbotConfig } from './config';
+import type { WechatClawbotConfig, BridgeConfig } from './config';
 import { BridgeEventHub } from './events';
 
 export function createDaemonServer(options: {
@@ -29,12 +29,16 @@ export function createDaemonServer(options: {
   channel?: ChannelAdapter;
   providers?: NativeProviderAdapter[];
   wechat?: WechatClawbotConfig;
+  providerCommands?: BridgeConfig['providers'];
 } = {}) {
   const app = Fastify({ logger: true });
   const events = new BridgeEventHub();
   const sessions = new SessionManager({ defaultCwd: process.cwd(), defaultProviderId: 'claude-code' });
   const permissions = new PermissionRouter();
-  const providers = new ProviderRegistry();
+  const providers = new ProviderRegistry({
+    claudeCommand: options.providerCommands?.claude?.command,
+    codexCommand: options.providerCommands?.codex?.command,
+  });
   const db = options.db ?? new Database(':memory:');
   db.exec(schemaSql);
   const users = new UserRepository(db);
@@ -43,7 +47,10 @@ export function createDaemonServer(options: {
   const permissionRequests = new PermissionRequestRepository(db);
   const messageLog = new MessageLogRepository(db);
   const settings = new SettingsRepository(db);
-  const providerAdapters = options.providers ?? createDefaultProviders();
+  const providerAdapters = options.providers ?? createDefaultProviders({
+    claudeCommand: options.providerCommands?.claude?.command,
+    codexCommand: options.providerCommands?.codex?.command,
+  });
   const channel = options.channel ?? createWechatChannel(options.wechat);
   const messageRouter = channel
     ? new MessageRouter({
