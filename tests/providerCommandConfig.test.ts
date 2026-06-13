@@ -23,13 +23,14 @@ describe('provider command config wiring', () => {
       codexCommand: '/opt/bin/codex',
       detectClaude,
       detectCodex,
+      now: () => 1234567890,
     });
 
     const status = await registry.getStatus();
 
     expect(status).toEqual({
-      claude: { detected: true, version: '1.2.3' },
-      codex: { detected: false, reason: 'missing_binary' },
+      claude: { detected: true, version: '1.2.3', command: '/opt/bin/claude', checkedAt: 1234567890 },
+      codex: { detected: false, reason: 'missing_binary', command: '/opt/bin/codex', checkedAt: 1234567890 },
     });
   });
 });

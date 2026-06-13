@@ -14,8 +14,8 @@ describe('App dashboard provider status', () => {
       }
       if (url.endsWith('/api/providers/status')) {
         return new Response(JSON.stringify({
-          claude: { detected: true, version: '2.0.1' },
-          codex: { detected: false, reason: 'missing_binary' },
+          claude: { detected: true, version: '2.0.1', command: '/opt/bin/claude', checkedAt: 1234567890 },
+          codex: { detected: false, reason: 'missing_binary', command: '/opt/bin/codex', checkedAt: 1234567890 },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       if (url.endsWith('/api/channel/pairings')) {
@@ -43,5 +43,7 @@ describe('App dashboard provider status', () => {
 
     expect(await screen.findByText('detected · 2.0.1')).toBeTruthy();
     expect(await screen.findByText('missing_binary')).toBeTruthy();
+    expect(await screen.findByText('/opt/bin/claude · checked 1234567890')).toBeTruthy();
+    expect(await screen.findByText('/opt/bin/codex · checked 1234567890')).toBeTruthy();
   });
 });

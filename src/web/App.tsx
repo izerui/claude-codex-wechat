@@ -85,6 +85,8 @@ function Dashboard(input: {
   const codexStatus = formatProviderStatus(input.providerStatus?.codex);
   const claudeCommand = readProviderCommand(input.providerStatus?.claude);
   const codexCommand = readProviderCommand(input.providerStatus?.codex);
+  const claudeCheckedAt = readProviderCheckedAt(input.providerStatus?.claude);
+  const codexCheckedAt = readProviderCheckedAt(input.providerStatus?.codex);
 
   return (
     <section style={styles.section}>
@@ -93,8 +95,8 @@ function Dashboard(input: {
         <Metric label="Daemon" value={input.status?.ok ? 'online' : 'unknown'} />
         <Metric label="Active sessions" value={String(input.activeSessionCount)} />
         <Metric label="Pending permissions" value={String(input.status?.permissions.length ?? 0)} />
-        <Metric label="Claude" value={claudeStatus} detail={claudeCommand ?? undefined} />
-        <Metric label="Codex" value={codexStatus} detail={codexCommand ?? undefined} />
+        <Metric label="Claude" value={claudeStatus} detail={joinProviderDetail(claudeCommand, claudeCheckedAt)} />
+        <Metric label="Codex" value={codexStatus} detail={joinProviderDetail(codexCommand, codexCheckedAt)} />
       </div>
     </section>
   );
@@ -104,6 +106,17 @@ function readProviderCommand(value: unknown): string | null {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
   return typeof record.command === 'string' && record.command ? record.command : null;
+}
+
+function readProviderCheckedAt(value: unknown): number | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  return typeof record.checkedAt === 'number' ? record.checkedAt : null;
+}
+
+function joinProviderDetail(command: string | null, checkedAt: number | null): string | undefined {
+  const parts = [command, checkedAt !== null ? `checked ${checkedAt}` : null].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 function formatProviderStatus(value: unknown): string {
