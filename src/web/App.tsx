@@ -79,6 +79,9 @@ function Dashboard(input: {
   providerStatus: ProviderStatusView | null;
   activeSessionCount: number;
 }) {
+  const claudeStatus = formatProviderStatus(input.providerStatus?.claude);
+  const codexStatus = formatProviderStatus(input.providerStatus?.codex);
+
   return (
     <section style={styles.section}>
       <h2 style={styles.sectionTitle}>Dashboard</h2>
@@ -86,10 +89,21 @@ function Dashboard(input: {
         <Metric label="Daemon" value={input.status?.ok ? 'online' : 'unknown'} />
         <Metric label="Active sessions" value={String(input.activeSessionCount)} />
         <Metric label="Pending permissions" value={String(input.status?.permissions.length ?? 0)} />
-        <Metric label="Claude" value={input.providerStatus?.claude ? 'detected' : 'unknown'} />
+        <Metric label="Claude" value={claudeStatus} />
+        <Metric label="Codex" value={codexStatus} />
       </div>
     </section>
   );
+}
+
+function formatProviderStatus(value: unknown): string {
+  if (!value || typeof value !== 'object') return 'unknown';
+  const record = value as Record<string, unknown>;
+  if (record.detected === true) {
+    return typeof record.version === 'string' && record.version ? `detected · ${record.version}` : 'detected';
+  }
+  if (typeof record.reason === 'string' && record.reason) return record.reason;
+  return 'unknown';
 }
 
 function Metric(input: { label: string; value: string }) {
