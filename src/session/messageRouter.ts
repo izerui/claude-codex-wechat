@@ -70,6 +70,7 @@ export class MessageRouter {
       platform: 'weixin',
       platformUserId: message.user.id,
       chatId: message.chatId,
+      summary: summarizeResumeTitle(command.text),
     });
     const session = this.options.sessions.getActiveSession(message.chatId)
       ?? await this.options.autoAttachSession?.(message, user)
@@ -381,4 +382,10 @@ export class MessageRouter {
       });
     }
   }
+}
+
+function summarizeResumeTitle(text: string): string | undefined {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return undefined;
+  return normalized.length > 32 ? `${normalized.slice(0, 32).trimEnd()}…` : normalized;
 }

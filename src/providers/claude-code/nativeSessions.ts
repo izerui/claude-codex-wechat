@@ -30,6 +30,7 @@ export async function listRecoverableClaudeSessions(env: NodeJS.ProcessEnv = pro
         const sessionId = basename(fileName, '.jsonl');
         const sidecar = await readProviderSessionSidecar('claude-code', sessionId, env);
         const bridgeTag = sidecar?.bridgeTag ?? historyMeta?.bridgeTag ?? parseSessionBridgeName(parsedMeta?.sessionName);
+        const readableSummary = parsedMeta?.aiTitle ?? parsedMeta?.lastPrompt;
         candidates.push({
           id: sessionId,
           providerId: 'claude-code',
@@ -38,7 +39,7 @@ export async function listRecoverableClaudeSessions(env: NodeJS.ProcessEnv = pro
           ...(parsedMeta?.sessionName
             ? { resumeTitle: parsedMeta.sessionName }
             : historyMeta?.bridgeTag
-              ? { resumeTitle: buildSessionBridgeName(historyMeta.bridgeTag) }
+              ? { resumeTitle: buildSessionBridgeName({ ...historyMeta.bridgeTag, ...(readableSummary ? { summary: readableSummary } : {}) }) }
               : {}),
           ...(sidecar?.updatedAt
             ? { lastActivityAt: sidecar.updatedAt }
