@@ -279,3 +279,17 @@ The bridge has an intentional slash-command extension point for WeChat text inpu
   - intentionally passed through as normal chat text.
 - Keep command names stable once exposed to WeChat users. If behavior changes, update help text and tests in the same change.
 - Every new command or command syntax change must include focused tests in `tests/commandParser.test.ts` and, when behavior is non-trivial, a routing/integration test in `tests/messageRouter.test.ts` or `tests/channelMessageFlow.test.ts`.
+
+## WeChat interaction rules
+
+The current WeChat direct channel is text-only in practice. Do not design bridge or agent interactions that depend on buttons, cards, or structured click UI unless the transport layer is explicitly upgraded first.
+
+- Treat WeChat as a plain-text chat surface.
+- For user choices during multi-turn conversations, prefer numbered text options that the user can reply to directly.
+- Recommended pattern:
+  - `1. 保守方案`
+  - `2. 激进方案`
+  - `3. 先解释差异`
+  - Follow with a short instruction such as `回复 1 / 2 / 3 选择方案。`
+- Do not route ordinary “choose a plan/option” interactions through the permission system.
+- Reserve permission-style messages (`/approve`, `/deny`, `/abort`) for actual bridge/provider approval events only.

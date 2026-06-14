@@ -8,7 +8,6 @@ export type BridgeSettings = {
   defaultProvider: ProviderId;
   defaultWorkspace: string;
   permissionTimeoutMs: number | 'never';
-  highRiskCommandPolicy: 'per_request' | 'deny' | 'allow';
 };
 
 export function registerSettingsRoutes(input: {
@@ -38,7 +37,6 @@ function readSettings(settings: SettingsRepository, defaultWorkspace: string): B
     defaultProvider: settings.get('settings.defaultProvider'),
     defaultWorkspace: settings.get('settings.defaultWorkspace'),
     permissionTimeoutMs: settings.get('settings.permissionTimeoutMs'),
-    highRiskCommandPolicy: settings.get('settings.highRiskCommandPolicy'),
   }, defaultWorkspace);
 }
 
@@ -49,7 +47,6 @@ function normalizeSettings(input: Partial<Record<keyof BridgeSettings, unknown>>
       ? input.defaultWorkspace
       : defaultWorkspace,
     permissionTimeoutMs: normalizeTimeout(input.permissionTimeoutMs),
-    highRiskCommandPolicy: normalizeHighRiskPolicy(input.highRiskCommandPolicy),
   };
 }
 
@@ -57,9 +54,4 @@ function normalizeTimeout(value: unknown): number | 'never' {
   if (value === 'never') return 'never';
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
   return 60_000;
-}
-
-function normalizeHighRiskPolicy(value: unknown): BridgeSettings['highRiskCommandPolicy'] {
-  if (value === 'deny' || value === 'allow') return value;
-  return 'per_request';
 }

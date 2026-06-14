@@ -240,7 +240,6 @@ describe('channel admin routes', () => {
       defaultProvider: 'claude-code',
       defaultWorkspace: process.cwd(),
       permissionTimeoutMs: 60_000,
-      highRiskCommandPolicy: 'per_request',
     });
 
     const update = await app.inject({
@@ -250,7 +249,6 @@ describe('channel admin routes', () => {
         defaultProvider: 'codex',
         defaultWorkspace: '/tmp/project',
         permissionTimeoutMs: 300_000,
-        highRiskCommandPolicy: 'deny',
       },
     });
     expect(update.statusCode).toBe(200);
@@ -261,7 +259,6 @@ describe('channel admin routes', () => {
       defaultProvider: 'codex',
       defaultWorkspace: '/tmp/project',
       permissionTimeoutMs: 300_000,
-      highRiskCommandPolicy: 'deny',
     });
     await app.close();
   });
@@ -497,7 +494,6 @@ describe('channel admin routes', () => {
         defaultProvider: 'codex',
         defaultWorkspace: '/tmp/codex-project',
         permissionTimeoutMs: 60_000,
-        highRiskCommandPolicy: 'per_request',
       },
     });
     expect(update.statusCode).toBe(200);

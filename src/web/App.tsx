@@ -377,20 +377,6 @@ function SettingsPanel(input: {
             <option value="never">不超时</option>
           </select>
         </label>
-        <label style={styles.field}>
-          <span>高风险命令策略</span>
-          <select
-            value={draft.highRiskCommandPolicy}
-            onChange={(event) => setDraft({
-              ...draft,
-              highRiskCommandPolicy: event.target.value === 'deny' || event.target.value === 'allow' ? event.target.value : 'per_request',
-            })}
-          >
-            <option value="per_request">逐次确认</option>
-            <option value="deny">拒绝</option>
-            <option value="allow">允许</option>
-          </select>
-        </label>
       </div>
       <button type="button" style={styles.button} disabled={saving} onClick={() => void save()}>
         {saving ? '保存中...' : '保存设置'}

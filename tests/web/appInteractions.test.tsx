@@ -122,7 +122,6 @@ function createFetchStub() {
         defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
         permissionTimeoutMs: 60000,
-        highRiskCommandPolicy: 'per_request',
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/settings/sync') && method === 'POST') {

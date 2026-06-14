@@ -134,7 +134,6 @@ export type BridgeSettingsView = {
   defaultProvider: 'claude-code' | 'codex';
   defaultWorkspace: string;
   permissionTimeoutMs: number | 'never';
-  highRiskCommandPolicy: 'per_request' | 'deny' | 'allow';
 };
 
 export type BridgeEventView = {
