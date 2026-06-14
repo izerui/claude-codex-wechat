@@ -13,6 +13,7 @@ import type { BridgeEventHub } from '../daemon/events';
 import { ensurePairingForMessage } from '../channels/pairing';
 import { buildSessionBridgeName } from './sessionBridgeTag';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
+import { syncCodexThreadForResume } from '../providers/codex/nativeThreads';
 import { writeProviderSessionSidecar } from '../providers/sidecarMetadata';
 import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
 import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
@@ -125,6 +126,11 @@ export class MessageRouter {
           sessionId: updated.providerSessionId,
           threadName: updated.resumeTitle,
         });
+        await syncCodexThreadForResume({
+          sessionId: updated.providerSessionId,
+          resumeTitle: updated.resumeTitle,
+          cwd: updated.cwd,
+        });
       }
       await this.persistBridgeMetadata(updated, message.user.id);
     }
@@ -192,6 +198,11 @@ export class MessageRouter {
           await upsertCodexSessionIndexEntry({
             sessionId: updated.providerSessionId,
             threadName: updated.resumeTitle,
+          });
+          await syncCodexThreadForResume({
+            sessionId: updated.providerSessionId,
+            resumeTitle: updated.resumeTitle,
+            cwd: updated.cwd,
           });
         }
         await this.persistBridgeMetadata(updated, message.user.id);

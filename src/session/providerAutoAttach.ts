@@ -1,6 +1,7 @@
 import type { ChannelIncomingMessage } from '../channels/types';
 import { writeProviderSessionSidecar } from '../providers/sidecarMetadata';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
+import { syncCodexThreadForResume } from '../providers/codex/nativeThreads';
 import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate } from '../providers/types';
 import type { BridgeSessionRecord, SessionManager } from './sessionManager';
 import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
@@ -150,6 +151,11 @@ export async function attachProviderSessionToBridge(input: {
       await upsertCodexSessionIndexEntry({
         sessionId: updated.providerSessionId,
         threadName: updated.resumeTitle,
+      });
+      await syncCodexThreadForResume({
+        sessionId: updated.providerSessionId,
+        resumeTitle: updated.resumeTitle,
+        cwd: updated.cwd,
       });
     }
   }
