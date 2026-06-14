@@ -139,6 +139,12 @@ export class MessageRouter {
           createdAt: Date.now(),
         });
         await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: event.text });
+        this.options.messageLogRepository?.append({
+          bridgeSessionId: session.id,
+          direction: 'outbound',
+          text: event.text,
+          createdAt: Date.now(),
+        });
       }
       if (event.type === 'permission_request') {
         this.options.permissions.addRequest(event.request);
@@ -163,6 +169,12 @@ export class MessageRouter {
           chatId: message.chatId,
           kind: 'permission_request',
           text: formatPermissionMessage(event.request),
+        });
+        this.options.messageLogRepository?.append({
+          bridgeSessionId: session.id,
+          direction: 'outbound',
+          text: formatPermissionMessage(event.request),
+          createdAt: Date.now(),
         });
       }
       if (event.type === 'session_state') {

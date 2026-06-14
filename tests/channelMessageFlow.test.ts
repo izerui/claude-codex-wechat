@@ -84,7 +84,9 @@ describe('channel message flow', () => {
     expect(new MessageLogRepository(db).listForSession(sessions.listSessions()[0].id)).toEqual([
       expect.objectContaining({ direction: 'inbound', text: 'run tests' }),
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'text_delta', text: '收到：run tests' }),
+      expect.objectContaining({ direction: 'outbound', text: '收到：run tests' }),
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
+      expect.objectContaining({ direction: 'outbound', text: expect.stringContaining('/approve pr_fake_1') }),
     ]);
 
     const revoke = await app.inject({ method: 'POST', url: `/api/channel/users/${created.id}/revoke` });

@@ -5,6 +5,7 @@ import { PermissionRouter } from '../src/permissions/permissionRouter';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { SessionManager } from '../src/session/sessionManager';
 import { MessageRouter } from '../src/session/messageRouter';
+import { MessageLogRepository } from '../src/storage/messageLogRepository';
 import { ProviderBindingRepository } from '../src/storage/providerBindingRepository';
 import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
 import { schemaSql } from '../src/storage/schema';
@@ -313,5 +314,42 @@ describe('MessageRouter', () => {
     const requestIds = permissions.getPendingRequests().map((request) => request.id);
     expect(new Set(requestIds).size).toBe(requestIds.length);
     expect(requestIds).toHaveLength(2);
+  });
+
+  it('writes outbound logs after sending provider replies back to the channel', async () => {
+    const db = new Database(':memory:');
+    db.exec(schemaSql);
+    const messageLogRepository = new MessageLogRepository(db);
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [new FakeProviderAdapter('codex')],
+      sessions,
+      resolveUser: () => ({ ...authorizedUser, defaultProvider: 'codex' }),
+      messageLogRepository,
+    });
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-outbound',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hello codex' },
+      timestamp: 1,
+    });
+
+    const activeSession = sessions.getActiveSession('chat-outbound');
+    expect(activeSession).not.toBeNull();
+    const logs = messageLogRepository.listForSession(activeSession!.id);
+    expect(logs).toEqual([
+      expect.objectContaining({ direction: 'inbound', text: 'hello codex' }),
+      expect.objectContaining({ direction: 'provider_event', providerEventType: 'text_delta', text: '收到：hello codex' }),
+      expect.objectContaining({ direction: 'outbound', text: '收到：hello codex' }),
+      expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
+      expect.objectContaining({ direction: 'outbound', text: expect.stringContaining('/approve pr_fake_1') }),
+    ]);
   });
 });
