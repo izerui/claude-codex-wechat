@@ -246,7 +246,7 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', originalFetch);
   });
 
-  it('creates pairing requests for unauthorized messages in direct weixin mode', async () => {
+  it('auto-authorizes first-contact messages in direct weixin mode', async () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -272,8 +272,7 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
-    new SettingsRepository(db).set('settings.wechatAutoAuthorize', false);
-    const { app, pairings } = createDaemonServer({
+    const { app, pairings, users } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: {
@@ -287,19 +286,20 @@ describe('daemon WeChat runtime channel', () => {
     await app.ready();
 
     await vi.waitFor(() => {
-      expect(pairings.listPending()).toHaveLength(1);
+      expect(users.listUsers()).toHaveLength(1);
     });
 
-    expect(pairings.listPending()[0]).toMatchObject({
+    expect(pairings.listPending()).toEqual([]);
+    expect(users.listUsers()[0]).toMatchObject({
       platformUserId: 'wx_user_unauthorized',
-      status: 'pending',
+      defaultProvider: 'claude-code',
     });
 
     await app.close();
     vi.stubGlobal('fetch', originalFetch);
   });
 
-  it('starts direct weixin polling immediately after enabling the plugin from the admin route', async () => {
+  it('starts direct weixin polling immediately after enabling the plugin from the admin route and auto-authorizes the sender', async () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -325,8 +325,7 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
-    new SettingsRepository(db).set('settings.wechatAutoAuthorize', false);
-    const { app, pairings } = createDaemonServer({
+    const { app, pairings, users } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: { enabled: false },
@@ -352,12 +351,13 @@ describe('daemon WeChat runtime channel', () => {
     expect(enable.statusCode).toBe(200);
 
     await vi.waitFor(() => {
-      expect(pairings.listPending()).toHaveLength(1);
+      expect(users.listUsers()).toHaveLength(1);
     });
 
-    expect(pairings.listPending()[0]).toMatchObject({
+    expect(pairings.listPending()).toEqual([]);
+    expect(users.listUsers()[0]).toMatchObject({
       platformUserId: 'wx_user_late_enable',
-      status: 'pending',
+      defaultProvider: 'claude-code',
     });
 
     await app.close();

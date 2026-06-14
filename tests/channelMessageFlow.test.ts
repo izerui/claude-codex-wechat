@@ -306,9 +306,8 @@ describe('channel message flow', () => {
     }
   });
 
-  it('auto-authorizes first-contact weixin users when the setting is enabled', async () => {
+  it('auto-authorizes first-contact weixin users by default', async () => {
     const db = memoryDb();
-    new SettingsRepository(db).set('settings.wechatAutoAuthorize', true);
     const users = new UserRepository(db);
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];

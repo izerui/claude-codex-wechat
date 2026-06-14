@@ -107,7 +107,6 @@ export function createDaemonServer(options: {
         sessions,
         resolveUser: (message) => users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, message.user.id),
         autoAuthorizeUser: (message) => {
-          if (settings.get('settings.wechatAutoAuthorize') === false) return null;
           const existing = users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, message.user.id);
           if (existing) return existing;
           const defaults = readBridgeDefaults(settings);

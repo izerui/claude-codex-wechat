@@ -377,36 +377,6 @@ function SettingsPanel(input: {
             <option value="never">不超时</option>
           </select>
         </label>
-        <label style={styles.checkboxField}>
-          <input
-            type="checkbox"
-            checked={draft.wechatAutoAuthorize}
-            onChange={(event) => setDraft({ ...draft, wechatAutoAuthorize: event.target.checked })}
-          />
-          <span>微信首条消息自动授权</span>
-        </label>
-        <label style={styles.field}>
-          <span>微信发送节流毫秒</span>
-          <input
-            type="number"
-            value={draft.wechatThrottle.minIntervalMs}
-            onChange={(event) => setDraft({
-              ...draft,
-              wechatThrottle: { ...draft.wechatThrottle, minIntervalMs: Number(event.target.value) },
-            })}
-          />
-        </label>
-        <label style={styles.field}>
-          <span>分片大小</span>
-          <input
-            type="number"
-            value={draft.wechatThrottle.chunkSize}
-            onChange={(event) => setDraft({
-              ...draft,
-              wechatThrottle: { ...draft.wechatThrottle, chunkSize: Number(event.target.value) },
-            })}
-          />
-        </label>
         <label style={styles.field}>
           <span>高风险命令策略</span>
           <select

@@ -134,11 +134,6 @@ export type BridgeSettingsView = {
   defaultProvider: 'claude-code' | 'codex';
   defaultWorkspace: string;
   permissionTimeoutMs: number | 'never';
-  wechatAutoAuthorize: boolean;
-  wechatThrottle: {
-    minIntervalMs: number;
-    chunkSize: number;
-  };
   highRiskCommandPolicy: 'per_request' | 'deny' | 'allow';
 };
 

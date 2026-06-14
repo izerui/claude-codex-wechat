@@ -32,8 +32,6 @@ describe('App dashboard provider status', () => {
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
           permissionTimeoutMs: 60000,
-          wechatAutoAuthorize: true,
-          wechatThrottle: { minIntervalMs: 500, chunkSize: 1000 },
           highRiskCommandPolicy: 'per_request',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }

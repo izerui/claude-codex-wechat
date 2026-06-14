@@ -100,10 +100,8 @@ describe('runtime repositories', () => {
     expect(settings.get('permission.timeoutMs')).toBeNull();
 
     settings.set('permission.timeoutMs', 60_000);
-    settings.set('wechat.throttle', { minIntervalMs: 500, chunkSize: 1000 });
 
     expect(settings.get('permission.timeoutMs')).toBe(60_000);
-    expect(settings.get('wechat.throttle')).toEqual({ minIntervalMs: 500, chunkSize: 1000 });
   });
 
   it('stores and updates provider session bindings by chat', () => {

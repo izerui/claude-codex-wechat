@@ -240,8 +240,6 @@ describe('channel admin routes', () => {
       defaultProvider: 'claude-code',
       defaultWorkspace: process.cwd(),
       permissionTimeoutMs: 60_000,
-      wechatAutoAuthorize: true,
-      wechatThrottle: { minIntervalMs: 500, chunkSize: 1000 },
       highRiskCommandPolicy: 'per_request',
     });
 
@@ -252,8 +250,6 @@ describe('channel admin routes', () => {
         defaultProvider: 'codex',
         defaultWorkspace: '/tmp/project',
         permissionTimeoutMs: 300_000,
-        wechatAutoAuthorize: true,
-        wechatThrottle: { minIntervalMs: 750, chunkSize: 800 },
         highRiskCommandPolicy: 'deny',
       },
     });
@@ -265,8 +261,6 @@ describe('channel admin routes', () => {
       defaultProvider: 'codex',
       defaultWorkspace: '/tmp/project',
       permissionTimeoutMs: 300_000,
-      wechatAutoAuthorize: true,
-      wechatThrottle: { minIntervalMs: 750, chunkSize: 800 },
       highRiskCommandPolicy: 'deny',
     });
     await app.close();
@@ -503,8 +497,6 @@ describe('channel admin routes', () => {
         defaultProvider: 'codex',
         defaultWorkspace: '/tmp/codex-project',
         permissionTimeoutMs: 60_000,
-        wechatAutoAuthorize: true,
-        wechatThrottle: { minIntervalMs: 500, chunkSize: 1000 },
         highRiskCommandPolicy: 'per_request',
       },
     });
