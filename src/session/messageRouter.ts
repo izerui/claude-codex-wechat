@@ -13,7 +13,6 @@ import type { BridgeEventHub } from '../daemon/events';
 import { ensurePairingForMessage } from '../channels/pairing';
 import { buildSessionBridgeName } from './sessionBridgeTag';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
-import { syncCodexThreadForResume } from '../providers/codex/nativeThreads';
 import { writeProviderSessionSidecar } from '../providers/sidecarMetadata';
 import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
 import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
@@ -126,15 +125,11 @@ export class MessageRouter {
           sessionId: updated.providerSessionId,
           threadName: updated.resumeTitle,
         });
-        await syncCodexThreadForResume({
-          sessionId: updated.providerSessionId,
-          resumeTitle: updated.resumeTitle,
-          cwd: updated.cwd,
-        });
       }
       await this.persistBridgeMetadata(updated, message.user.id);
     }
 
+    let bufferedText = '';
     for await (const event of provider.sendMessage({ bridgeSessionId: session.id, text: command.text })) {
       if (event.type === 'text_delta' && event.text) {
         this.options.messageLogRepository?.append({
@@ -144,15 +139,29 @@ export class MessageRouter {
           text: event.text,
           createdAt: Date.now(),
         });
-        await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: event.text });
+        bufferedText += event.text;
+      }
+      if (event.type === 'message_done' && bufferedText.trim()) {
+        await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
         this.options.messageLogRepository?.append({
           bridgeSessionId: session.id,
           direction: 'outbound',
-          text: event.text,
+          text: bufferedText,
           createdAt: Date.now(),
         });
+        bufferedText = '';
       }
       if (event.type === 'permission_request') {
+        if (bufferedText.trim()) {
+          await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
+          this.options.messageLogRepository?.append({
+            bridgeSessionId: session.id,
+            direction: 'outbound',
+            text: bufferedText,
+            createdAt: Date.now(),
+          });
+          bufferedText = '';
+        }
         this.options.permissions.addRequest(event.request);
         this.options.permissionRepository?.create({
           id: event.request.id,
@@ -198,11 +207,6 @@ export class MessageRouter {
           await upsertCodexSessionIndexEntry({
             sessionId: updated.providerSessionId,
             threadName: updated.resumeTitle,
-          });
-          await syncCodexThreadForResume({
-            sessionId: updated.providerSessionId,
-            resumeTitle: updated.resumeTitle,
-            cwd: updated.cwd,
           });
         }
         await this.persistBridgeMetadata(updated, message.user.id);
