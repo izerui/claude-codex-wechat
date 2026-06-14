@@ -89,12 +89,28 @@
 - 判断 token / session 是否健康
 - 区分“bridge 问题”和“微信上游问题”
 
+### `check-codex-wechat-flow.sh`
+
+Codex 专项闭环验收脚本。
+
+作用：
+
+- 等待新的 Codex bridge session 出现
+- 打印该会话的恢复字段
+- 自动试跑推荐的 Codex resume 命令
+
 ## 建议用法
 
 ### 日常恢复
 
 ```bash
 bash ./scripts/recover-weixin-runtime.sh
+```
+
+如果你要直接做 Codex 专项恢复实验：
+
+```bash
+BRIDGE_DEFAULT_PROVIDER=codex bash ./scripts/recover-weixin-runtime.sh
 ```
 
 ### 手动分步恢复
@@ -104,10 +120,23 @@ pnpm tsx scripts/weixin-login-helper.ts
 bash ./scripts/start-runtime-check.sh
 ```
 
+同样也可以：
+
+```bash
+BRIDGE_DEFAULT_PROVIDER=codex bash ./scripts/start-runtime-check.sh
+```
+
 ### 排障
 
 ```bash
 BRIDGE_PORT=8788 bash ./scripts/check-runtime-readiness.sh
 BRIDGE_PORT=8788 bash ./scripts/check-runtime-recovery.sh
 BRIDGE_WECHAT_TOKEN='...' pnpm tsx scripts/check-weixin-updates.ts
+```
+
+### Codex 专项验收
+
+```bash
+BRIDGE_DEFAULT_PROVIDER=codex bash ./scripts/recover-weixin-runtime.sh
+BRIDGE_PORT=8788 WAIT_SECONDS=120 bash ./scripts/check-codex-wechat-flow.sh
 ```

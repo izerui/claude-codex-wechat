@@ -87,22 +87,34 @@ export class CodexCliRunner {
 
 function buildCodexArgs(session: StoredCodexSession, prompt: string): string[] {
   if (session.hasRun && session.codexSessionId) {
-    return ['exec', 'resume', '--json', '--last', '-C', session.cwd, prompt];
+    return ['exec', 'resume', '--json', session.codexSessionId, prompt];
   }
   return ['exec', '--json', '-C', session.cwd, prompt];
 }
 
 function parseCodexJsonLines(input: { bridgeSessionId: string; cwd: string; stdout: string }): ProviderEvent[] {
   const events: ProviderEvent[] = [];
+  let threadId: string | undefined;
   for (const line of input.stdout.split(/\r?\n/)) {
     if (!line.trim()) continue;
     const value = parseJsonLine(line);
     if (!value) continue;
     const record = value as Record<string, unknown>;
 
+    if (record.type === 'thread.started' && typeof record.thread_id === 'string') {
+      threadId = record.thread_id;
+    }
+
     if (record.type === 'agent_message') {
       for (const text of extractCodexText(record.message)) {
         events.push({ type: 'text_delta', text });
+      }
+    }
+
+    if (record.type === 'item.completed' && record.item && typeof record.item === 'object') {
+      const item = record.item as Record<string, unknown>;
+      if (item.type === 'agent_message' && typeof item.text === 'string' && item.text.trim()) {
+        events.push({ type: 'text_delta', text: item.text.trim() });
       }
     }
 
@@ -122,6 +134,22 @@ function parseCodexJsonLines(input: { bridgeSessionId: string; cwd: string; stdo
             bridgeSessionId: input.bridgeSessionId,
             providerId: 'codex',
             providerSessionId: sessionId,
+            cwd: input.cwd,
+            status: 'idle',
+          },
+        });
+      }
+      events.push({ type: 'message_done' });
+    }
+
+    if (record.type === 'turn.completed') {
+      if (threadId) {
+        events.push({
+          type: 'session_state',
+          state: {
+            bridgeSessionId: input.bridgeSessionId,
+            providerId: 'codex',
+            providerSessionId: threadId,
             cwd: input.cwd,
             status: 'idle',
           },

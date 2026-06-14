@@ -24,6 +24,9 @@ pnpm tsx scripts/weixin-login-helper.ts
 
 echo
 echo "[2/3] credentials confirmed, starting latest runtime"
+if [[ -n "${BRIDGE_DEFAULT_PROVIDER:-}" ]]; then
+  echo "default provider: ${BRIDGE_DEFAULT_PROVIDER}"
+fi
 BRIDGE_WECHAT_CREDENTIALS_ENV="$ENV_PATH" \
 BRIDGE_WECHAT_CREDENTIALS_JSON="$JSON_PATH" \
 bash ./scripts/start-runtime-check.sh

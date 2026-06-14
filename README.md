@@ -184,6 +184,12 @@ cp config.example.json ~/.local-agent-wechat-bridge/config.json
 bash ./scripts/recover-weixin-runtime.sh
 ```
 
+如果你要直接做 Codex 验收模式：
+
+```bash
+BRIDGE_DEFAULT_PROVIDER=codex bash ./scripts/recover-weixin-runtime.sh
+```
+
 这条命令会自动完成：
 
 1. 拉取新的微信登录二维码
@@ -191,6 +197,14 @@ bash ./scripts/recover-weixin-runtime.sh
 3. 等待扫码确认
 4. 写出新的微信凭据文件
 5. 启动最新 bridge runtime
+
+如果设置了：
+
+```bash
+BRIDGE_DEFAULT_PROVIDER=codex
+```
+
+那么 runtime 启动后会自动把默认 provider 切到 `codex`。
 
 二维码文件默认路径：
 
@@ -343,6 +357,13 @@ codex exec resume --json --last '<thread_name>'
 
 ```bash
 bash ./scripts/recover-weixin-runtime.sh
+```
+
+如果要直接推进 Codex 的真实闭环验收，建议用这一组：
+
+```bash
+BRIDGE_DEFAULT_PROVIDER=codex bash ./scripts/recover-weixin-runtime.sh
+BRIDGE_PORT=8788 WAIT_SECONDS=120 bash ./scripts/check-codex-wechat-flow.sh
 ```
 
 ---

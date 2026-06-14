@@ -80,9 +80,7 @@ describe('CodexCliRunner', () => {
       'exec',
       'resume',
       '--json',
-      '--last',
-      '-C',
-      '/tmp/project',
+      'codex-session-1',
       'second',
     ]);
   });
@@ -112,9 +110,7 @@ describe('CodexCliRunner', () => {
       'exec',
       'resume',
       '--json',
-      '--last',
-      '-C',
-      '/tmp/project',
+      'codex-session-1',
       'after restart',
     ]);
   });
@@ -170,6 +166,38 @@ describe('CodexCliRunner', () => {
     }
 
     expect(events).toEqual([{ type: 'error', error: 'codex failed' }]);
+  });
+
+  it('parses item.completed agent_message events from real codex resume output', async () => {
+    const runner = new CodexCliRunner({
+      processRunner: async () => ({
+        code: 0,
+        stdout: [
+          JSON.stringify({ type: 'thread.started', thread_id: 'codex-session-1' }),
+          JSON.stringify({ type: 'turn.started' }),
+          JSON.stringify({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: 'codex-real-hi' } }),
+          JSON.stringify({ type: 'turn.completed' }),
+        ].join('\n'),
+        stderr: '',
+      }),
+    });
+    await runner.startSession({
+      bridgeSessionId: 'bs_1',
+      cwd: '/tmp/project',
+      options: { providerSessionId: 'codex-session-1' } as { providerSessionId: string },
+    });
+
+    const events = [];
+    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_1', text: 'hello' })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({ type: 'text_delta', text: 'codex-real-hi' });
+    expect(events).toContainEqual({
+      type: 'session_state',
+      state: expect.objectContaining({ providerSessionId: 'codex-session-1', cwd: '/tmp/project' }),
+    });
+    expect(events).toContainEqual({ type: 'message_done' });
   });
 
   it('accepts permission decisions without throwing', async () => {

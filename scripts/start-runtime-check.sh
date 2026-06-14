@@ -9,6 +9,7 @@ RUNTIME_DIR="${BRIDGE_RUNTIME_DIR:-/tmp/bridge-runtime-check}"
 PORT="${BRIDGE_PORT:-8788}"
 CLAUDE_CMD="${BRIDGE_CLAUDE_COMMAND:-/Applications/cmux.app/Contents/Resources/bin/claude}"
 CODEX_CMD="${BRIDGE_CODEX_COMMAND:-/opt/homebrew/bin/codex}"
+DEFAULT_PROVIDER="${BRIDGE_DEFAULT_PROVIDER:-}"
 WECHAT_ENV_FILE="${BRIDGE_WECHAT_CREDENTIALS_ENV:-/tmp/bridge-weixin.env}"
 WECHAT_JSON_FILE="${BRIDGE_WECHAT_CREDENTIALS_JSON:-/tmp/bridge-weixin-credentials.json}"
 
@@ -67,6 +68,12 @@ for _ in $(seq 1 30); do
   fi
   sleep 1
 done
+
+if [[ "$DEFAULT_PROVIDER" == "claude-code" || "$DEFAULT_PROVIDER" == "codex" ]]; then
+  curl -sf -X POST "http://127.0.0.1:$PORT/api/settings" \
+    -H 'content-type: application/json' \
+    -d "{\"defaultProvider\":\"$DEFAULT_PROVIDER\"}" >/dev/null
+fi
 
 echo "runtime started on http://127.0.0.1:$PORT"
 echo
