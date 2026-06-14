@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Diagnostic script:
+# Checks whether the latest bridge runtime is actually ready for real WeChat traffic
+# and whether Claude/Codex resume-related fields look healthy.
 set -euo pipefail
 
 PORT="${BRIDGE_PORT:-8788}"

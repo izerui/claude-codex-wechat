@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Diagnostic script:
+# Dumps bridge session recovery fields for attach/resume troubleshooting.
 set -euo pipefail
 
 PORT="${BRIDGE_PORT:-8788}"

@@ -1,3 +1,6 @@
+// Operational script:
+// Local helper for WeChat QR login. Generates a QR SVG, auto-opens it, tracks
+// login state, refreshes expired QR tickets, and writes reusable credential files.
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';

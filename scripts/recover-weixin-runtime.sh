@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Primary operational script:
+# One-shot recovery flow for personal use:
+# fresh WeChat QR login -> credential files -> latest runtime startup.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"

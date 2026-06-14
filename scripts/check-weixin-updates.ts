@@ -1,3 +1,6 @@
+// Diagnostic script:
+// Calls the official WeChat getupdates endpoint directly so we can distinguish
+// bridge-side issues from upstream token/session problems.
 import { randomBytes } from 'node:crypto';
 
 const baseUrl = (process.env.BRIDGE_WECHAT_BASE_URL || 'https://ilinkai.weixin.qq.com').replace(/\/+$/, '');
