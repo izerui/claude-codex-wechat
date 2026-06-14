@@ -22,9 +22,9 @@
 
 注意：
 
-- 这个脚本生成的是运行时凭据
+- 这个脚本会同时生成运行时凭据
 - 默认会写到 `/tmp/bridge-weixin-credentials.json` 和 `/tmp/bridge-weixin.env`
-- 如果你后续要直接执行 `pnpm dev`，还需要把新凭据同步进 `~/.claude-codex-wechat/config.json`
+- 扫码确认成功后，也会自动回写 `~/.claude-codex-wechat/config.json`
 
 ### `weixin-login-helper.ts`
 

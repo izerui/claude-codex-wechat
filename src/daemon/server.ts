@@ -23,7 +23,7 @@ import { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import { schemaSql } from '../storage/schema';
 import { SettingsRepository } from '../storage/settingsRepository';
 import { UserRepository } from '../storage/userRepository';
-import type { WeixinConfig, BridgeConfig } from './config';
+import { defaultConfigPath, type WeixinConfig, type BridgeConfig } from './config';
 import { BridgeEventHub } from './events';
 
 export function createDaemonServer(options: {
@@ -32,6 +32,7 @@ export function createDaemonServer(options: {
   providers?: NativeProviderAdapter[];
   wechat?: WeixinConfig;
   providerCommands?: BridgeConfig['providers'];
+  configPath?: string;
 } = {}) {
   const app = Fastify({ logger: true });
   const events = new BridgeEventHub();
@@ -178,6 +179,7 @@ export function createDaemonServer(options: {
     messageLog,
     wechat: options.wechat,
     events,
+    configPath: options.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath(),
     onWechatConfigChanged: managedWechatChannel
       ? async (next) => {
           await managedWechatChannel.configure(next);

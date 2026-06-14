@@ -228,9 +228,9 @@ BRIDGE_DEFAULT_PROVIDER=codex
 
 注意：
 
-- 这两个 `/tmp` 文件是临时运行时凭据
-- 直接执行 `pnpm dev` 不会自动把它们持久化到正式配置
-- 如果想让重启后继续生效，需要把新值写回 `~/.claude-codex-wechat/config.json`
+- 这两个 `/tmp` 文件仍然会生成，方便联调和显式 `source`
+- 扫码成功后，helper 现在也会自动把新凭据回写到 `~/.claude-codex-wechat/config.json`
+- 之后直接执行 `pnpm dev`，默认就会继续读取这份正式配置
 
 最少要同步这几个字段：
 

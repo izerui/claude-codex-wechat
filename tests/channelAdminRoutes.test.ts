@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -294,6 +295,45 @@ describe('channel admin routes', () => {
       baseUrl: 'https://ilinkai.weixin.qq.com',
       token: 'wx-bot-token',
       accountId: 'wx-account-id',
+    });
+
+    await app.close();
+  });
+
+  it('persists formal wechat config when enabling the plugin from the admin API', async () => {
+    const db = new Database(':memory:');
+    db.exec(schemaSql);
+    const configDir = mkdtempSync(`${tmpdir()}/bridge-config-`);
+    const configPath = join(configDir, 'config.json');
+    const { app } = createDaemonServer({
+      db,
+      wechat: { enabled: false },
+      configPath,
+    });
+
+    const enable = await app.inject({
+      method: 'POST',
+      url: '/api/channel/plugins/enable',
+      payload: {
+        plugin_id: 'weixin',
+        config: {
+          baseUrl: 'https://ilinkai.weixin.qq.com',
+          credentials: {
+            account_id: 'wx-account-1',
+            bot_token: 'wx-bot-token',
+          },
+        },
+      },
+    });
+
+    expect(enable.statusCode).toBe(200);
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({
+      wechat: {
+        enabled: true,
+        baseUrl: 'https://ilinkai.weixin.qq.com',
+        token: 'wx-bot-token',
+        accountId: 'wx-account-1',
+      },
     });
 
     await app.close();

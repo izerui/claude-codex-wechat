@@ -9,6 +9,8 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QRCodeSVG } from 'qrcode.react';
 import { WeixinDirectLoginClient } from '../src/channels/weixin-direct/loginClient';
+import { defaultConfigPath } from '../src/daemon/config';
+import { persistWechatCredentialsToConfigFile } from '../src/daemon/configPersistence';
 
 export function renderQrSvgDocument(qrcodeData: string): string {
   const qr = renderToStaticMarkup(
@@ -48,6 +50,20 @@ export async function renderWeixinCredentialFiles(input: {
     'export BRIDGE_WECHAT_ENABLED=1',
     '',
   ].join('\n'), 'utf8');
+}
+
+export async function persistWeixinCredentialsToBridgeConfig(input: {
+  configPath: string;
+  accountId: string;
+  botToken: string;
+  baseUrl: string;
+}): Promise<void> {
+  await persistWechatCredentialsToConfigFile({
+    configPath: input.configPath,
+    accountId: input.accountId,
+    token: input.botToken,
+    baseUrl: input.baseUrl,
+  });
 }
 
 export async function clearWeixinCredentialFiles(input: {
@@ -123,6 +139,7 @@ async function main(): Promise<void> {
   const credentialsJsonPath = resolve(process.env.BRIDGE_WECHAT_CREDENTIALS_JSON || '/tmp/bridge-weixin-credentials.json');
   const credentialsEnvPath = resolve(process.env.BRIDGE_WECHAT_CREDENTIALS_ENV || '/tmp/bridge-weixin.env');
   const statePath = resolve(process.env.BRIDGE_WECHAT_LOGIN_STATE || '/tmp/bridge-weixin-login-state.json');
+  const bridgeConfigPath = resolve(process.env.BRIDGE_CONFIG || defaultConfigPath());
   let refreshCount = 0;
 
   const client = new WeixinDirectLoginClient({
@@ -192,6 +209,12 @@ async function main(): Promise<void> {
     botToken: confirmed.botToken,
     baseUrl: confirmed.baseUrl,
   });
+  await persistWeixinCredentialsToBridgeConfig({
+    configPath: bridgeConfigPath,
+    accountId: confirmed.accountId,
+    botToken: confirmed.botToken,
+    baseUrl: confirmed.baseUrl,
+  });
   await writeWeixinLoginStateFile(statePath, {
     stage: 'confirmed',
     ticket: confirmed.ticket,
@@ -202,6 +225,7 @@ async function main(): Promise<void> {
     updatedAt: new Date().toISOString(),
     credentialsJsonPath,
     credentialsEnvPath,
+    bridgeConfigPath,
     statePath,
   });
   console.log(JSON.stringify({
@@ -214,6 +238,7 @@ async function main(): Promise<void> {
     updatedAt: new Date().toISOString(),
     credentialsJsonPath,
     credentialsEnvPath,
+    bridgeConfigPath,
     statePath,
   }, null, 2));
 }

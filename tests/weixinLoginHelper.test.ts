@@ -2,7 +2,14 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { clearWeixinCredentialFiles, pollWeixinLoginUntilConfirmed, renderQrSvgDocument, renderWeixinCredentialFiles, writeWeixinLoginStateFile } from '../scripts/weixin-login-helper';
+import {
+  clearWeixinCredentialFiles,
+  persistWeixinCredentialsToBridgeConfig,
+  pollWeixinLoginUntilConfirmed,
+  renderQrSvgDocument,
+  renderWeixinCredentialFiles,
+  writeWeixinLoginStateFile,
+} from '../scripts/weixin-login-helper';
 
 const tempDirs: string[] = [];
 
@@ -44,6 +51,46 @@ describe('weixin login helper', () => {
     expect(await readFile(envPath, 'utf8')).toContain("export BRIDGE_WECHAT_TOKEN='wx-token-1'");
     expect(await readFile(envPath, 'utf8')).toContain("export BRIDGE_WECHAT_ACCOUNT_ID='wx-account-1'");
     expect(await readFile(envPath, 'utf8')).toContain("export BRIDGE_WECHAT_BASE_URL='https://ilinkai.weixin.qq.com'");
+  });
+
+  it('persists confirmed credentials into the formal bridge config file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'weixin-login-helper-'));
+    tempDirs.push(dir);
+    const configPath = join(dir, 'config.json');
+    await writeFile(configPath, JSON.stringify({
+      databasePath: '/tmp/bridge.sqlite',
+      providers: {
+        claude: { command: '/opt/bin/claude' },
+        codex: { command: '/opt/bin/codex' },
+      },
+      wechat: {
+        enabled: false,
+        baseUrl: 'https://old.example.com',
+        token: 'old-token',
+        accountId: 'old-account',
+      },
+    }, null, 2), 'utf8');
+
+    await persistWeixinCredentialsToBridgeConfig({
+      configPath,
+      accountId: 'wx-account-1',
+      botToken: 'wx-token-1',
+      baseUrl: 'https://ilinkai.weixin.qq.com',
+    });
+
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({
+      databasePath: '/tmp/bridge.sqlite',
+      providers: {
+        claude: { command: '/opt/bin/claude' },
+        codex: { command: '/opt/bin/codex' },
+      },
+      wechat: {
+        enabled: true,
+        baseUrl: 'https://ilinkai.weixin.qq.com',
+        token: 'wx-token-1',
+        accountId: 'wx-account-1',
+      },
+    });
   });
 
   it('clears stale credential files before a fresh login run', async () => {

@@ -3,6 +3,8 @@ import type { ChannelAdapter } from '../channels/types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { WeixinDirectLoginClient } from '../channels/weixin-direct/loginClient';
 import type { WeixinConfig } from '../daemon/config';
+import { defaultConfigPath } from '../daemon/config';
+import { persistWechatCredentialsToConfigFile } from '../daemon/configPersistence';
 import type { BridgeEventHub } from '../daemon/events';
 import type { MessageLogRepository } from '../storage/messageLogRepository';
 import type { PairingRepository } from '../storage/pairingRepository';
@@ -31,8 +33,10 @@ export function registerChannelAdminRoutes(input: {
   channel?: ChannelAdapter;
   events?: BridgeEventHub;
   onWechatConfigChanged?: (next: WeixinConfig) => Promise<void>;
+  configPath?: string;
 }): void {
   let wechat = input.wechat ?? readWechatSettings(input.settings);
+  const configPath = input.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath();
 
   input.app.get('/api/channel/plugins', async () => [toWechatPluginStatus(wechat, input.users, input.channel)]);
   input.app.get('/api/channel/wechat/runtime-config', async () => wechat ?? { enabled: false });
@@ -56,6 +60,14 @@ export function registerChannelAdminRoutes(input: {
     if (!baseUrl) return reply.code(400).send({ ok: false, error: 'wechat_base_url_required' });
     const nextWechat = { enabled: true, baseUrl, token, accountId };
     await input.onWechatConfigChanged?.(nextWechat);
+    if (token && accountId) {
+      await persistWechatCredentialsToConfigFile({
+        configPath,
+        accountId,
+        token,
+        baseUrl,
+      });
+    }
     wechat = nextWechat;
     writeWechatSettings(input.settings, wechat);
     input.events?.emit({
