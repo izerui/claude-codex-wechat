@@ -271,7 +271,7 @@ function SessionsPanel(input: {
       {selectedSessionId ? (
         <div style={{ marginTop: 16 }}>
           <h3 style={styles.sectionTitle}>消息日志 · {selectedSessionId}</h3>
-          {logs.length === 0 ? <p style={styles.empty}>暂无消息记录。</p> : (
+          {logs.length === 0 ? <p style={styles.empty}>桥接器默认不归档正文消息；如需完整历史，请到 Claude/Codex 原生会话查看。</p> : (
             <ul style={styles.list}>
               {logs.map((log) => (
                 <li key={log.id} style={styles.listItem}>

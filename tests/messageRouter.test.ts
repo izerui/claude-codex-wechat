@@ -373,10 +373,7 @@ describe('MessageRouter', () => {
     expect(activeSession).not.toBeNull();
     const logs = messageLogRepository.listForSession(activeSession!.id);
     expect(logs).toEqual([
-      expect.objectContaining({ direction: 'inbound', text: 'hello codex' }),
-      expect.objectContaining({ direction: 'outbound', text: '收到：hello codex' }),
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
-      expect.objectContaining({ direction: 'outbound', text: expect.stringContaining('/approve pr_fake_1') }),
     ]);
   });
 
@@ -413,9 +410,7 @@ describe('MessageRouter', () => {
     const activeSession = sessions.getActiveSession('chat-error');
     expect(activeSession).not.toBeNull();
     expect(messageLogRepository.listForSession(activeSession!.id)).toEqual([
-      expect.objectContaining({ direction: 'inbound', text: 'news' }),
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'error', text: 'provider_failed:news' }),
-      expect.objectContaining({ direction: 'outbound', text: 'Provider error: provider_failed:news' }),
     ]);
   });
 });

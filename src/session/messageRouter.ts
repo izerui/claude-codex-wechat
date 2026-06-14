@@ -82,13 +82,6 @@ export class MessageRouter {
         resumeTitle: sessionResumeTitle,
       });
     this.persistSessionIfNeeded(session);
-    this.options.messageLogRepository?.append({
-      bridgeSessionId: session.id,
-      direction: 'inbound',
-      platformMessageId: message.id,
-      text: command.text,
-      createdAt: Date.now(),
-    });
     const provider = this.providers.get(session.providerId);
     if (!provider) throw new Error(`provider_not_registered:${session.providerId}`);
 
@@ -137,23 +130,11 @@ export class MessageRouter {
       }
       if (event.type === 'message_done' && bufferedText.trim()) {
         await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
-        this.options.messageLogRepository?.append({
-          bridgeSessionId: session.id,
-          direction: 'outbound',
-          text: bufferedText,
-          createdAt: Date.now(),
-        });
         bufferedText = '';
       }
       if (event.type === 'permission_request') {
         if (bufferedText.trim()) {
           await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
-          this.options.messageLogRepository?.append({
-            bridgeSessionId: session.id,
-            direction: 'outbound',
-            text: bufferedText,
-            createdAt: Date.now(),
-          });
           bufferedText = '';
         }
         this.options.permissions.addRequest(event.request);
@@ -178,12 +159,6 @@ export class MessageRouter {
           chatId: message.chatId,
           kind: 'permission_request',
           text: formatPermissionMessage(event.request),
-        });
-        this.options.messageLogRepository?.append({
-          bridgeSessionId: session.id,
-          direction: 'outbound',
-          text: formatPermissionMessage(event.request),
-          createdAt: Date.now(),
         });
       }
       if (event.type === 'session_state') {
@@ -228,12 +203,6 @@ export class MessageRouter {
           chatId: message.chatId,
           kind: 'status',
           text: errorText,
-        });
-        this.options.messageLogRepository?.append({
-          bridgeSessionId: session.id,
-          direction: 'outbound',
-          text: errorText,
-          createdAt: Date.now(),
         });
       }
     }
