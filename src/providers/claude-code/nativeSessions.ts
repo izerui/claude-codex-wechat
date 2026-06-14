@@ -93,8 +93,9 @@ export async function ensureClaudeSessionBridgeMetadata(input: {
   const sessionPath = await findRecoverableClaudeSessionPath(input.sessionId, env);
   if (!sessionPath) return false;
   const sidecar = await readProviderSessionSidecar('claude-code', input.sessionId, env);
+  const normalizedSessionFile = await normalizeClaudeSessionFileForResume(sessionPath);
   const metadata = await readClaudeSessionMetadata(sessionPath).catch(() => null);
-  let changed = false;
+  let changed = normalizedSessionFile;
   if (metadata?.sessionName !== input.resumeTitle) {
     const suffix = [
       JSON.stringify({ type: 'custom-title', customTitle: input.resumeTitle, sessionId: input.sessionId }),
@@ -277,6 +278,49 @@ async function upsertClaudeHistoryDisplay(input: {
   if (!changed) return false;
   await mkdir(dirname(historyPath), { recursive: true });
   await writeFile(historyPath, `${lines.join('\n')}\n`, 'utf8');
+  return true;
+}
+
+async function normalizeClaudeSessionFileForResume(sessionPath: string): Promise<boolean> {
+  const content = await readFile(sessionPath, 'utf8');
+  const nextLines: string[] = [];
+  let changed = false;
+  let hasPermissionMode = false;
+  let sawSdkCliEntrypoint = false;
+
+  for (const line of content.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const record = JSON.parse(line) as Record<string, unknown>;
+      if (record.type === 'permission-mode') hasPermissionMode = true;
+      if (record.entrypoint === 'sdk-cli') {
+        sawSdkCliEntrypoint = true;
+        nextLines.push(JSON.stringify({
+          ...record,
+          entrypoint: 'cli',
+        }));
+        changed = true;
+        continue;
+      }
+    } catch {
+      nextLines.push(line);
+      continue;
+    }
+    nextLines.push(line);
+  }
+
+  if (sawSdkCliEntrypoint && !hasPermissionMode) {
+    const sessionId = basename(sessionPath, '.jsonl');
+    nextLines.unshift(JSON.stringify({
+      type: 'permission-mode',
+      permissionMode: 'bypassPermissions',
+      sessionId,
+    }));
+    changed = true;
+  }
+
+  if (!changed) return false;
+  await writeFile(sessionPath, `${nextLines.join('\n')}\n`, 'utf8');
   return true;
 }
 

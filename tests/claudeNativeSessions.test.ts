@@ -144,4 +144,41 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
     expect(history).toContain(`"display":"${resumeTitle}"`);
     expect(history).toContain(`"project":"${projectCwd}"`);
   });
+
+  it('normalizes bridge-created Claude session files so resume UI can treat them like cli sessions', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'claude-native-sessions-'));
+    tempDirs.push(home);
+    const projectDir = join(home, '.claude', 'projects', '-tmp-project');
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(projectDir, { recursive: true }));
+    const sessionId = 'sdk-session-1';
+    const sessionPath = join(projectDir, `${sessionId}.jsonl`);
+    await writeFile(sessionPath, [
+      JSON.stringify({
+        parentUuid: null,
+        isSidechain: false,
+        type: 'user',
+        message: { role: 'user', content: 'hello' },
+        userType: 'external',
+        entrypoint: 'sdk-cli',
+        cwd: '/tmp/project',
+        sessionId,
+      }),
+      JSON.stringify({
+        type: 'custom-title',
+        customTitle: '微信 · wx_user_1 · [claude-codex-wechat:sdk-session-1]',
+        sessionId,
+      }),
+    ].join('\n'), 'utf8');
+
+    await ensureClaudeSessionBridgeMetadata({
+      sessionId,
+      resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:sdk-session-1]',
+      env: { HOME: home },
+    });
+
+    const content = await readFile(sessionPath, 'utf8');
+    expect(content).toContain('"entrypoint":"cli"');
+    expect(content).toContain('"type":"permission-mode"');
+    expect(content).not.toContain('"entrypoint":"sdk-cli"');
+  });
 });
