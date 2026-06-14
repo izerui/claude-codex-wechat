@@ -45,8 +45,7 @@ describe('daemon WeChat runtime channel', () => {
 
   it('reports session timeout as disconnected for the managed weixin runtime', async () => {
     const originalFetch = globalThis.fetch;
-    const fetchMock = vi.fn()
-      .mockResolvedValue(new Response(JSON.stringify({
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
         errcode: -14,
         errmsg: 'session timeout',
       }), { status: 200, headers: { 'content-type': 'application/json' } }));
@@ -60,6 +59,10 @@ describe('daemon WeChat runtime channel', () => {
 
     await app.ready();
 
+    await vi.waitFor(() => {
+      expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    }, { timeout: 4_000 });
+
     await vi.waitFor(async () => {
       const response = await app.inject({ method: 'GET', url: '/api/channel/plugins' });
       expect(response.statusCode).toBe(200);
@@ -72,11 +75,11 @@ describe('daemon WeChat runtime channel', () => {
           lastError: 'weixin_get_updates_failed:-14:session timeout',
         }),
       ]);
-    });
+    }, { timeout: 4_000 });
 
     await app.close();
     vi.stubGlobal('fetch', originalFetch);
-  });
+  }, 10_000);
 
   it('proxies AionUi-compatible WeChat login SSE from the clawbot service', async () => {
     const originalFetch = globalThis.fetch;

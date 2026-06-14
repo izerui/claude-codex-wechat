@@ -17,6 +17,7 @@ type WeixinDirectApi = {
 
 export class WeixinDirectAdapter implements ChannelAdapter {
   readonly id = 'weixin-direct';
+  private static readonly SESSION_TIMEOUT_THRESHOLD = 3;
   private handler: ChannelMessageHandler | null = null;
   private stopped = true;
   private buffer = '';
@@ -24,6 +25,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   private runningTask: Promise<void> | null = null;
   private healthy = false;
   private lastError: string | null = null;
+  private consecutiveSessionTimeouts = 0;
 
   constructor(private readonly options: {
     api: WeixinDirectApi;
@@ -59,7 +61,9 @@ export class WeixinDirectAdapter implements ChannelAdapter {
 
   getHealth(): { connected: boolean; status: string; lastError?: string } {
     if (this.lastError) {
-      const status = this.lastError.includes('session timeout') ? 'session_timeout' : 'poll_error';
+      const status = this.consecutiveSessionTimeouts >= WeixinDirectAdapter.SESSION_TIMEOUT_THRESHOLD
+        ? 'session_timeout'
+        : 'poll_error';
       return {
         connected: false,
         status,
@@ -78,9 +82,12 @@ export class WeixinDirectAdapter implements ChannelAdapter {
         updates = await this.options.api.getUpdates(this.buffer);
         this.healthy = true;
         this.lastError = null;
+        this.consecutiveSessionTimeouts = 0;
       } catch (error) {
         this.healthy = false;
         this.lastError = error instanceof Error ? error.message : String(error);
+        if (this.lastError.includes('session timeout')) this.consecutiveSessionTimeouts += 1;
+        else this.consecutiveSessionTimeouts = 0;
         if (this.stopped) break;
         await new Promise((resolve) => setTimeout(resolve, this.options.pollIntervalMs ?? 1_000));
         continue;

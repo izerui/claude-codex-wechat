@@ -151,4 +151,52 @@ describe('WeixinDirectAdapter', () => {
       expect(api.getUpdates).toHaveBeenCalledTimes(2);
     });
   });
+
+  it('does not mark the plugin as session_timeout after a single timeout-shaped polling failure', async () => {
+    const api = {
+      getUpdates: vi.fn()
+        .mockRejectedValueOnce(new Error('weixin_get_updates_failed:-14:session timeout'))
+        .mockImplementation(() => new Promise<never>(() => {})),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
+    adapter.onMessage(async () => {});
+
+    await adapter.start({ background: true });
+
+    await vi.waitFor(() => {
+      expect(api.getUpdates).toHaveBeenCalled();
+      expect(adapter.getHealth()).toMatchObject({
+        connected: false,
+        status: 'poll_error',
+        lastError: 'weixin_get_updates_failed:-14:session timeout',
+      });
+    });
+
+    await adapter.stop();
+  });
+
+  it('marks the plugin as session_timeout after repeated timeout-shaped polling failures', async () => {
+    const api = {
+      getUpdates: vi.fn().mockRejectedValue(new Error('weixin_get_updates_failed:-14:session timeout')),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
+    adapter.onMessage(async () => {});
+
+    await adapter.start({ background: true });
+
+    await vi.waitFor(() => {
+      expect(api.getUpdates.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(adapter.getHealth()).toMatchObject({
+        connected: false,
+        status: 'session_timeout',
+        lastError: 'weixin_get_updates_failed:-14:session timeout',
+      });
+    });
+
+    await adapter.stop();
+  });
 });
