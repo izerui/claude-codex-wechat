@@ -9,7 +9,7 @@ afterEach(async () => {
 });
 
 describe('ManagedWeixinDirectAdapter', () => {
-  it('reuses a stable wechat uin across adapter recreation for the same account config', async () => {
+  it('generates a fresh wechat uin when recreating the adapter for the same account config', async () => {
     const seenUins: string[] = [];
 
     const app = Fastify();
@@ -50,6 +50,6 @@ describe('ManagedWeixinDirectAdapter', () => {
     await adapter.stop();
 
     expect(seenUins.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(seenUins).size).toBe(1);
+    expect(new Set(seenUins).size).toBeGreaterThanOrEqual(2);
   });
 });

@@ -239,7 +239,6 @@ describe('channel admin routes', () => {
     expect(initial.json()).toEqual({
       defaultProvider: 'claude-code',
       defaultWorkspace: process.cwd(),
-      permissionTimeoutMs: 60_000,
     });
 
     const update = await app.inject({
@@ -248,7 +247,6 @@ describe('channel admin routes', () => {
       payload: {
         defaultProvider: 'codex',
         defaultWorkspace: '/tmp/project',
-        permissionTimeoutMs: 300_000,
       },
     });
     expect(update.statusCode).toBe(200);
@@ -258,8 +256,42 @@ describe('channel admin routes', () => {
     expect(next.json()).toMatchObject({
       defaultProvider: 'codex',
       defaultWorkspace: '/tmp/project',
-      permissionTimeoutMs: 300_000,
     });
+    await app.close();
+  });
+
+  it('notifies authorized weixin users after switching the provider from the wechat panel setting', async () => {
+    const db = new Database(':memory:');
+    db.exec(schemaSql);
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ chatId: string; kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ chatId: message.chatId, kind: message.kind, text: message.text }));
+    const { app, users } = createDaemonServer({ db, channel });
+    users.createUser({
+      platform: 'weixin',
+      platformUserId: 'wx_user_1',
+      role: 'user',
+      defaultProvider: 'claude-code',
+      defaultCwd: '/tmp/project',
+    });
+
+    const update = await app.inject({
+      method: 'POST',
+      url: '/api/settings',
+      payload: {
+        defaultProvider: 'codex',
+        defaultWorkspace: '/tmp/project',
+      },
+    });
+
+    expect(update.statusCode).toBe(200);
+    expect(sent).toEqual([
+      {
+        chatId: 'wx_user_1',
+        kind: 'status',
+        text: '对话模型已切换为 Codex。',
+      },
+    ]);
     await app.close();
   });
 
@@ -493,7 +525,6 @@ describe('channel admin routes', () => {
       payload: {
         defaultProvider: 'codex',
         defaultWorkspace: '/tmp/codex-project',
-        permissionTimeoutMs: 60_000,
       },
     });
     expect(update.statusCode).toBe(200);

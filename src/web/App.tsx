@@ -362,21 +362,6 @@ function SettingsPanel(input: {
           <span>默认工作目录</span>
           <input value={draft.defaultWorkspace} onChange={(event) => setDraft({ ...draft, defaultWorkspace: event.target.value })} />
         </label>
-        <label style={styles.field}>
-          <span>权限超时</span>
-          <select
-            value={String(draft.permissionTimeoutMs)}
-            onChange={(event) => setDraft({
-              ...draft,
-              permissionTimeoutMs: event.target.value === 'never' ? 'never' : Number(event.target.value),
-            })}
-          >
-            <option value="30000">30秒</option>
-            <option value="60000">60秒</option>
-            <option value="300000">5分钟</option>
-            <option value="never">不超时</option>
-          </select>
-        </label>
       </div>
       <button type="button" style={styles.button} disabled={saving} onClick={() => void save()}>
         {saving ? '保存中...' : '保存设置'}

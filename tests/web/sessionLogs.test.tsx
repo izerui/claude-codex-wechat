@@ -94,7 +94,6 @@ function createFetchStub() {
       return new Response(JSON.stringify({
         defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
-        permissionTimeoutMs: 60000,
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     throw new Error(`Unhandled fetch: ${method} ${url}`);

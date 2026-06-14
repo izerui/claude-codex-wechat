@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { WeixinConfig } from '../../daemon/config';
 import type { ChannelAdapter, ChannelMessageHandler, ChannelOutgoingMessage, ChannelStartOptions } from '../types';
 import { WeixinDirectApiClient } from './apiClient';
@@ -72,7 +71,7 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
 function createWeixinAdapter(config: WeixinConfig | undefined): ChannelAdapter | null {
   if (config?.enabled !== true) return null;
   if (!config.baseUrl || !config.token) return null;
-  const wechatUin = buildStableWeixinUin(config);
+  const wechatUin = buildTransientWeixinUin();
   return new WeixinDirectAdapter({
     api: new WeixinDirectApiClient({
       baseUrl: config.baseUrl,
@@ -82,7 +81,8 @@ function createWeixinAdapter(config: WeixinConfig | undefined): ChannelAdapter |
   });
 }
 
-function buildStableWeixinUin(config: WeixinConfig): string {
-  const identity = `${config.accountId ?? ''}\n${config.token}\n${config.baseUrl}`;
-  return createHash('sha256').update(identity).digest('base64url').slice(0, 24);
+function buildTransientWeixinUin(): string {
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  return Buffer.from(bytes).toString('base64');
 }

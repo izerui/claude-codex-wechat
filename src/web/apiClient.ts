@@ -133,7 +133,6 @@ export type StatusView = {
 export type BridgeSettingsView = {
   defaultProvider: 'claude-code' | 'codex';
   defaultWorkspace: string;
-  permissionTimeoutMs: number | 'never';
 };
 
 export type BridgeEventView = {
