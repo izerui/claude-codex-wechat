@@ -15,7 +15,7 @@ import { MessageRouter } from '../session/messageRouter';
 import { autoAttachProviderSessionForMessage } from '../session/providerAutoAttach';
 import { SessionManager } from '../session/sessionManager';
 import type { BridgeDatabase } from '../storage/db';
-import { MessageLogRepository } from '../storage/messageLogRepository';
+import { BridgeEventRepository, ensureBridgeEventStorage } from '../storage/bridgeEventRepository';
 import { PairingRepository } from '../storage/pairingRepository';
 import { PermissionRequestRepository } from '../storage/permissionRequestRepository';
 import { ProviderBindingRepository } from '../storage/providerBindingRepository';
@@ -38,6 +38,7 @@ export function createDaemonServer(options: {
   const events = new BridgeEventHub();
   const db = options.db ?? new Database(':memory:');
   db.exec(schemaSql);
+  ensureBridgeEventStorage(db);
   const settings = new SettingsRepository(db);
   const bridgeDefaults = readBridgeDefaults(settings);
   const sessions = new SessionManager({
@@ -54,7 +55,7 @@ export function createDaemonServer(options: {
   const providerBindings = new ProviderBindingRepository(db);
   const runtimeSessions = new RuntimeSessionRepository(db);
   const permissionRequests = new PermissionRequestRepository(db);
-  const messageLog = new MessageLogRepository(db);
+  const eventLog = new BridgeEventRepository(db);
   const sessionBindingMatch = new Map<string, boolean>();
   const providerAdapters = options.providers ?? createDefaultProviders({
     claudeCommand: options.providerCommands?.claude?.command,
@@ -153,7 +154,7 @@ export function createDaemonServer(options: {
         },
         sessionRepository: runtimeSessions,
         permissionRepository: permissionRequests,
-        messageLogRepository: messageLog,
+        eventLogRepository: eventLog,
         pairingRepository: pairings,
         bindingRepository: providerBindings,
         events,
@@ -177,7 +178,7 @@ export function createDaemonServer(options: {
     providers: providerAdapters,
     getSessionBindingMatch: (sessionId) => sessionBindingMatch.get(sessionId) === true,
     settings,
-    messageLog,
+    eventLog,
     wechat: options.wechat,
     events,
     configPath: options.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath(),

@@ -2,14 +2,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
-import type { AuthorizedUserView, BridgeSessionView, MessageLogView } from '../../src/web/apiClient';
+import type { AuthorizedUserView, BridgeEventView, BridgeSessionView } from '../../src/web/apiClient';
 
 function createFetchStub() {
   const calls: Array<{ url: string; method: string }> = [];
   const state: {
     sessions: BridgeSessionView[];
     users: AuthorizedUserView[];
-    logs: Record<string, MessageLogView[]>;
+    events: Record<string, BridgeEventView[]>;
   } = {
     sessions: [
       {
@@ -36,29 +36,15 @@ function createFetchStub() {
       },
     ],
     users: [],
-    logs: {
+    events: {
       bs_1: [
         {
           id: 'msg_1',
           bridgeSessionId: 'bs_1',
-          direction: 'inbound',
-          text: 'run tests',
-          createdAt: 1,
-        },
-        {
-          id: 'msg_2',
-          bridgeSessionId: 'bs_1',
           direction: 'provider_event',
-          providerEventType: 'text_delta',
-          text: '收到：run tests',
-          createdAt: 2,
-        },
-        {
-          id: 'msg_3',
-          bridgeSessionId: 'bs_1',
-          direction: 'outbound',
-          text: '收到：run tests',
-          createdAt: 3,
+          providerEventType: 'permission_request',
+          text: '允许执行 fake command?',
+          createdAt: 1,
         },
       ],
     },
@@ -101,8 +87,8 @@ function createFetchStub() {
     if (url.endsWith('/api/channel/sessions')) {
       return new Response(JSON.stringify(state.sessions), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/channel/sessions/bs_1/messages')) {
-      return new Response(JSON.stringify(state.logs.bs_1), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (url.endsWith('/api/channel/sessions/bs_1/events')) {
+      return new Response(JSON.stringify(state.events.bs_1), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/settings')) {
       return new Response(JSON.stringify({
@@ -120,24 +106,22 @@ function createFetchStub() {
   return { fetchImpl, calls };
 }
 
-describe('App session log interactions', () => {
-  it('loads and renders session message logs when the log button is clicked', async () => {
+describe('App session event interactions', () => {
+  it('loads and renders session bridge events when the event button is clicked', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
     render(<App />);
 
-    const logsButtons = await screen.findAllByText('日志');
-    fireEvent.click(logsButtons[0]!);
+    const eventButtons = await screen.findAllByText('事件');
+    fireEvent.click(eventButtons[0]!);
 
     await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/messages') && call.method === 'GET')).toBe(true);
+      expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/events') && call.method === 'GET')).toBe(true);
     });
 
-    expect(await screen.findByText('消息日志 · bs_1')).toBeTruthy();
-    expect(await screen.findByText('run tests')).toBeTruthy();
-    expect(await screen.findByText('收到：run tests')).toBeTruthy();
-    expect(screen.getAllByText('收到：run tests')).toHaveLength(1);
+    expect(await screen.findByText('桥接事件 · bs_1')).toBeTruthy();
+    expect(await screen.findByText('允许执行 fake command?')).toBeTruthy();
     expect(await screen.findByText('标题恢复')).toBeTruthy();
     expect(await screen.findByText('推荐恢复')).toBeTruthy();
     expect(await screen.findByText('按标题恢复')).toBeTruthy();
@@ -187,57 +171,27 @@ describe('App session log interactions', () => {
     expect(await screen.findByText('Sidecar 命中')).toBeTruthy();
   });
 
-  it('merges consecutive provider text deltas into a single displayed log entry', async () => {
+  it('renders bridge event rows without relying on text delta/outbound deduplication', async () => {
     const { fetchImpl } = createFetchStub();
     const mergedFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/api/channel/sessions/bs_1/messages')) {
+      if (url.endsWith('/api/channel/sessions/bs_1/events')) {
         return new Response(JSON.stringify([
           {
             id: 'msg_1',
             bridgeSessionId: 'bs_1',
-            direction: 'inbound',
-            text: '测试读取几个文件内容',
+            direction: 'provider_event',
+            providerEventType: 'permission_request',
+            text: '允许执行 read file?',
             createdAt: 1,
           },
           {
             id: 'msg_2',
             bridgeSessionId: 'bs_1',
             direction: 'provider_event',
-            providerEventType: 'text_delta',
-            text: '我',
+            providerEventType: 'error',
+            text: 'provider_failed:read file',
             createdAt: 2,
-          },
-          {
-            id: 'msg_3',
-            bridgeSessionId: 'bs_1',
-            direction: 'provider_event',
-            providerEventType: 'text_delta',
-            text: '读取',
-            createdAt: 3,
-          },
-          {
-            id: 'msg_4',
-            bridgeSessionId: 'bs_1',
-            direction: 'provider_event',
-            providerEventType: 'text_delta',
-            text: '几个',
-            createdAt: 4,
-          },
-          {
-            id: 'msg_5',
-            bridgeSessionId: 'bs_1',
-            direction: 'provider_event',
-            providerEventType: 'text_delta',
-            text: '常见项目文件',
-            createdAt: 5,
-          },
-          {
-            id: 'msg_6',
-            bridgeSessionId: 'bs_1',
-            direction: 'outbound',
-            text: '我读取几个常见项目文件',
-            createdAt: 6,
           },
         ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -247,10 +201,10 @@ describe('App session log interactions', () => {
 
     render(<App />);
 
-    const logsButtons = await screen.findAllByText('日志');
-    fireEvent.click(logsButtons[0]!);
+    const eventButtons = await screen.findAllByText('事件');
+    fireEvent.click(eventButtons[0]!);
 
-    expect(await screen.findByText('我读取几个常见项目文件')).toBeTruthy();
-    expect(screen.getAllByText('我读取几个常见项目文件')).toHaveLength(1);
+    expect(await screen.findByText('允许执行 read file?')).toBeTruthy();
+    expect(await screen.findByText('provider_failed:read file')).toBeTruthy();
   });
 });

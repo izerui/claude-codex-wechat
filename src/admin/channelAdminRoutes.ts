@@ -6,7 +6,7 @@ import type { WeixinConfig } from '../daemon/config';
 import { defaultConfigPath } from '../daemon/config';
 import { persistWechatCredentialsToConfigFile } from '../daemon/configPersistence';
 import type { BridgeEventHub } from '../daemon/events';
-import type { MessageLogRepository } from '../storage/messageLogRepository';
+import type { BridgeEventRepository } from '../storage/bridgeEventRepository';
 import type { PairingRepository } from '../storage/pairingRepository';
 import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
 import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
@@ -27,7 +27,7 @@ export function registerChannelAdminRoutes(input: {
   providers?: NativeProviderAdapter[];
   getSessionBindingMatch?: (sessionId: string) => boolean;
   settings?: SettingsRepository;
-  messageLog?: MessageLogRepository;
+  eventLog?: BridgeEventRepository;
   users: UserRepository;
   wechat?: WeixinConfig;
   channel?: ChannelAdapter;
@@ -383,12 +383,17 @@ export function registerChannelAdminRoutes(input: {
     return { ok: true };
   });
 
-  input.app.get<{ Params: { id: string } }>('/api/channel/sessions/:id/messages', async (request, reply) => {
+  const listSessionEvents = async (
+    request: { params: { id: string } },
+    reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } },
+  ) => {
     const runtimeSession = input.sessions?.findById(request.params.id);
     if (!runtimeSession) return reply.code(404).send({ ok: false, error: 'session_not_found' });
-    const logs = input.messageLog?.listForSession(request.params.id) ?? [];
-    return logs;
-  });
+    const events = input.eventLog?.listEventsForSession(request.params.id) ?? [];
+    return events;
+  };
+
+  input.app.get<{ Params: { id: string } }>('/api/channel/sessions/:id/events', listSessionEvents);
 
   input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/stop', async (request, reply) => {
     const runtimeSession = input.sessions?.findById(request.params.id);

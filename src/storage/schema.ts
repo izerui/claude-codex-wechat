@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS permission_requests (
   decided_by TEXT
 );
 
-CREATE TABLE IF NOT EXISTS message_log (
+CREATE TABLE IF NOT EXISTS bridge_events (
   id TEXT PRIMARY KEY,
   bridge_session_id TEXT NOT NULL,
   direction TEXT NOT NULL,

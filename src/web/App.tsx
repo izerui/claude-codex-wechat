@@ -3,7 +3,7 @@ import {
   archiveSession,
   decidePermission,
   fetchProviderStatus,
-  fetchSessionMessages,
+  fetchSessionEvents,
   fetchSessions,
   fetchSettings,
   fetchStatus,
@@ -11,9 +11,9 @@ import {
   repairSessionNativeResume,
   stopSession,
   updateSettings,
+  type BridgeEventView,
   type BridgeSessionView,
   type BridgeSettingsView,
-  type MessageLogView,
   type PermissionRequestView,
   type ProviderStatusView,
   type StatusView,
@@ -167,7 +167,7 @@ function SessionsPanel(input: {
   onRefresh: () => Promise<void>;
 }) {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [logs, setLogs] = useState<MessageLogView[]>([]);
+  const [events, setEvents] = useState<BridgeEventView[]>([]);
   const hasRepairableClaudeBridgeSessions = input.sessions.some((session) => (
     session.providerId === 'claude-code' && session.providerResumeRepairable === true
   ));
@@ -178,9 +178,9 @@ function SessionsPanel(input: {
     await input.onRefresh();
   };
 
-  const showLogs = async (sessionId: string) => {
+  const showEvents = async (sessionId: string) => {
     setSelectedSessionId(sessionId);
-    setLogs(deduplicateDisplayedLogs(await fetchSessionMessages(sessionId)));
+    setEvents(await fetchSessionEvents(sessionId));
   };
 
   const repairNativeResume = async (session: BridgeSessionView) => {
@@ -250,7 +250,7 @@ function SessionsPanel(input: {
                   <td style={styles.td}>{session.status}</td>
                   <td style={styles.td}>
                     <div style={styles.actions}>
-                      <button type="button" style={styles.button} onClick={() => void showLogs(session.id)}>日志</button>
+                      <button type="button" style={styles.button} onClick={() => void showEvents(session.id)}>事件</button>
                       {!session.archivedAt && session.status !== 'closed' && (
                         <button type="button" style={styles.button} onClick={() => void runAction('stop', session.id)}>停止</button>
                       )}
@@ -270,16 +270,16 @@ function SessionsPanel(input: {
       )}
       {selectedSessionId ? (
         <div style={{ marginTop: 16 }}>
-          <h3 style={styles.sectionTitle}>消息日志 · {selectedSessionId}</h3>
-          {logs.length === 0 ? <p style={styles.empty}>桥接器默认不归档正文消息；如需完整历史，请到 Claude/Codex 原生会话查看。</p> : (
+          <h3 style={styles.sectionTitle}>桥接事件 · {selectedSessionId}</h3>
+          {events.length === 0 ? <p style={styles.empty}>桥接器默认不归档正文历史；如需完整对话，请到 Claude/Codex 原生会话查看。</p> : (
             <ul style={styles.list}>
-              {logs.map((log) => (
-                <li key={log.id} style={styles.listItem}>
+              {events.map((event) => (
+                <li key={event.id} style={styles.listItem}>
                   <div>
-                    <strong>{log.direction}</strong>
-                    {log.providerEventType ? ` · ${log.providerEventType}` : ''}
+                    <strong>{event.direction}</strong>
+                    {event.providerEventType ? ` · ${event.providerEventType}` : ''}
                   </div>
-                  <div style={styles.muted}>{log.text ?? ''}</div>
+                  <div style={styles.muted}>{event.text ?? ''}</div>
                 </li>
               ))}
             </ul>
@@ -288,28 +288,6 @@ function SessionsPanel(input: {
       ) : null}
     </section>
   );
-}
-
-function deduplicateDisplayedLogs(logs: MessageLogView[]): MessageLogView[] {
-  const deduplicated: MessageLogView[] = [];
-  for (const log of logs) {
-    const previous = deduplicated.at(-1);
-    const canMergeTextDelta = previous?.direction === 'provider_event'
-      && previous.providerEventType === 'text_delta'
-      && log.direction === 'provider_event'
-      && log.providerEventType === 'text_delta';
-    if (canMergeTextDelta) {
-      previous.text = `${previous.text ?? ''}${log.text ?? ''}`;
-      continue;
-    }
-    const isDuplicateOutboundText = previous?.direction === 'provider_event'
-      && (previous.providerEventType === 'text_delta' || previous.providerEventType === 'message_done')
-      && log.direction === 'outbound'
-      && previous.text === log.text;
-    if (isDuplicateOutboundText) continue;
-    deduplicated.push(log);
-  }
-  return deduplicated;
 }
 
 function PermissionsPanel(input: {

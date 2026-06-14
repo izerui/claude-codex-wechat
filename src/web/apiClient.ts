@@ -142,10 +142,10 @@ export type BridgeSettingsView = {
   highRiskCommandPolicy: 'per_request' | 'deny' | 'allow';
 };
 
-export type MessageLogView = {
+export type BridgeEventView = {
   id: string;
   bridgeSessionId: string;
-  direction: 'inbound' | 'outbound' | 'provider_event';
+  direction: 'provider_event';
   platformMessageId?: string;
   providerEventType?: string;
   text?: string;
@@ -313,8 +313,8 @@ export async function repairAllRecoverableProviderSessionsNativeResume(input: {
   });
 }
 
-export async function fetchSessionMessages(id: string): Promise<MessageLogView[]> {
-  return await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/messages`);
+export async function fetchSessionEvents(id: string): Promise<BridgeEventView[]> {
+  return await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/events`);
 }
 
 export async function stopSession(id: string): Promise<void> {

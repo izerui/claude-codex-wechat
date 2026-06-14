@@ -8,7 +8,7 @@ import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { CodexInteractiveRunner } from '../src/providers/codex/codexInteractiveRunner';
 import { CodexProvider } from '../src/providers/codex/codexProvider';
 import { CodexAppServerClient } from '../src/providers/codex/codexAppServerClient';
-import { MessageLogRepository } from '../src/storage/messageLogRepository';
+import { BridgeEventRepository } from '../src/storage/bridgeEventRepository';
 import { PermissionRequestRepository } from '../src/storage/permissionRequestRepository';
 import { ProviderBindingRepository } from '../src/storage/providerBindingRepository';
 import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
@@ -134,7 +134,7 @@ describe('channel message flow', () => {
     expect(new PermissionRequestRepository(db).listPending()).toEqual([
       expect.objectContaining({ id: 'pr_fake_1', bridgeSessionId: sessions.listSessions()[0].id }),
     ]);
-    expect(new MessageLogRepository(db).listForSession(sessions.listSessions()[0].id)).toEqual([
+    expect(new BridgeEventRepository(db).listForSession(sessions.listSessions()[0].id)).toEqual([
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
     ]);
 

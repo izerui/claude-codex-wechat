@@ -2,7 +2,7 @@ import type { ChannelAdapter, ChannelIncomingMessage } from '../channels/types';
 import { formatPermissionMessage } from '../permissions/formatPermissionMessage';
 import type { PermissionRouter } from '../permissions/permissionRouter';
 import type { NativeProviderAdapter, ProviderId } from '../providers/types';
-import type { MessageLogRepository } from '../storage/messageLogRepository';
+import type { BridgeEventRepository } from '../storage/bridgeEventRepository';
 import type { PermissionRequestRepository } from '../storage/permissionRequestRepository';
 import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import type { AuthorizedUserRecord } from '../storage/userRepository';
@@ -31,7 +31,7 @@ export class MessageRouter {
       autoAttachSession?(message: ChannelIncomingMessage, user: AuthorizedUserRecord): Promise<BridgeSessionRecord | null>;
       sessionRepository?: RuntimeSessionRepository;
       permissionRepository?: PermissionRequestRepository;
-      messageLogRepository?: MessageLogRepository;
+      eventLogRepository?: BridgeEventRepository;
       pairingRepository?: PairingRepository;
       bindingRepository?: ProviderBindingRepository;
       events?: BridgeEventHub;
@@ -148,7 +148,7 @@ export class MessageRouter {
           status: 'pending',
           requestedAt: Date.now(),
         });
-        this.options.messageLogRepository?.append({
+        this.options.eventLogRepository?.append({
           bridgeSessionId: session.id,
           direction: 'provider_event',
           providerEventType: event.type,
@@ -183,15 +183,9 @@ export class MessageRouter {
       if (event.type === 'error' && event.error) {
         if (bufferedText.trim()) {
           await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
-          this.options.messageLogRepository?.append({
-            bridgeSessionId: session.id,
-            direction: 'outbound',
-            text: bufferedText,
-            createdAt: Date.now(),
-          });
           bufferedText = '';
         }
-        this.options.messageLogRepository?.append({
+        this.options.eventLogRepository?.append({
           bridgeSessionId: session.id,
           direction: 'provider_event',
           providerEventType: event.type,

@@ -3,9 +3,10 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDaemonServer } from '../src/daemon/server';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
-import { MessageLogRepository } from '../src/storage/messageLogRepository';
+import { BridgeEventRepository } from '../src/storage/bridgeEventRepository';
 import { PermissionRequestRepository } from '../src/storage/permissionRequestRepository';
 import { schemaSql } from '../src/storage/schema';
+import { SettingsRepository } from '../src/storage/settingsRepository';
 import { UserRepository } from '../src/storage/userRepository';
 import { WeixinDirectAdapter } from '../src/channels/weixin-direct/adapter';
 
@@ -164,12 +165,10 @@ describe('daemon WeChat runtime channel', () => {
       expect(new PermissionRequestRepository(db).listPending()).toHaveLength(1);
     });
 
-    const logs = new MessageLogRepository(db).listForSession(
+    const logs = new BridgeEventRepository(db).listForSession(
       new PermissionRequestRepository(db).listPending()[0]!.bridgeSessionId,
     );
     expect(logs).toEqual([
-      expect.objectContaining({ direction: 'inbound', text: 'run tests' }),
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'text_delta', text: '收到：run tests' }),
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
     ]);
     expect(api.sendTextMessage).toHaveBeenCalledWith({
@@ -234,10 +233,8 @@ describe('daemon WeChat runtime channel', () => {
     });
 
     const pending = new PermissionRequestRepository(db).listPending();
-    const logs = new MessageLogRepository(db).listForSession(pending[0]!.bridgeSessionId);
+    const logs = new BridgeEventRepository(db).listForSession(pending[0]!.bridgeSessionId);
     expect(logs).toEqual([
-      expect.objectContaining({ direction: 'inbound', text: 'run tests' }),
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'text_delta', text: '收到：run tests' }),
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
     ]);
 
@@ -275,6 +272,7 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
+    new SettingsRepository(db).set('settings.wechatAutoAuthorize', false);
     const { app, pairings } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],
@@ -327,6 +325,7 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
+    new SettingsRepository(db).set('settings.wechatAutoAuthorize', false);
     const { app, pairings } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],

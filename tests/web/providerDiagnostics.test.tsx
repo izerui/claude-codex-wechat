@@ -27,7 +27,7 @@ describe('App dashboard provider diagnostics', () => {
       if (url.endsWith('/api/channel/sessions')) {
         return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-      if (url.includes('/api/channel/sessions/') && url.endsWith('/messages')) {
+      if (url.includes('/api/channel/sessions/') && url.endsWith('/events')) {
         return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       if (url.endsWith('/api/settings')) {

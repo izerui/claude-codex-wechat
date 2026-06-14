@@ -3,5 +3,11 @@ export { PairingRepository, type PairingRecord } from './pairingRepository';
 export { ProviderBindingRepository, type ProviderBindingRecord } from './providerBindingRepository';
 export { RuntimeSessionRepository, type RuntimeSessionRecord } from './runtimeSessionRepository';
 export { PermissionRequestRepository, type PermissionRequestRecord } from './permissionRequestRepository';
-export { MessageLogRepository, type MessageLogRecord, type MessageLogDirection } from './messageLogRepository';
+export {
+  BridgeEventRepository,
+  type BridgeEventStorageDirection,
+  type BridgeEventWriteRecord,
+  type BridgeEventRecord,
+  type BridgeEventDirection,
+} from './bridgeEventRepository';
 export { SettingsRepository } from './settingsRepository';

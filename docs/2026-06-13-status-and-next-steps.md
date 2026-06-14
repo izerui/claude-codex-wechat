@@ -128,7 +128,7 @@
 现在已导出：
 - `RuntimeSessionRepository`
 - `PermissionRequestRepository`
-- `MessageLogRepository`
+- `BridgeEventRepository`
 - `SettingsRepository`
 
 这也符合工程演化方向，说明该项目已经从 M1/M2 进入更完整的 runtime + admin 管理阶段。

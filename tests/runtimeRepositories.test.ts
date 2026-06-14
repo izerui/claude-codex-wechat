@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { MessageLogRepository } from '../src/storage/messageLogRepository';
+import { BridgeEventRepository } from '../src/storage/bridgeEventRepository';
 import { PermissionRequestRepository } from '../src/storage/permissionRequestRepository';
 import { ProviderBindingRepository } from '../src/storage/providerBindingRepository';
 import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
@@ -72,26 +72,26 @@ describe('runtime repositories', () => {
     });
   });
 
-  it('appends message log entries in chronological order', () => {
-    const log = new MessageLogRepository(createMemoryDb());
+  it('appends bridge event entries in chronological order', () => {
+    const log = new BridgeEventRepository(createMemoryDb());
     log.append({
       bridgeSessionId: 'bs_1',
-      direction: 'inbound',
-      platformMessageId: 'wx_m1',
-      text: 'hello',
+      direction: 'provider_event',
+      providerEventType: 'permission_request',
+      text: 'allow command?',
       createdAt: 100,
     });
     log.append({
       bridgeSessionId: 'bs_1',
       direction: 'provider_event',
-      providerEventType: 'text_delta',
-      text: 'hi',
+      providerEventType: 'error',
+      text: 'provider_failed',
       createdAt: 110,
     });
 
     expect(log.listForSession('bs_1')).toEqual([
-      expect.objectContaining({ direction: 'inbound', text: 'hello' }),
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'text_delta', text: 'hi' }),
+      expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: 'allow command?' }),
+      expect.objectContaining({ direction: 'provider_event', providerEventType: 'error', text: 'provider_failed' }),
     ]);
   });
 
