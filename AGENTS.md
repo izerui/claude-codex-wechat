@@ -265,3 +265,17 @@ If you touch Codex recovery behavior, validate against:
 - Change permission handling: `src/permissions/permissionRouter.ts`, `src/session/messageRouter.ts`, provider-specific permission mapping files
 - Change provider diagnostics: `src/providers/providerRegistry.ts`, detection files, and Dashboard rendering in `src/web/App.tsx`
 - Change WeChat HTTP compatibility: `src/channels/wechat-clawbot/*` and `src/daemon/channelRoutes.ts`
+
+## Slash command extension rules
+
+The bridge has an intentional slash-command extension point for WeChat text input. Preserve and extend it deliberately.
+
+- The canonical parser lives in `src/session/commandParser.ts`. Add new bridge slash commands there first.
+- `src/session/messageRouter.ts` is the execution side for parsed commands. Keep parsing and execution split; do not bury ad-hoc string matching in `MessageRouter`.
+- Unknown slash commands must continue to fall back to `{ kind: 'chat', text }` unless there is an explicit product decision to reserve them. This keeps room for provider-native text commands and avoids accidental breakage.
+- Prefer typed command variants in `BridgeCommand` over loosely structured payloads. When adding a command, add a distinct union member rather than overloading an existing one.
+- New slash commands should be bridge-owned conversation controls, not a blind passthrough of provider TUI internals. If a provider-native slash command needs support, document whether it is:
+  - parsed and handled by the bridge, or
+  - intentionally passed through as normal chat text.
+- Keep command names stable once exposed to WeChat users. If behavior changes, update help text and tests in the same change.
+- Every new command or command syntax change must include focused tests in `tests/commandParser.test.ts` and, when behavior is non-trivial, a routing/integration test in `tests/messageRouter.test.ts` or `tests/channelMessageFlow.test.ts`.
