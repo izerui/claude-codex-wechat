@@ -155,6 +155,7 @@ export function createDaemonServer(options: {
         permissionRepository: permissionRequests,
         messageLogRepository: messageLog,
         pairingRepository: pairings,
+        bindingRepository: providerBindings,
         events,
       })
     : undefined;

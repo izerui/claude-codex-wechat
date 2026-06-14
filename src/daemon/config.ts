@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export type WeixinConfig = {
   enabled: boolean;
@@ -27,22 +27,32 @@ export function defaultConfigPath(): string {
 }
 
 export function loadBridgeConfig(path = process.env.BRIDGE_CONFIG ?? defaultConfigPath()): BridgeConfig {
-  if (!existsSync(path)) return normalizeBridgeConfig({}, process.env);
+  if (!existsSync(path)) return normalizeBridgeConfig({}, process.env, path);
   const raw = JSON.parse(readFileSync(path, 'utf8')) as unknown;
-  return normalizeBridgeConfig(raw, process.env);
+  return normalizeBridgeConfig(raw, process.env, path);
 }
 
-export function normalizeBridgeConfigForTest(raw: unknown, env: NodeJS.ProcessEnv = process.env): BridgeConfig {
-  return normalizeBridgeConfig(raw, env);
+export function normalizeBridgeConfigForTest(
+  raw: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+  path = defaultConfigPath(),
+): BridgeConfig {
+  return normalizeBridgeConfig(raw, env, path);
 }
 
-function normalizeBridgeConfig(raw: unknown, env: NodeJS.ProcessEnv): BridgeConfig {
+function normalizeBridgeConfig(raw: unknown, env: NodeJS.ProcessEnv, path: string): BridgeConfig {
   const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
   return {
-    databasePath: typeof record.databasePath === 'string' && record.databasePath ? record.databasePath : undefined,
+    databasePath: typeof record.databasePath === 'string' && record.databasePath
+      ? record.databasePath
+      : defaultDatabasePathForConfig(path),
     wechat: normalizeWechatConfig(record.wechat, env),
     providers: normalizeProvidersConfig(record.providers, env),
   };
+}
+
+function defaultDatabasePathForConfig(configPath: string): string {
+  return join(dirname(configPath), 'bridge.sqlite');
 }
 
 function normalizeProvidersConfig(raw: unknown, env: NodeJS.ProcessEnv): BridgeConfig['providers'] {

@@ -1,3 +1,4 @@
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { defaultConfigPath, normalizeBridgeConfigForTest } from '../src/daemon/config';
 
@@ -18,6 +19,21 @@ describe('bridge config provider commands', () => {
       claude: { command: '/opt/bin/claude' },
       codex: { command: '/opt/bin/codex' },
     });
+  });
+
+  it('defaults databasePath to bridge.sqlite next to config.json', () => {
+    const configPath = defaultConfigPath();
+    const config = normalizeBridgeConfigForTest({}, {}, configPath);
+
+    expect(config.databasePath).toBe(join(dirname(configPath), 'bridge.sqlite'));
+  });
+
+  it('keeps explicit databasePath when provided', () => {
+    const config = normalizeBridgeConfigForTest({
+      databasePath: '/tmp/custom.sqlite',
+    });
+
+    expect(config.databasePath).toBe('/tmp/custom.sqlite');
   });
 
   it('falls back to env provider command paths when config is missing', () => {

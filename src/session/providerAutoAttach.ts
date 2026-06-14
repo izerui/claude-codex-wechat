@@ -37,12 +37,13 @@ export async function selectBestRecoverableSession(input: {
   targetChatId?: string;
   bindingRepository?: ProviderBindingRepository;
   sessionRepository?: RuntimeSessionRepository;
+  allowHeuristicMatch?: boolean;
 }): Promise<AutoAttachSelection | null> {
   const persistedBinding = input.targetChatId
     ? input.bindingRepository?.findByChat('weixin', input.targetChatId, input.providerId)
     : null;
-  const candidates = await listUnattachedRecoverableSessions(input);
   if (persistedBinding) {
+    const candidates = await listUnattachedRecoverableSessions(input);
     const exact = candidates.find((candidate) => candidate.id === persistedBinding.providerSessionId);
     if (exact) return { candidate: exact, matchedBinding: true, bindingSource: 'binding_table' };
     return {
@@ -56,6 +57,8 @@ export async function selectBestRecoverableSession(input: {
       bindingSource: 'binding_table',
     };
   }
+  if (input.allowHeuristicMatch === false) return null;
+  const candidates = await listUnattachedRecoverableSessions(input);
   candidates.sort((a, b) => {
     const aTagMatch = a.bridgeTag?.platformUserId === input.targetPlatformUserId && a.bridgeTag?.chatId === input.targetChatId ? 1 : 0;
     const bTagMatch = b.bridgeTag?.platformUserId === input.targetPlatformUserId && b.bridgeTag?.chatId === input.targetChatId ? 1 : 0;
@@ -169,6 +172,7 @@ export async function autoAttachProviderSessionForMessage(input: {
     targetChatId: input.message.chatId,
     bindingRepository: input.bindingRepository,
     sessionRepository: input.sessionRepository,
+    allowHeuristicMatch: false,
   });
   if (!selection) return null;
   const session = await attachProviderSessionToBridge({

@@ -15,11 +15,47 @@ import { schemaSql } from '../src/storage/schema';
 import { SettingsRepository } from '../src/storage/settingsRepository';
 import { UserRepository } from '../src/storage/userRepository';
 import { PRIMARY_WEIXIN_PLATFORM } from '../src/channels/platforms';
+import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../src/providers/types';
 
 function memoryDb() {
   const db = new Database(':memory:');
   db.exec(schemaSql);
   return db;
+}
+
+class NoScanAutoAttachProvider implements NativeProviderAdapter {
+  readonly id = 'claude-code' as const;
+  private readonly sessions = new Map<string, ProviderSession>();
+
+  async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+    const session: ProviderSession = {
+      bridgeSessionId: input.bridgeSessionId,
+      providerId: this.id,
+      providerSessionId: `claude-code_fresh_${input.bridgeSessionId}`,
+      cwd: input.cwd,
+      status: 'idle',
+    };
+    this.sessions.set(input.bridgeSessionId, session);
+    return session;
+  }
+
+  async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+    if (!this.sessions.has(input.bridgeSessionId)) throw new Error('fake_provider_session_not_found');
+    yield { type: 'text_delta', text: `收到：${input.text}` };
+    yield { type: 'message_done' };
+  }
+
+  async stopSession(bridgeSessionId: string): Promise<void> {
+    this.sessions.delete(bridgeSessionId);
+  }
+
+  async listRecoverableSessions() {
+    throw new Error('should_not_scan_recoverable_sessions');
+  }
+
+  async attachSession(): Promise<ProviderSession> {
+    throw new Error('should_not_attach_without_binding');
+  }
 }
 
 describe('channel message flow', () => {
@@ -89,8 +125,8 @@ describe('channel message flow', () => {
         chatId: 'chat-a',
         ownerUserId: expect.any(String),
         providerId: 'claude-code',
-        providerSessionId: 'claude-code_recoverable_1',
-        recoverySource: 'heuristic',
+        providerSessionId: expect.stringContaining('claude-code_fake_'),
+        recoverySource: 'runtime',
       }),
     ]);
     expect(new PermissionRequestRepository(db).listPending()).toEqual([
@@ -117,6 +153,50 @@ describe('channel message flow', () => {
     });
     expect(new PermissionRequestRepository(db).listPending()).toHaveLength(2);
     expect(pairings.listPending()).toEqual([]);
+    await app.close();
+  });
+
+  it('starts a new session after restart when no persisted binding exists', async () => {
+    const db = memoryDb();
+    const users = new UserRepository(db);
+    users.createUser({
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      platformUserId: 'wx_user_1',
+      role: 'user',
+      defaultProvider: 'claude-code',
+      defaultCwd: '/tmp/project',
+    });
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const { app, sessions } = createDaemonServer({
+      db,
+      channel,
+      providers: [new NoScanAutoAttachProvider()],
+    });
+
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-fresh',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hello after restart' },
+      timestamp: 1,
+    });
+
+    expect(sessions.getActiveSession('chat-fresh')).toMatchObject({
+      providerId: 'claude-code',
+      providerSessionId: expect.stringContaining('claude-code_fresh_'),
+      recoverySource: 'runtime',
+    });
+    expect(new ProviderBindingRepository(db).findByChat(PRIMARY_WEIXIN_PLATFORM, 'chat-fresh', 'claude-code')).toMatchObject({
+      chatId: 'chat-fresh',
+      providerId: 'claude-code',
+      providerSessionId: expect.stringContaining('claude-code_fresh_'),
+      cwd: '/tmp/project',
+    });
+    expect(sent).toEqual([{ kind: 'text', text: '收到：hello after restart' }]);
+
     await app.close();
   });
 
@@ -249,7 +329,7 @@ describe('channel message flow', () => {
     await app.close();
   });
 
-  it('auto-attaches the best matching recoverable provider session on the first authorized message', async () => {
+  it('starts a fresh provider session on the first authorized message when no binding exists', async () => {
     const db = memoryDb();
     const users = new UserRepository(db);
     users.createUser({
@@ -278,8 +358,9 @@ describe('channel message flow', () => {
     });
 
     expect(sessions.getActiveSession('chat-a')).toMatchObject({
-      providerSessionId: 'claude-code_recoverable_1',
+      providerSessionId: expect.stringContaining('claude-code_fake_'),
       cwd: '/tmp/project',
+      recoverySource: 'runtime',
     });
     expect(sent).toEqual([
       { kind: 'text', text: '收到：run tests' },
@@ -333,6 +414,50 @@ describe('channel message flow', () => {
         providerSessionId: 'claude-session-bound',
       }),
     ]);
+
+    await app.close();
+  });
+
+  it('re-attaches the persisted provider binding on the first authorized message after restart', async () => {
+    const db = memoryDb();
+    const users = new UserRepository(db);
+    users.createUser({
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      platformUserId: 'wx_user_1',
+      role: 'user',
+      defaultProvider: 'claude-code',
+      defaultCwd: '/tmp/project',
+    });
+    new ProviderBindingRepository(db).upsert({
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      platformUserId: 'wx_user_1',
+      chatId: 'chat-restart-bound',
+      providerId: 'claude-code',
+      providerSessionId: 'claude-session-bound',
+      cwd: '/tmp/project',
+    });
+
+    const channel = new MockChannelAdapter();
+    const { app, sessions } = createDaemonServer({
+      db,
+      channel,
+      providers: [new FakeProviderAdapter('claude-code')],
+    });
+
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-restart-bound',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'resume bound session' },
+      timestamp: 1,
+    });
+
+    expect(sessions.getActiveSession('chat-restart-bound')).toMatchObject({
+      providerSessionId: 'claude-session-bound',
+      recoverySource: 'binding_table',
+      cwd: '/tmp/project',
+    });
 
     await app.close();
   });

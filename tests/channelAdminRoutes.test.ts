@@ -161,11 +161,13 @@ describe('channel admin routes', () => {
 
     const response = await app.inject({ method: 'GET', url: `/api/channel/sessions/${active!.id}/messages` });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual([
+    expect(response.json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ direction: 'inbound', text: 'run tests' }),
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'text_delta', text: '收到：run tests' }),
+      expect.objectContaining({ direction: 'outbound', text: '收到：run tests' }),
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
-    ]);
+      expect.objectContaining({ direction: 'outbound', text: expect.stringContaining('/approve pr_fake_1') }),
+    ]));
     await app.close();
   });
 
@@ -198,11 +200,9 @@ describe('channel admin routes', () => {
       expect.objectContaining({
         chatId: 'chat-a',
         providerId: 'claude-code',
-        providerSessionId: 'claude-code_recoverable_1',
+        providerSessionId: expect.stringContaining('claude-code_fake_'),
         bindingMatched: false,
-        bindingSource: 'heuristic',
-        bindingPlatformUserId: 'wx_user_1',
-        bindingProviderSessionId: 'claude-code_recoverable_1',
+        bindingSource: 'runtime',
         providerResumeTitleSynced: false,
         providerResumeRepairable: false,
         providerResumeCommand: expect.stringContaining('claude --resume'),

@@ -207,6 +207,54 @@ The repository already contains opt-in real CLI tests. Keep these principles in 
 - Codex real behavior currently proves a **minimal contract** (successful completion and `message_done`) but not necessarily every parser assumption from fake/unit tests.
 - When real CLI behavior disagrees with the fake contract, prefer updating the parser/tests to match observed reality rather than preserving a nicer-but-false abstraction.
 
+## Resume invariants
+
+These rules are easy to break and must be preserved when changing WeChat bridge, provider, or recovery code.
+
+### Claude resume invariants
+
+For a WeChat-driven Claude session to be recoverable through `claude -r` and visible in Claude resume flows, all of the following must stay aligned:
+
+- the bridge session must have a stable `resumeTitle`
+- the native Claude session file under `~/.claude/projects/**` must contain matching `custom-title` / `agent-name`
+- `~/.claude/history.jsonl` must contain both:
+  - `display` equal to the same bridge title
+  - `project` equal to the real session cwd
+
+When repairing or syncing Claude metadata, prefer the bridge sidecar cwd over path-derived guesses. Project directory names under `~/.claude/projects/` are not a reliable reversible encoding for paths that already contain `-`.
+
+Bridge-created Claude sessions also need to look like native CLI sessions closely enough for Claude's resume UI to recognize them. In practice this means:
+
+- do not leave bridge-created Claude session records with `entrypoint: "sdk-cli"` once recovery metadata is being normalized
+- ensure a `permission-mode` record exists for normalized bridge-created Claude sessions
+
+If you touch Claude recovery behavior, validate against:
+
+- `tests/claudeNativeSessions.test.ts`
+- `tests/daemonSessionRecovery.test.ts`
+- the relevant Claude recovery cases in `tests/channelAdminRoutes.test.ts`
+
+### Codex resume invariants
+
+For a WeChat-driven Codex session to be recoverable through Codex resume flows:
+
+- `~/.codex/session_index.jsonl` must contain the bridge-owned `thread_name`
+- provider sidecar metadata must preserve the bridge cwd and bridge tag
+
+Do not auto-attach a recoverable Codex session whose `cwd` does not match the target user/session cwd unless there is an explicit persisted binding. Attaching the wrong native session causes resume UI cwd filtering to lie and binds WeChat traffic to the wrong historical session.
+
+If you touch Codex recovery behavior, validate against:
+
+- `tests/channelMessageFlow.test.ts`
+- the Codex recovery and attach cases in `tests/channelAdminRoutes.test.ts`
+
+### WeChat authorization default
+
+`wechatAutoAuthorize` is treated as enabled by default. Runtime behavior must stay consistent with the settings API and admin UI:
+
+- only an explicit stored value of `false` should disable automatic WeChat authorization
+- do not reintroduce a mismatch where settings display defaults to enabled but runtime still requires manual pairing approval
+
 ## Where to look first for common changes
 
 - Add or change chat command behavior: `src/session/commandParser.ts` and `src/session/messageRouter.ts`
