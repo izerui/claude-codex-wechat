@@ -10,6 +10,7 @@ import { ProviderBindingRepository } from '../src/storage/providerBindingReposit
 import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
 import { schemaSql } from '../src/storage/schema';
 import type { AuthorizedUserRecord } from '../src/storage/userRepository';
+import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../src/providers/types';
 
 const authorizedUser: AuthorizedUserRecord = {
   id: 'user_a',
@@ -20,6 +21,32 @@ const authorizedUser: AuthorizedUserRecord = {
   defaultCwd: '/tmp/project',
   createdAt: 1,
 };
+
+class ErrorProviderAdapter implements NativeProviderAdapter {
+  readonly id = 'codex' as const;
+  private readonly sessions = new Map<string, ProviderSession>();
+
+  async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+    const session: ProviderSession = {
+      bridgeSessionId: input.bridgeSessionId,
+      providerId: this.id,
+      providerSessionId: `codex_error_${input.bridgeSessionId}`,
+      cwd: input.cwd,
+      status: 'idle',
+    };
+    this.sessions.set(input.bridgeSessionId, session);
+    return session;
+  }
+
+  async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+    if (!this.sessions.has(input.bridgeSessionId)) throw new Error('codex_session_not_found');
+    yield { type: 'error', error: `provider_failed:${input.text}` };
+  }
+
+  async stopSession(bridgeSessionId: string): Promise<void> {
+    this.sessions.delete(bridgeSessionId);
+  }
+}
 
 describe('MessageRouter', () => {
   it('routes authorized chat text through a provider and sends output to the channel', async () => {
@@ -351,6 +378,45 @@ describe('MessageRouter', () => {
       expect.objectContaining({ direction: 'outbound', text: '收到：hello codex' }),
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
       expect.objectContaining({ direction: 'outbound', text: expect.stringContaining('/approve pr_fake_1') }),
+    ]);
+  });
+
+  it('sends an error message back to the channel when the provider emits an error event', async () => {
+    const db = new Database(':memory:');
+    db.exec(schemaSql);
+    const messageLogRepository = new MessageLogRepository(db);
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [new ErrorProviderAdapter()],
+      sessions,
+      resolveUser: () => ({ ...authorizedUser, defaultProvider: 'codex' }),
+      messageLogRepository,
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-error',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'news' },
+      timestamp: 1,
+    });
+
+    expect(sent).toEqual([
+      { kind: 'status', text: 'Provider error: provider_failed:news' },
+    ]);
+    const activeSession = sessions.getActiveSession('chat-error');
+    expect(activeSession).not.toBeNull();
+    expect(messageLogRepository.listForSession(activeSession!.id)).toEqual([
+      expect.objectContaining({ direction: 'inbound', text: 'news' }),
+      expect.objectContaining({ direction: 'provider_event', providerEventType: 'error', text: 'provider_failed:news' }),
+      expect.objectContaining({ direction: 'outbound', text: 'Provider error: provider_failed:news' }),
     ]);
   });
 });

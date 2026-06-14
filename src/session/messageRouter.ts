@@ -212,6 +212,37 @@ export class MessageRouter {
         }
         await this.persistBridgeMetadata(updated, message.user.id);
       }
+      if (event.type === 'error' && event.error) {
+        if (bufferedText.trim()) {
+          await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
+          this.options.messageLogRepository?.append({
+            bridgeSessionId: session.id,
+            direction: 'outbound',
+            text: bufferedText,
+            createdAt: Date.now(),
+          });
+          bufferedText = '';
+        }
+        this.options.messageLogRepository?.append({
+          bridgeSessionId: session.id,
+          direction: 'provider_event',
+          providerEventType: event.type,
+          text: event.error,
+          createdAt: Date.now(),
+        });
+        const errorText = `Provider error: ${event.error}`;
+        await this.options.channel.sendMessage({
+          chatId: message.chatId,
+          kind: 'status',
+          text: errorText,
+        });
+        this.options.messageLogRepository?.append({
+          bridgeSessionId: session.id,
+          direction: 'outbound',
+          text: errorText,
+          createdAt: Date.now(),
+        });
+      }
     }
     return { status: 'accepted' };
   }
