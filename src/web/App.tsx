@@ -294,8 +294,16 @@ function deduplicateDisplayedLogs(logs: MessageLogView[]): MessageLogView[] {
   const deduplicated: MessageLogView[] = [];
   for (const log of logs) {
     const previous = deduplicated.at(-1);
-    const isDuplicateOutboundText = previous?.direction === 'provider_event'
+    const canMergeTextDelta = previous?.direction === 'provider_event'
       && previous.providerEventType === 'text_delta'
+      && log.direction === 'provider_event'
+      && log.providerEventType === 'text_delta';
+    if (canMergeTextDelta) {
+      previous.text = `${previous.text ?? ''}${log.text ?? ''}`;
+      continue;
+    }
+    const isDuplicateOutboundText = previous?.direction === 'provider_event'
+      && (previous.providerEventType === 'text_delta' || previous.providerEventType === 'message_done')
       && log.direction === 'outbound'
       && previous.text === log.text;
     if (isDuplicateOutboundText) continue;

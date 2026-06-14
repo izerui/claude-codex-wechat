@@ -374,7 +374,6 @@ describe('MessageRouter', () => {
     const logs = messageLogRepository.listForSession(activeSession!.id);
     expect(logs).toEqual([
       expect.objectContaining({ direction: 'inbound', text: 'hello codex' }),
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'text_delta', text: '收到：hello codex' }),
       expect.objectContaining({ direction: 'outbound', text: '收到：hello codex' }),
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
       expect.objectContaining({ direction: 'outbound', text: expect.stringContaining('/approve pr_fake_1') }),

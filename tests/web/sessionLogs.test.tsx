@@ -127,8 +127,8 @@ describe('App session log interactions', () => {
 
     render(<App />);
 
-    const logsButton = await screen.findByText('日志');
-    fireEvent.click(logsButton);
+    const logsButtons = await screen.findAllByText('日志');
+    fireEvent.click(logsButtons[0]!);
 
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/messages') && call.method === 'GET')).toBe(true);
@@ -185,5 +185,72 @@ describe('App session log interactions', () => {
     render(<App />);
 
     expect(await screen.findByText('Sidecar 命中')).toBeTruthy();
+  });
+
+  it('merges consecutive provider text deltas into a single displayed log entry', async () => {
+    const { fetchImpl } = createFetchStub();
+    const mergedFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/channel/sessions/bs_1/messages')) {
+        return new Response(JSON.stringify([
+          {
+            id: 'msg_1',
+            bridgeSessionId: 'bs_1',
+            direction: 'inbound',
+            text: '测试读取几个文件内容',
+            createdAt: 1,
+          },
+          {
+            id: 'msg_2',
+            bridgeSessionId: 'bs_1',
+            direction: 'provider_event',
+            providerEventType: 'text_delta',
+            text: '我',
+            createdAt: 2,
+          },
+          {
+            id: 'msg_3',
+            bridgeSessionId: 'bs_1',
+            direction: 'provider_event',
+            providerEventType: 'text_delta',
+            text: '读取',
+            createdAt: 3,
+          },
+          {
+            id: 'msg_4',
+            bridgeSessionId: 'bs_1',
+            direction: 'provider_event',
+            providerEventType: 'text_delta',
+            text: '几个',
+            createdAt: 4,
+          },
+          {
+            id: 'msg_5',
+            bridgeSessionId: 'bs_1',
+            direction: 'provider_event',
+            providerEventType: 'text_delta',
+            text: '常见项目文件',
+            createdAt: 5,
+          },
+          {
+            id: 'msg_6',
+            bridgeSessionId: 'bs_1',
+            direction: 'outbound',
+            text: '我读取几个常见项目文件',
+            createdAt: 6,
+          },
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return await fetchImpl(input, init);
+    });
+    vi.stubGlobal('fetch', mergedFetch as typeof fetch);
+
+    render(<App />);
+
+    const logsButtons = await screen.findAllByText('日志');
+    fireEvent.click(logsButtons[0]!);
+
+    expect(await screen.findByText('我读取几个常见项目文件')).toBeTruthy();
+    expect(screen.getAllByText('我读取几个常见项目文件')).toHaveLength(1);
   });
 });

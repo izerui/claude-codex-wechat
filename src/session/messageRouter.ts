@@ -133,13 +133,6 @@ export class MessageRouter {
     let bufferedText = '';
     for await (const event of provider.sendMessage({ bridgeSessionId: session.id, text: command.text })) {
       if (event.type === 'text_delta' && event.text) {
-        this.options.messageLogRepository?.append({
-          bridgeSessionId: session.id,
-          direction: 'provider_event',
-          providerEventType: event.type,
-          text: event.text,
-          createdAt: Date.now(),
-        });
         bufferedText += event.text;
       }
       if (event.type === 'message_done' && bufferedText.trim()) {
