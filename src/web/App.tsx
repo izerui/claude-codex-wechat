@@ -180,7 +180,7 @@ function SessionsPanel(input: {
 
   const showLogs = async (sessionId: string) => {
     setSelectedSessionId(sessionId);
-    setLogs(await fetchSessionMessages(sessionId));
+    setLogs(deduplicateDisplayedLogs(await fetchSessionMessages(sessionId)));
   };
 
   const repairNativeResume = async (session: BridgeSessionView) => {
@@ -288,6 +288,20 @@ function SessionsPanel(input: {
       ) : null}
     </section>
   );
+}
+
+function deduplicateDisplayedLogs(logs: MessageLogView[]): MessageLogView[] {
+  const deduplicated: MessageLogView[] = [];
+  for (const log of logs) {
+    const previous = deduplicated.at(-1);
+    const isDuplicateOutboundText = previous?.direction === 'provider_event'
+      && previous.providerEventType === 'text_delta'
+      && log.direction === 'outbound'
+      && previous.text === log.text;
+    if (isDuplicateOutboundText) continue;
+    deduplicated.push(log);
+  }
+  return deduplicated;
 }
 
 function PermissionsPanel(input: {

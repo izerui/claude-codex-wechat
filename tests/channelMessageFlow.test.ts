@@ -23,32 +23,47 @@ function memoryDb() {
 }
 
 describe('channel message flow', () => {
-  it('creates pending pairing for unauthorized incoming user', async () => {
+  it('auto-authorizes unauthorized incoming user by default', async () => {
     const db = memoryDb();
     const channel = new MockChannelAdapter();
-    const { app, pairings } = createDaemonServer({ db, channel });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const { app, pairings, sessions } = createDaemonServer({
+      db,
+      channel,
+      providers: [new FakeProviderAdapter('claude-code')],
+    });
 
     await channel.emitIncoming({
       id: 'm1',
       platform: PRIMARY_WEIXIN_PLATFORM,
       chatId: 'chat-a',
       user: { id: 'wx_user_1', displayName: 'Alice' },
-      content: { type: 'text', text: 'hello' },
+      content: { type: 'text', text: 'run tests' },
       timestamp: 1,
     });
 
-    expect(pairings.listPending()).toHaveLength(1);
+    expect(pairings.listPending()).toEqual([]);
+    expect(new UserRepository(db).findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, 'wx_user_1')).toMatchObject({
+      platformUserId: 'wx_user_1',
+      defaultProvider: 'claude-code',
+    });
+    expect(sessions.listSessions()).toHaveLength(1);
+    expect(sent).toEqual([
+      { kind: 'text', text: '收到：run tests' },
+      { kind: 'permission_request', text: expect.stringContaining('/approve pr_fake_1') },
+    ]);
     await app.close();
   });
 
-  it('accepts authorized message flow and requires pairing again after revoke', async () => {
+  it('accepts authorized message flow and auto-authorizes again after revoke by default', async () => {
     const db = memoryDb();
     const users = new UserRepository(db);
     const created = users.createUser({ platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'claude-code', defaultCwd: '/tmp/project' });
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
-    const { app, permissions, sessions } = createDaemonServer({
+    const { app, permissions, sessions, pairings } = createDaemonServer({
       db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
@@ -100,7 +115,8 @@ describe('channel message flow', () => {
       content: { type: 'text', text: 'run again' },
       timestamp: 2,
     });
-    expect(new PermissionRequestRepository(db).listPending()).toHaveLength(1);
+    expect(new PermissionRequestRepository(db).listPending()).toHaveLength(2);
+    expect(pairings.listPending()).toEqual([]);
     await app.close();
   });
 

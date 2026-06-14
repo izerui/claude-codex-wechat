@@ -53,6 +53,13 @@ function createFetchStub() {
           text: '收到：run tests',
           createdAt: 2,
         },
+        {
+          id: 'msg_3',
+          bridgeSessionId: 'bs_1',
+          direction: 'outbound',
+          text: '收到：run tests',
+          createdAt: 3,
+        },
       ],
     },
   };
@@ -130,6 +137,7 @@ describe('App session log interactions', () => {
     expect(await screen.findByText('消息日志 · bs_1')).toBeTruthy();
     expect(await screen.findByText('run tests')).toBeTruthy();
     expect(await screen.findByText('收到：run tests')).toBeTruthy();
+    expect(screen.getAllByText('收到：run tests')).toHaveLength(1);
     expect(await screen.findByText('标题恢复')).toBeTruthy();
     expect(await screen.findByText('推荐恢复')).toBeTruthy();
     expect(await screen.findByText('按标题恢复')).toBeTruthy();

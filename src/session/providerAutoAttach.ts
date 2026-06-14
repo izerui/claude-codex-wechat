@@ -67,6 +67,7 @@ export async function selectBestRecoverableSession(input: {
   });
   const candidate = candidates[0];
   if (!candidate) return null;
+  if (candidate.cwd && candidate.cwd !== input.targetCwd) return null;
   return {
     candidate,
     matchedBinding: false,

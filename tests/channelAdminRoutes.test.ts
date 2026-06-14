@@ -1342,6 +1342,69 @@ describe('channel admin routes', () => {
     }
   });
 
+  it('does not auto-attach a Codex recoverable session when its cwd does not match the user cwd', async () => {
+    const previousHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), 'bridge-codex-home-'));
+    process.env.HOME = home;
+    try {
+      const codexSessionDir = join(home, '.codex', 'sessions', '2026', '06', '14');
+      mkdirSync(codexSessionDir, { recursive: true });
+      writeFileSync(join(codexSessionDir, 'rollout-2026-06-14T10-00-00-codex-cwd-mismatch.jsonl'), JSON.stringify({
+        timestamp: '2026-06-14T02:00:00.000Z',
+        type: 'session_meta',
+        payload: {
+          id: 'codex-cwd-mismatch',
+          cwd: '/Users/liuyuhua',
+        },
+      }), 'utf8');
+      mkdirSync(join(home, '.claude-codex-wechat', 'provider-sidecar'), { recursive: true });
+      writeFileSync(join(home, '.claude-codex-wechat', 'provider-sidecar', 'codex__codex-cwd-mismatch.json'), JSON.stringify({
+        providerId: 'codex',
+        providerSessionId: 'codex-cwd-mismatch',
+        bridgeTag: {
+          platform: 'weixin',
+          platformUserId: 'wx_user_1',
+          chatId: 'wx_user_1',
+        },
+        cwd: '/Users/liuyuhua',
+        updatedAt: 200,
+      }, null, 2), 'utf8');
+      writeFileSync(join(home, '.codex', 'session_index.jsonl'), JSON.stringify({
+        id: 'codex-cwd-mismatch',
+        thread_name: '微信 · wx_user_1 · [claude-codex-wechat:codex-cwd-mismatch]',
+        updated_at: '2026-06-14T02:00:00.000Z',
+      }), 'utf8');
+
+      const db = new Database(':memory:');
+      db.exec(schemaSql);
+      const provider = new CodexProvider({ runner: new CodexCliRunner() });
+      const { app, users } = createDaemonServer({ db, providers: [provider] });
+      users.createUser({
+        platform: 'weixin',
+        platformUserId: 'wx_user_1',
+        role: 'user',
+        defaultProvider: 'codex',
+        defaultCwd: '/Users/liuyuhua/github/claude-codex-wechat',
+      });
+
+      const attach = await app.inject({
+        method: 'POST',
+        url: '/api/channel/sessions/auto-attach',
+        payload: {
+          providerId: 'codex',
+          platformUserId: 'wx_user_1',
+        },
+      });
+
+      expect(attach.statusCode).toBe(404);
+      expect(attach.json()).toEqual({ ok: false, error: 'recoverable_provider_session_not_found' });
+
+      await app.close();
+    } finally {
+      process.env.HOME = previousHome;
+    }
+  });
+
   it('syncs channel settings by clearing active runtime sessions', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
