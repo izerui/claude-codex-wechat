@@ -37,15 +37,10 @@ export function normalizeBridgeConfigForTest(raw: unknown, env: NodeJS.ProcessEn
 }
 
 function normalizeBridgeConfig(raw: unknown, env: NodeJS.ProcessEnv): BridgeConfig {
-  if (!raw || typeof raw !== 'object') {
-    return {
-      providers: normalizeProvidersConfig(undefined, env),
-    };
-  }
-  const record = raw as Record<string, unknown>;
+  const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
   return {
     databasePath: typeof record.databasePath === 'string' && record.databasePath ? record.databasePath : undefined,
-    wechat: normalizeWechatConfig(record.wechat),
+    wechat: normalizeWechatConfig(record.wechat, env),
     providers: normalizeProvidersConfig(record.providers, env),
   };
 }
@@ -71,13 +66,31 @@ function normalizeProviderCommand(raw: unknown, envFallback: string | undefined)
   return command ? { command } : undefined;
 }
 
-function normalizeWechatConfig(raw: unknown): WeixinConfig | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
-  const record = raw as Record<string, unknown>;
+function normalizeWechatConfig(raw: unknown, env: NodeJS.ProcessEnv): WeixinConfig | undefined {
+  const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const enabled = record.enabled === true
+    || env.BRIDGE_WECHAT_ENABLED === '1'
+    || env.BRIDGE_WECHAT_ENABLED === 'true';
+  const baseUrl = typeof record.baseUrl === 'string' && record.baseUrl
+    ? record.baseUrl
+    : typeof env.BRIDGE_WECHAT_BASE_URL === 'string' && env.BRIDGE_WECHAT_BASE_URL
+      ? env.BRIDGE_WECHAT_BASE_URL
+      : undefined;
+  const token = typeof record.token === 'string' && record.token
+    ? record.token
+    : typeof env.BRIDGE_WECHAT_TOKEN === 'string' && env.BRIDGE_WECHAT_TOKEN
+      ? env.BRIDGE_WECHAT_TOKEN
+      : undefined;
+  const accountId = typeof record.accountId === 'string' && record.accountId
+    ? record.accountId
+    : typeof env.BRIDGE_WECHAT_ACCOUNT_ID === 'string' && env.BRIDGE_WECHAT_ACCOUNT_ID
+      ? env.BRIDGE_WECHAT_ACCOUNT_ID
+      : undefined;
+  if (!enabled && !baseUrl && !token && !accountId) return undefined;
   return {
-    enabled: record.enabled === true,
-    baseUrl: typeof record.baseUrl === 'string' && record.baseUrl ? record.baseUrl : undefined,
-    token: typeof record.token === 'string' && record.token ? record.token : undefined,
-    accountId: typeof record.accountId === 'string' && record.accountId ? record.accountId : undefined,
+    enabled,
+    baseUrl,
+    token,
+    accountId,
   };
 }

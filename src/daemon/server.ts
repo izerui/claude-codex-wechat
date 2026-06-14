@@ -5,18 +5,20 @@ import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
 import { registerSettingsRoutes } from '../admin/settingsRoutes';
 import type { ChannelAdapter } from '../channels/types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
-import { WeixinDirectAdapter } from '../channels/weixin-direct/adapter';
-import { WeixinDirectApiClient } from '../channels/weixin-direct/apiClient';
+import { ManagedWeixinDirectAdapter } from '../channels/weixin-direct/managedAdapter';
 import { PermissionRouter } from '../permissions/permissionRouter';
 import { createDefaultProviders } from '../providers/defaultProviders';
 import type { NativeProviderAdapter } from '../providers/types';
 import { ProviderRegistry } from '../providers/providerRegistry';
+import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
 import { MessageRouter } from '../session/messageRouter';
+import { autoAttachProviderSessionForMessage } from '../session/providerAutoAttach';
 import { SessionManager } from '../session/sessionManager';
 import type { BridgeDatabase } from '../storage/db';
 import { MessageLogRepository } from '../storage/messageLogRepository';
 import { PairingRepository } from '../storage/pairingRepository';
 import { PermissionRequestRepository } from '../storage/permissionRequestRepository';
+import { ProviderBindingRepository } from '../storage/providerBindingRepository';
 import { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import { schemaSql } from '../storage/schema';
 import { SettingsRepository } from '../storage/settingsRepository';
@@ -48,14 +50,53 @@ export function createDaemonServer(options: {
   });
   const users = new UserRepository(db);
   const pairings = new PairingRepository(db);
+  const providerBindings = new ProviderBindingRepository(db);
   const runtimeSessions = new RuntimeSessionRepository(db);
   const permissionRequests = new PermissionRequestRepository(db);
   const messageLog = new MessageLogRepository(db);
+  const sessionBindingMatch = new Map<string, boolean>();
   const providerAdapters = options.providers ?? createDefaultProviders({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
   });
-  const channel = options.channel ?? createWechatChannel(options.wechat);
+  const persistedSessions = runtimeSessions.list();
+  for (const persistedSession of persistedSessions) {
+    sessions.hydrateSession({
+      id: persistedSession.id,
+      chatId: persistedSession.chatId,
+      ownerUserId: persistedSession.ownerUserId,
+      providerId: persistedSession.providerId,
+      providerSessionId: persistedSession.providerSessionId,
+      recoverySource: persistedSession.recoverySource,
+      resumeTitle: persistedSession.resumeTitle,
+      cwd: persistedSession.cwd,
+      status: persistedSession.status,
+      createdAt: persistedSession.createdAt,
+      lastActivityAt: persistedSession.lastActivityAt,
+      archivedAt: persistedSession.archivedAt,
+    });
+  }
+  for (const persistedSession of persistedSessions) {
+    if (persistedSession.archivedAt) continue;
+    if (
+      persistedSession.providerId === 'claude-code' &&
+      persistedSession.providerSessionId &&
+      persistedSession.resumeTitle
+    ) {
+      void ensureClaudeSessionBridgeMetadata({
+        sessionId: persistedSession.providerSessionId,
+        resumeTitle: persistedSession.resumeTitle,
+      });
+    }
+    const provider = providerAdapters.find((candidate) => candidate.id === persistedSession.providerId);
+    void provider?.startSession({
+      bridgeSessionId: persistedSession.id,
+      cwd: persistedSession.cwd,
+      options: persistedSession.providerSessionId ? { providerSessionId: persistedSession.providerSessionId } : undefined,
+    });
+  }
+  const managedWechatChannel = options.channel ? null : new ManagedWeixinDirectAdapter(options.wechat);
+  const channel = options.channel ?? managedWechatChannel;
   const messageRouter = channel
     ? new MessageRouter({
         channel,
@@ -63,6 +104,52 @@ export function createDaemonServer(options: {
         providers: providerAdapters,
         sessions,
         resolveUser: (message) => users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, message.user.id),
+        autoAuthorizeUser: (message) => {
+          if (settings.get('settings.wechatAutoAuthorize') !== true) return null;
+          const existing = users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, message.user.id);
+          if (existing) return existing;
+          const defaults = readBridgeDefaults(settings);
+          const created = users.createUser({
+            platform: PRIMARY_WEIXIN_PLATFORM,
+            platformUserId: message.user.id,
+            displayName: message.user.displayName,
+            role: 'user',
+            defaultProvider: defaults.defaultProvider,
+            defaultCwd: defaults.defaultWorkspace,
+          });
+          events.emit({
+            type: 'channel.user-authorized',
+            user: {
+              id: created.id,
+              platformUserId: created.platformUserId,
+              platformType: 'weixin',
+              display_name: created.displayName,
+              authorizedAt: created.createdAt,
+              lastActive: created.lastActiveAt,
+              defaultProvider: created.defaultProvider,
+              defaultCwd: created.defaultCwd,
+            },
+          });
+          return created;
+        },
+        autoAttachSession: async (message, user) => {
+          if (sessions.getActiveSession(message.chatId)) return null;
+          const provider = providerAdapters.find((candidate) => candidate.id === user.defaultProvider);
+          if (!provider?.attachSession || !provider.listRecoverableSessions) return null;
+          const attached = await autoAttachProviderSessionForMessage({
+            message,
+            user,
+            provider,
+            sessionManager: sessions,
+            bindingRepository: providerBindings,
+            sessionRepository: runtimeSessions,
+          });
+          if (attached) {
+            sessionBindingMatch.set(attached.session.id, attached.matchedBinding);
+            return attached.session;
+          }
+          return null;
+        },
         sessionRepository: runtimeSessions,
         permissionRepository: permissionRequests,
         messageLogRepository: messageLog,
@@ -81,13 +168,21 @@ export function createDaemonServer(options: {
     app,
     users,
     pairings,
+    ...(channel ? { channel } : {}),
+    providerBindings,
     sessions: runtimeSessions,
     sessionManager: sessions,
     providers: providerAdapters,
+    getSessionBindingMatch: (sessionId) => sessionBindingMatch.get(sessionId) === true,
     settings,
     messageLog,
     wechat: options.wechat,
     events,
+    onWechatConfigChanged: managedWechatChannel
+      ? async (next) => {
+          await managedWechatChannel.configure(next);
+        }
+      : undefined,
   });
   registerSettingsRoutes({ app, settings, defaultWorkspace: process.cwd(), users });
 
@@ -130,19 +225,4 @@ function readBridgeDefaults(settings: SettingsRepository): { defaultProvider: 'c
     ? String(settings.get('settings.defaultWorkspace'))
     : process.cwd();
   return { defaultProvider, defaultWorkspace };
-}
-
-function createWechatChannel(config: WeixinConfig | undefined): ChannelAdapter | undefined {
-  if (config?.enabled !== true) return undefined;
-  if (!config.token || !config.baseUrl) return undefined;
-  const wechatUin = Buffer.from(
-    new Uint8Array(4).map(() => Math.floor(Math.random() * 256)),
-  ).toString('base64');
-  return new WeixinDirectAdapter({
-    api: new WeixinDirectApiClient({
-      baseUrl: config.baseUrl,
-      botToken: config.token,
-      wechatUin,
-    }),
-  });
 }

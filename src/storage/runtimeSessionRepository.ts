@@ -8,6 +8,8 @@ export type RuntimeSessionRecord = {
   ownerUserId: string;
   providerId: ProviderId;
   providerSessionId?: string;
+  recoverySource: 'runtime' | 'manual_attach' | 'binding_table' | 'sidecar' | 'heuristic';
+  resumeTitle?: string;
   cwd: string;
   status: ProviderSessionStatus;
   createdAt: number;
@@ -32,6 +34,8 @@ export class RuntimeSessionRepository {
       ownerUserId: input.ownerUserId,
       providerId: input.providerId,
       cwd: input.cwd,
+      recoverySource: 'runtime',
+      resumeTitle: undefined,
       status: input.status,
       createdAt: now,
       lastActivityAt: now,
@@ -41,13 +45,14 @@ export class RuntimeSessionRepository {
   createWithId(record: RuntimeSessionRecord): RuntimeSessionRecord {
     this.db.prepare(`
       INSERT INTO bridge_sessions (
-        id, chat_id, owner_user_id, provider_id, provider_session_id, cwd, status, created_at, last_activity_at, archived_at
+        id, chat_id, owner_user_id, provider_id, provider_session_id, recovery_source, resume_title, cwd, status, created_at, last_activity_at, archived_at
       ) VALUES (
-        @id, @chatId, @ownerUserId, @providerId, @providerSessionId, @cwd, @status, @createdAt, @lastActivityAt, @archivedAt
+        @id, @chatId, @ownerUserId, @providerId, @providerSessionId, @recoverySource, @resumeTitle, @cwd, @status, @createdAt, @lastActivityAt, @archivedAt
       )
     `).run({
       ...record,
       providerSessionId: record.providerSessionId ?? null,
+      resumeTitle: record.resumeTitle ?? null,
       archivedAt: record.archivedAt ?? null,
     });
     return record;
@@ -55,7 +60,7 @@ export class RuntimeSessionRepository {
 
   update(
     id: string,
-    patch: Partial<Pick<RuntimeSessionRecord, 'providerSessionId' | 'status' | 'lastActivityAt'>>,
+    patch: Partial<Pick<RuntimeSessionRecord, 'providerSessionId' | 'resumeTitle' | 'status' | 'lastActivityAt'>>,
   ): RuntimeSessionRecord {
     const existing = this.findById(id);
     if (!existing) throw new Error(`Unknown bridge session: ${id}`);
@@ -63,12 +68,14 @@ export class RuntimeSessionRepository {
     this.db.prepare(`
       UPDATE bridge_sessions
       SET provider_session_id = @providerSessionId,
+          resume_title = @resumeTitle,
           status = @status,
           last_activity_at = @lastActivityAt
       WHERE id = @id
     `).run({
       id,
       providerSessionId: next.providerSessionId ?? null,
+      resumeTitle: next.resumeTitle ?? null,
       status: next.status,
       lastActivityAt: next.lastActivityAt,
     });
@@ -121,6 +128,8 @@ function mapSessionRow(row: Record<string, unknown>): RuntimeSessionRecord {
     ownerUserId: String(row.owner_user_id),
     providerId: row.provider_id === 'codex' ? 'codex' : 'claude-code',
     providerSessionId: row.provider_session_id ? String(row.provider_session_id) : undefined,
+    recoverySource: mapRecoverySource(row.recovery_source),
+    resumeTitle: row.resume_title ? String(row.resume_title) : undefined,
     cwd: String(row.cwd),
     status: mapStatus(row.status),
     createdAt: Number(row.created_at),
@@ -141,4 +150,15 @@ function mapStatus(value: unknown): ProviderSessionStatus {
     return value;
   }
   return 'errored';
+}
+
+function mapRecoverySource(value: unknown): RuntimeSessionRecord['recoverySource'] {
+  if (
+    value === 'runtime' ||
+    value === 'manual_attach' ||
+    value === 'binding_table' ||
+    value === 'sidecar' ||
+    value === 'heuristic'
+  ) return value;
+  return 'runtime';
 }

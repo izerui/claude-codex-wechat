@@ -8,6 +8,7 @@ export type BridgeSettings = {
   defaultProvider: ProviderId;
   defaultWorkspace: string;
   permissionTimeoutMs: number | 'never';
+  wechatAutoAuthorize: boolean;
   wechatThrottle: {
     minIntervalMs: number;
     chunkSize: number;
@@ -42,6 +43,7 @@ function readSettings(settings: SettingsRepository, defaultWorkspace: string): B
     defaultProvider: settings.get('settings.defaultProvider'),
     defaultWorkspace: settings.get('settings.defaultWorkspace'),
     permissionTimeoutMs: settings.get('settings.permissionTimeoutMs'),
+    wechatAutoAuthorize: settings.get('settings.wechatAutoAuthorize'),
     wechatThrottle: settings.get('settings.wechatThrottle'),
     highRiskCommandPolicy: settings.get('settings.highRiskCommandPolicy'),
   }, defaultWorkspace);
@@ -54,6 +56,7 @@ function normalizeSettings(input: Partial<Record<keyof BridgeSettings, unknown>>
       ? input.defaultWorkspace
       : defaultWorkspace,
     permissionTimeoutMs: normalizeTimeout(input.permissionTimeoutMs),
+    wechatAutoAuthorize: input.wechatAutoAuthorize !== false,
     wechatThrottle: normalizeThrottle(input.wechatThrottle),
     highRiskCommandPolicy: normalizeHighRiskPolicy(input.highRiskCommandPolicy),
   };

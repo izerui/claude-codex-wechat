@@ -44,4 +44,33 @@ describe('bridge config provider commands', () => {
       accountId: 'acc_1',
     });
   });
+
+  it('falls back to env wechat config when file config is missing', () => {
+    const config = normalizeBridgeConfigForTest({}, {
+      BRIDGE_WECHAT_ENABLED: '1',
+      BRIDGE_WECHAT_BASE_URL: 'https://ilinkai.weixin.qq.com',
+      BRIDGE_WECHAT_TOKEN: 'env_tok',
+      BRIDGE_WECHAT_ACCOUNT_ID: 'env_acc',
+    });
+
+    expect(config.wechat).toEqual({
+      enabled: true,
+      baseUrl: 'https://ilinkai.weixin.qq.com',
+      token: 'env_tok',
+      accountId: 'env_acc',
+    });
+  });
+
+  it('treats BRIDGE_WECHAT_ENABLED=true as enabled', () => {
+    const config = normalizeBridgeConfigForTest({}, {
+      BRIDGE_WECHAT_ENABLED: 'true',
+    });
+
+    expect(config.wechat).toEqual({
+      enabled: true,
+      baseUrl: undefined,
+      token: undefined,
+      accountId: undefined,
+    });
+  });
 });

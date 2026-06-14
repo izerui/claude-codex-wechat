@@ -87,6 +87,38 @@ describe('CodexCliRunner', () => {
     ]);
   });
 
+  it('can resume immediately from a persisted Codex session id', async () => {
+    const calls: Parameters<CodexProcessRunner>[0][] = [];
+    const runner = new CodexCliRunner({
+      processRunner: async (call) => {
+        calls.push(call);
+        return {
+          code: 0,
+          stdout: JSON.stringify({ type: 'exec_complete', session_id: 'codex-session-1' }),
+          stderr: '',
+        };
+      },
+    });
+
+    await runner.startSession({
+      bridgeSessionId: 'bs_1',
+      cwd: '/tmp/project',
+      options: { providerSessionId: 'codex-session-1' } as { providerSessionId: string },
+    });
+
+    for await (const _event of runner.sendMessage({ bridgeSessionId: 'bs_1', text: 'after restart' })) {}
+
+    expect(calls[0].args).toEqual([
+      'exec',
+      'resume',
+      '--json',
+      '--last',
+      '-C',
+      '/tmp/project',
+      'after restart',
+    ]);
+  });
+
   it('maps approval requests into unified permission requests', async () => {
     const runner = new CodexCliRunner({
       processRunner: async () => ({

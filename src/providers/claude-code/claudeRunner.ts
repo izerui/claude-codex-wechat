@@ -12,6 +12,10 @@ export interface ClaudeRunner {
     bridgeSessionId: string;
     cwd: string;
     initialPrompt?: string;
+    options?: {
+      providerSessionId?: string;
+      sessionName?: string;
+    };
   }): Promise<ClaudeRunnerSession>;
 
   sendMessage(input: {

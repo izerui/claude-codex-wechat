@@ -50,9 +50,33 @@ export type ChannelPluginView = {
   enabled: boolean;
   connected: boolean;
   status: string;
+  lastError?: string;
   activeUsers: number;
   hasToken: boolean;
   botUsername?: string;
+};
+
+export type WeixinRuntimeConfigView = {
+  enabled: boolean;
+  baseUrl?: string;
+  token?: string;
+  accountId?: string;
+};
+
+export type RecoverableProviderSessionView = {
+  id: string;
+  providerId: 'claude-code' | 'codex';
+  cwd?: string;
+  title?: string;
+  resumeTitle?: string;
+  lastActivityAt?: number;
+  preferredResumeMode?: 'title' | 'id';
+  preferredResumeCommand?: string;
+  providerResumeCommand?: string;
+  providerResumeByTitleCommand?: string;
+  providerResumeTitleSynced?: boolean;
+  providerResumeHistorySynced?: boolean;
+  providerResumeRepairable?: boolean;
 };
 
 export type ProviderStatusView = {
@@ -66,6 +90,21 @@ export type BridgeSessionView = {
   ownerUserId: string;
   providerId: string;
   providerSessionId?: string;
+  resumeTitle?: string;
+  preferredResumeMode?: 'title' | 'id';
+  preferredResumeCommand?: string;
+  providerResumeCommand?: string;
+  providerResumeByTitleCommand?: string;
+  providerResumeTitleSynced?: boolean;
+  providerResumeHistorySynced?: boolean;
+  providerResumeRepairable?: boolean;
+  bindingMatched?: boolean;
+  bindingSource?: 'runtime' | 'manual_attach' | 'binding_table' | 'sidecar' | 'heuristic';
+  bindingPlatformUserId?: string;
+  bindingProviderSessionId?: string;
+  bindingUpdatedAt?: number;
+  providerNativeReachable?: boolean;
+  providerNativePath?: string;
   cwd: string;
   status: string;
   createdAt: number;
@@ -95,6 +134,7 @@ export type BridgeSettingsView = {
   defaultProvider: 'claude-code' | 'codex';
   defaultWorkspace: string;
   permissionTimeoutMs: number | 'never';
+  wechatAutoAuthorize: boolean;
   wechatThrottle: {
     minIntervalMs: number;
     chunkSize: number;
@@ -144,6 +184,13 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return await response.json() as T;
 }
 
+async function requestJsonOptional<T>(path: string, init?: RequestInit): Promise<T | null> {
+  const response = await fetch(resolveApiUrl(path), init);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`${path}_failed:${response.status}`);
+  return await response.json() as T;
+}
+
 export async function fetchStatus(): Promise<StatusView> {
   return await requestJson('/api/status');
 }
@@ -170,6 +217,10 @@ export async function fetchAuthorizedUsers(): Promise<AuthorizedUserView[]> {
 
 export async function fetchChannelPlugins(): Promise<ChannelPluginView[]> {
   return await requestJson('/api/channel/plugins');
+}
+
+export async function fetchWeixinRuntimeConfig(): Promise<WeixinRuntimeConfigView | null> {
+  return await requestJsonOptional('/api/channel/wechat/runtime-config');
 }
 
 export async function enableWeixinPlugin(input: { accountId: string; botToken: string; baseUrl?: string }): Promise<void> {
@@ -214,6 +265,54 @@ export async function fetchSessions(): Promise<BridgeSessionView[]> {
   return await requestJson('/api/channel/sessions');
 }
 
+export async function fetchRecoverableProviderSessions(providerId: 'claude-code' | 'codex'): Promise<RecoverableProviderSessionView[]> {
+  return await requestJson(`/api/channel/providers/${encodeURIComponent(providerId)}/recoverable-sessions`);
+}
+
+export async function attachProviderSession(input: {
+  providerId: 'claude-code' | 'codex';
+  providerSessionId: string;
+  platformUserId: string;
+  chatId?: string;
+  cwd?: string;
+}): Promise<void> {
+  await requestJson('/api/channel/sessions/attach', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function autoAttachProviderSession(input: {
+  providerId: 'claude-code' | 'codex';
+  platformUserId: string;
+  chatId?: string;
+  cwd?: string;
+}): Promise<void> {
+  await requestJson('/api/channel/sessions/auto-attach', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function repairRecoverableProviderSessionNativeResume(input: {
+  providerId: 'claude-code' | 'codex';
+  providerSessionId: string;
+}): Promise<{ ok: true; repaired: boolean }> {
+  return await requestJson(`/api/channel/providers/${encodeURIComponent(input.providerId)}/recoverable-sessions/${encodeURIComponent(input.providerSessionId)}/repair-native-resume`, {
+    method: 'POST',
+  });
+}
+
+export async function repairAllRecoverableProviderSessionsNativeResume(input: {
+  providerId: 'claude-code' | 'codex';
+}): Promise<{ ok: true; repairedCount: number; checkedCount: number }> {
+  return await requestJson(`/api/channel/providers/${encodeURIComponent(input.providerId)}/recoverable-sessions/repair-native-resume`, {
+    method: 'POST',
+  });
+}
+
 export async function fetchSessionMessages(id: string): Promise<MessageLogView[]> {
   return await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/messages`);
 }
@@ -224,6 +323,14 @@ export async function stopSession(id: string): Promise<void> {
 
 export async function archiveSession(id: string): Promise<void> {
   await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/archive`, { method: 'POST' });
+}
+
+export async function repairSessionNativeResume(id: string): Promise<{ ok: true; repaired: boolean }> {
+  return await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/repair-native-resume`, { method: 'POST' });
+}
+
+export async function repairAllSessionNativeResume(): Promise<{ ok: true; repairedCount: number; checkedCount: number }> {
+  return await requestJson('/api/channel/sessions/repair-native-resume', { method: 'POST' });
 }
 
 export async function decidePermission(input: {

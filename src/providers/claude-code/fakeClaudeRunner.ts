@@ -2,17 +2,25 @@ import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './cla
 
 export class FakeClaudeRunner implements ClaudeRunner {
   private readonly sessions = new Map<string, ClaudeRunnerSession>();
+  private attachedByBridgeSession = new Map<string, string>();
 
-  async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ClaudeRunnerSession> {
+  async startSession(input: {
+    bridgeSessionId: string;
+    cwd: string;
+    options?: { providerSessionId?: string; sessionName?: string };
+  }): Promise<ClaudeRunnerSession> {
     const session: ClaudeRunnerSession = {
       bridgeSessionId: input.bridgeSessionId,
       providerId: 'claude-code',
-      providerSessionId: `claude_fake_${input.bridgeSessionId}`,
-      claudeSessionId: `claude_fake_${input.bridgeSessionId}`,
+      providerSessionId: input.options?.providerSessionId ?? `claude_fake_${input.bridgeSessionId}`,
+      claudeSessionId: input.options?.providerSessionId ?? `claude_fake_${input.bridgeSessionId}`,
       cwd: input.cwd,
       status: 'idle',
     };
     this.sessions.set(input.bridgeSessionId, session);
+    if (input.options?.providerSessionId) {
+      this.attachedByBridgeSession.set(input.bridgeSessionId, input.options.providerSessionId);
+    }
     return session;
   }
 
@@ -36,5 +44,6 @@ export class FakeClaudeRunner implements ClaudeRunner {
 
   async stopSession(bridgeSessionId: string): Promise<void> {
     this.sessions.delete(bridgeSessionId);
+    this.attachedByBridgeSession.delete(bridgeSessionId);
   }
 }

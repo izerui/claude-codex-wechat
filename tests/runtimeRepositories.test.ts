@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { MessageLogRepository } from '../src/storage/messageLogRepository';
 import { PermissionRequestRepository } from '../src/storage/permissionRequestRepository';
+import { ProviderBindingRepository } from '../src/storage/providerBindingRepository';
 import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
 import { schemaSql } from '../src/storage/schema';
 import { SettingsRepository } from '../src/storage/settingsRepository';
@@ -32,6 +33,7 @@ describe('runtime repositories', () => {
     expect(sessions.getActiveByChat('chat-a')).toMatchObject({
       id: created.id,
       providerSessionId: 'claude_fake_bs_1',
+      recoverySource: 'runtime',
       status: 'idle',
     });
     expect(sessions.list()).toHaveLength(1);
@@ -102,5 +104,59 @@ describe('runtime repositories', () => {
 
     expect(settings.get('permission.timeoutMs')).toBe(60_000);
     expect(settings.get('wechat.throttle')).toEqual({ minIntervalMs: 500, chunkSize: 1000 });
+  });
+
+  it('stores and updates provider session bindings by chat', () => {
+    const bindings = new ProviderBindingRepository(createMemoryDb());
+    bindings.upsert({
+      platform: 'weixin',
+      platformUserId: 'wx_user_1',
+      chatId: 'chat-a',
+      providerId: 'claude-code',
+      providerSessionId: 'claude-session-1',
+      cwd: '/tmp/project',
+    });
+
+    expect(bindings.findByChat('weixin', 'chat-a', 'claude-code')).toMatchObject({
+      platformUserId: 'wx_user_1',
+      providerSessionId: 'claude-session-1',
+      cwd: '/tmp/project',
+    });
+
+    bindings.upsert({
+      platform: 'weixin',
+      platformUserId: 'wx_user_1',
+      chatId: 'chat-a',
+      providerId: 'claude-code',
+      providerSessionId: 'claude-session-2',
+      cwd: '/tmp/project-2',
+    });
+
+    expect(bindings.findByChat('weixin', 'chat-a', 'claude-code')).toMatchObject({
+      providerSessionId: 'claude-session-2',
+      cwd: '/tmp/project-2',
+    });
+  });
+
+  it('persists recovery source for attached bridge sessions', () => {
+    const sessions = new RuntimeSessionRepository(createMemoryDb());
+    sessions.createWithId({
+      id: 'bs_manual',
+      chatId: 'chat-manual',
+      ownerUserId: 'user-a',
+      providerId: 'claude-code',
+      providerSessionId: 'claude-session-1',
+      recoverySource: 'manual_attach',
+      resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:test]',
+      cwd: '/tmp/project',
+      status: 'idle',
+      createdAt: 10,
+      lastActivityAt: 11,
+    });
+
+    expect(sessions.findById('bs_manual')).toMatchObject({
+      recoverySource: 'manual_attach',
+      resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:test]',
+    });
   });
 });

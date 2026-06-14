@@ -18,6 +18,17 @@ function createFetchStub() {
         ownerUserId: 'user-a',
         providerId: 'claude-code',
         providerSessionId: 'claude-session-1',
+        preferredResumeMode: 'title',
+        preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [local-agent-wechat-bridge:test]',
+        providerResumeCommand: 'claude --resume claude-session-1',
+        providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [local-agent-wechat-bridge:test]',
+        providerResumeTitleSynced: true,
+        providerResumeRepairable: true,
+        resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:test]',
+        bindingMatched: true,
+        bindingSource: 'binding_table',
+        bindingPlatformUserId: 'wx_user_1',
+        bindingProviderSessionId: 'claude-session-1',
         cwd: '/tmp/project',
         status: 'idle',
         createdAt: 1,
@@ -66,6 +77,20 @@ function createFetchStub() {
     if (url.endsWith('/api/channel/users')) {
       return new Response(JSON.stringify(state.users), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
+    if (url.endsWith('/api/channel/plugins')) {
+      return new Response(JSON.stringify([
+        {
+          id: 'weixin',
+          type: 'weixin',
+          name: 'WeChat channel',
+          enabled: false,
+          connected: false,
+          status: 'disabled',
+          activeUsers: state.users.length,
+          hasToken: false,
+        },
+      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     if (url.endsWith('/api/channel/sessions')) {
       return new Response(JSON.stringify(state.sessions), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -77,6 +102,7 @@ function createFetchStub() {
         defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
         permissionTimeoutMs: 60000,
+        wechatAutoAuthorize: true,
         wechatThrottle: { minIntervalMs: 500, chunkSize: 1000 },
         highRiskCommandPolicy: 'per_request',
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -88,21 +114,68 @@ function createFetchStub() {
 }
 
 describe('App session log interactions', () => {
-  it('loads and renders session message logs when Logs is clicked', async () => {
+  it('loads and renders session message logs when the log button is clicked', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
     render(<App />);
 
-    const logsButton = await screen.findByText('Logs');
+    const logsButton = await screen.findByText('日志');
     fireEvent.click(logsButton);
 
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/messages') && call.method === 'GET')).toBe(true);
     });
 
-    expect(await screen.findByText('Message log · bs_1')).toBeTruthy();
+    expect(await screen.findByText('消息日志 · bs_1')).toBeTruthy();
     expect(await screen.findByText('run tests')).toBeTruthy();
     expect(await screen.findByText('收到：run tests')).toBeTruthy();
+    expect(await screen.findByText('标题恢复')).toBeTruthy();
+    expect(await screen.findByText('推荐恢复')).toBeTruthy();
+    expect(await screen.findByText('按标题恢复')).toBeTruthy();
+    expect(await screen.findByText('原生恢复状态')).toBeTruthy();
+    expect(await screen.findByText('已同步')).toBeTruthy();
+    expect((await screen.findAllByText('claude -r 微信 · wx_user_1 · [local-agent-wechat-bridge:test]')).length).toBe(2);
+    expect(await screen.findByText('claude --resume claude-session-1')).toBeTruthy();
+    expect(await screen.findByText('微信 · wx_user_1 · [local-agent-wechat-bridge:test]')).toBeTruthy();
+    expect(await screen.findByText('历史绑定命中')).toBeTruthy();
+    expect(await screen.findByText('wx_user_1 · claude-session-1')).toBeTruthy();
+  });
+
+  it('renders sidecar recovery source label for sidecar-attached sessions', async () => {
+    const { fetchImpl } = createFetchStub();
+    const sidecarFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const sidecarSession = {
+        id: 'bs_sidecar',
+        chatId: 'chat-b',
+        ownerUserId: 'user-b',
+        providerId: 'claude-code',
+        providerSessionId: 'claude-session-sidecar',
+        providerResumeCommand: 'claude --resume claude-session-sidecar',
+        bindingMatched: false,
+        bindingSource: 'sidecar' as const,
+        cwd: '/tmp/sidecar',
+        status: 'idle',
+        createdAt: 1,
+        lastActivityAt: 2,
+      };
+      if (url.endsWith('/api/status')) {
+        return new Response(JSON.stringify({
+          ok: true,
+          sessions: [sidecarSession],
+          permissions: [],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/sessions')) {
+        return new Response(JSON.stringify([sidecarSession]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return await fetchImpl(input, init);
+    });
+    vi.stubGlobal('fetch', sidecarFetch as typeof fetch);
+
+    render(<App />);
+
+    expect(await screen.findByText('Sidecar 命中')).toBeTruthy();
   });
 });

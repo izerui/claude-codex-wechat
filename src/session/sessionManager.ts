@@ -7,6 +7,8 @@ export type BridgeSessionRecord = {
   ownerUserId: string;
   providerId: ProviderId;
   providerSessionId?: string;
+  recoverySource: 'runtime' | 'manual_attach' | 'binding_table' | 'sidecar' | 'heuristic';
+  resumeTitle?: string;
   cwd: string;
   status: ProviderSessionStatus;
   createdAt: number;
@@ -36,7 +38,14 @@ export class SessionManager {
     });
   }
 
-  createSession(input: { chatId: string; ownerUserId: string; providerId: ProviderId; cwd: string }): BridgeSessionRecord {
+  createSession(input: {
+    chatId: string;
+    ownerUserId: string;
+    providerId: ProviderId;
+    cwd: string;
+    recoverySource?: BridgeSessionRecord['recoverySource'];
+    resumeTitle?: string;
+  }): BridgeSessionRecord {
     const now = Date.now();
     const record: BridgeSessionRecord = {
       id: `bs_${nanoid(10)}`,
@@ -44,6 +53,8 @@ export class SessionManager {
       ownerUserId: input.ownerUserId,
       providerId: input.providerId,
       cwd: input.cwd,
+      recoverySource: input.recoverySource ?? 'runtime',
+      resumeTitle: input.resumeTitle,
       status: 'starting',
       createdAt: now,
       lastActivityAt: now,
@@ -53,7 +64,18 @@ export class SessionManager {
     return record;
   }
 
-  updateSession(id: string, patch: Partial<Pick<BridgeSessionRecord, 'providerSessionId' | 'status' | 'lastActivityAt'>>): BridgeSessionRecord {
+  hydrateSession(record: BridgeSessionRecord): BridgeSessionRecord {
+    this.sessions.set(record.id, record);
+    if (!record.archivedAt) {
+      const current = this.getActiveSession(record.chatId);
+      if (!current || current.lastActivityAt <= record.lastActivityAt) {
+        this.activeByChat.set(record.chatId, record.id);
+      }
+    }
+    return record;
+  }
+
+  updateSession(id: string, patch: Partial<Pick<BridgeSessionRecord, 'providerSessionId' | 'resumeTitle' | 'status' | 'lastActivityAt'>>): BridgeSessionRecord {
     const existing = this.sessions.get(id);
     if (!existing) throw new Error(`Unknown bridge session: ${id}`);
     const next = { ...existing, ...patch };
@@ -61,7 +83,7 @@ export class SessionManager {
     return next;
   }
 
-  updateActiveSession(chatId: string, patch: Partial<Pick<BridgeSessionRecord, 'cwd' | 'providerId' | 'providerSessionId' | 'status' | 'lastActivityAt'>>): BridgeSessionRecord | null {
+  updateActiveSession(chatId: string, patch: Partial<Pick<BridgeSessionRecord, 'cwd' | 'providerId' | 'providerSessionId' | 'resumeTitle' | 'status' | 'lastActivityAt'>>): BridgeSessionRecord | null {
     const existing = this.getActiveSession(chatId);
     if (!existing) return null;
     const next = { ...existing, ...patch };

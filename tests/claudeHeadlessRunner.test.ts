@@ -39,7 +39,7 @@ describe('ClaudeHeadlessRunner', () => {
         };
       },
     });
-    await runner.startSession({ bridgeSessionId: 'bs_1', cwd: '/tmp/project' });
+    await runner.startSession({ bridgeSessionId: 'bs_1', cwd: '/tmp/project', options: { sessionName: '微信 · Alice' } as { sessionName: string } });
 
     const events = [];
     for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_1', text: 'say hello' })) {
@@ -49,7 +49,7 @@ describe('ClaudeHeadlessRunner', () => {
     expect(calls).toEqual([
       {
         command: 'claude',
-        args: ['-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose', 'say hello'],
+        args: ['-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '-n', '微信 · Alice', 'say hello'],
         cwd: '/tmp/project',
         input: '',
       },
@@ -137,6 +137,40 @@ describe('ClaudeHeadlessRunner', () => {
       '--resume',
       'claude-session-1',
       'second',
+    ]);
+  });
+
+  it('can resume immediately from a persisted Claude session id', async () => {
+    const calls: Parameters<ClaudeProcessRunner>[0][] = [];
+    const runner = new ClaudeHeadlessRunner({
+      command: 'claude',
+      processRunner: async (call) => {
+        calls.push(call);
+        return {
+          code: 0,
+          stdout: JSON.stringify({ type: 'result', session_id: 'claude-session-1' }),
+          stderr: '',
+        };
+      },
+    });
+
+    await runner.startSession({
+      bridgeSessionId: 'bs_1',
+      cwd: '/tmp/project',
+      options: { providerSessionId: 'claude-session-1' } as { providerSessionId: string },
+    });
+
+    for await (const _event of runner.sendMessage({ bridgeSessionId: 'bs_1', text: 'after restart' })) {}
+
+    expect(calls[0].args).toEqual([
+      '-p',
+      '--output-format',
+      'stream-json',
+      '--include-partial-messages',
+      '--verbose',
+      '--resume',
+      'claude-session-1',
+      'after restart',
     ]);
   });
 

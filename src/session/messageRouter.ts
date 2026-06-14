@@ -11,6 +11,11 @@ import type { BridgeSessionRecord, SessionManager } from './sessionManager';
 import type { PairingRepository } from '../storage/pairingRepository';
 import type { BridgeEventHub } from '../daemon/events';
 import { ensurePairingForMessage } from '../channels/pairing';
+import { buildSessionBridgeName } from './sessionBridgeTag';
+import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
+import { writeProviderSessionSidecar } from '../providers/sidecarMetadata';
+import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
+import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
 
 export class MessageRouter {
   private readonly providers = new Map<ProviderId, NativeProviderAdapter>();
@@ -22,10 +27,13 @@ export class MessageRouter {
       providers: NativeProviderAdapter[];
       sessions: SessionManager;
       resolveUser(message: ChannelIncomingMessage): AuthorizedUserRecord | null;
+      autoAuthorizeUser?(message: ChannelIncomingMessage): AuthorizedUserRecord | null;
+      autoAttachSession?(message: ChannelIncomingMessage, user: AuthorizedUserRecord): Promise<BridgeSessionRecord | null>;
       sessionRepository?: RuntimeSessionRepository;
       permissionRepository?: PermissionRequestRepository;
       messageLogRepository?: MessageLogRepository;
       pairingRepository?: PairingRepository;
+      bindingRepository?: ProviderBindingRepository;
       events?: BridgeEventHub;
     },
   ) {
@@ -35,7 +43,10 @@ export class MessageRouter {
   async handleMessage(message: ChannelIncomingMessage): Promise<
     { status: 'accepted' } | { status: 'pairing_required'; code: string }
   > {
-    const user = this.options.resolveUser(message);
+    let user = this.options.resolveUser(message);
+    if (!user) {
+      user = this.options.autoAuthorizeUser?.(message) ?? null;
+    }
     if (!user) {
       if (this.options.pairingRepository && this.options.events) {
         const pairing = ensurePairingForMessage(this.options.pairingRepository, this.options.events, message);
@@ -55,12 +66,20 @@ export class MessageRouter {
       return { status: 'accepted' };
     }
 
-    const session = this.options.sessions.getOrCreateSession({
+    const sessionResumeTitle = buildSessionBridgeName({
+      platform: 'weixin',
+      platformUserId: message.user.id,
       chatId: message.chatId,
-      ownerUserId: user.id,
-      providerId: user.defaultProvider,
-      cwd: user.defaultCwd,
     });
+    const session = this.options.sessions.getActiveSession(message.chatId)
+      ?? await this.options.autoAttachSession?.(message, user)
+      ?? this.options.sessions.createSession({
+        chatId: message.chatId,
+        ownerUserId: user.id,
+        providerId: user.defaultProvider,
+        cwd: user.defaultCwd,
+        resumeTitle: sessionResumeTitle,
+      });
     this.persistSessionIfNeeded(session);
     this.options.messageLogRepository?.append({
       bridgeSessionId: session.id,
@@ -73,20 +92,41 @@ export class MessageRouter {
     if (!provider) throw new Error(`provider_not_registered:${session.providerId}`);
 
     if (!session.providerSessionId) {
+      const resumeTitle = session.resumeTitle ?? sessionResumeTitle;
+      this.options.sessions.updateSession(session.id, {
+        resumeTitle,
+        lastActivityAt: Date.now(),
+      });
+      this.options.sessionRepository?.update(session.id, {
+        resumeTitle,
+        lastActivityAt: Date.now(),
+      });
       const providerSession = await provider.startSession({
         bridgeSessionId: session.id,
         cwd: session.cwd,
+        options: {
+          sessionName: resumeTitle,
+        },
       });
       const updated = this.options.sessions.updateSession(session.id, {
         providerSessionId: providerSession.providerSessionId,
+        resumeTitle,
         status: providerSession.status,
         lastActivityAt: Date.now(),
       });
       this.options.sessionRepository?.update(updated.id, {
         providerSessionId: updated.providerSessionId,
+        resumeTitle: updated.resumeTitle,
         status: updated.status,
         lastActivityAt: updated.lastActivityAt,
       });
+      if (updated.providerId === 'codex' && updated.providerSessionId && updated.resumeTitle) {
+        await upsertCodexSessionIndexEntry({
+          sessionId: updated.providerSessionId,
+          threadName: updated.resumeTitle,
+        });
+      }
+      await this.persistBridgeMetadata(updated, message.user.id);
     }
 
     for await (const event of provider.sendMessage({ bridgeSessionId: session.id, text: command.text })) {
@@ -136,6 +176,13 @@ export class MessageRouter {
           status: updated.status,
           lastActivityAt: updated.lastActivityAt,
         });
+        if (updated.providerId === 'codex' && updated.providerSessionId && updated.resumeTitle) {
+          await upsertCodexSessionIndexEntry({
+            sessionId: updated.providerSessionId,
+            threadName: updated.resumeTitle,
+          });
+        }
+        await this.persistBridgeMetadata(updated, message.user.id);
       }
     }
     return { status: 'accepted' };
@@ -270,11 +317,41 @@ export class MessageRouter {
       ownerUserId: session.ownerUserId,
       providerId: session.providerId,
       providerSessionId: session.providerSessionId,
+      recoverySource: session.recoverySource,
+      resumeTitle: session.resumeTitle,
       cwd: session.cwd,
       status: session.status,
       createdAt: session.createdAt,
       lastActivityAt: session.lastActivityAt,
       archivedAt: session.archivedAt,
     });
+  }
+
+  private async persistBridgeMetadata(session: BridgeSessionRecord, platformUserId: string): Promise<void> {
+    if (!session.providerSessionId || !session.resumeTitle) return;
+    this.options.bindingRepository?.upsert({
+      platform: 'weixin',
+      platformUserId,
+      chatId: session.chatId,
+      providerId: session.providerId,
+      providerSessionId: session.providerSessionId,
+      cwd: session.cwd,
+    });
+    await writeProviderSessionSidecar({
+      providerId: session.providerId,
+      providerSessionId: session.providerSessionId,
+      bridgeTag: {
+        platform: 'weixin',
+        platformUserId,
+        chatId: session.chatId,
+      },
+      cwd: session.cwd,
+    });
+    if (session.providerId === 'claude-code') {
+      await ensureClaudeSessionBridgeMetadata({
+        sessionId: session.providerSessionId,
+        resumeTitle: session.resumeTitle,
+      });
+    }
   }
 }

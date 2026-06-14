@@ -19,6 +19,7 @@ export type ClaudeProcessRunner = (call: ClaudeProcessCall) => Promise<ClaudePro
 
 type StoredClaudeSession = ClaudeRunnerSession & {
   claudeSessionId?: string;
+  sessionName?: string;
 };
 
 export class ClaudeHeadlessRunner implements ClaudeRunner {
@@ -31,10 +32,18 @@ export class ClaudeHeadlessRunner implements ClaudeRunner {
     this.processRunner = input.processRunner ?? defaultClaudeProcessRunner;
   }
 
-  async startSession(input: { bridgeSessionId: string; cwd: string; initialPrompt?: string }): Promise<ClaudeRunnerSession> {
+  async startSession(input: {
+    bridgeSessionId: string;
+    cwd: string;
+    initialPrompt?: string;
+    options?: { providerSessionId?: string; sessionName?: string };
+  }): Promise<ClaudeRunnerSession> {
     const session: StoredClaudeSession = {
       bridgeSessionId: input.bridgeSessionId,
       providerId: 'claude-code',
+      providerSessionId: input.options?.providerSessionId,
+      claudeSessionId: input.options?.providerSessionId,
+      sessionName: input.options?.sessionName,
       cwd: input.cwd,
       status: 'idle',
     };
@@ -46,7 +55,7 @@ export class ClaudeHeadlessRunner implements ClaudeRunner {
     const session = this.sessions.get(input.bridgeSessionId);
     if (!session) throw new Error(`claude_session_not_found:${input.bridgeSessionId}`);
 
-    const args = buildClaudeArgs(input.text, session.claudeSessionId);
+    const args = buildClaudeArgs(input.text, session.claudeSessionId, session.sessionName);
     const result = await this.processRunner({ command: this.command, args, cwd: session.cwd, input: '' });
     if (result.code !== 0) {
       yield { type: 'error', error: result.stderr || result.stdout || `claude exited with ${result.code}` };
@@ -71,9 +80,10 @@ export class ClaudeHeadlessRunner implements ClaudeRunner {
   }
 }
 
-function buildClaudeArgs(prompt: string, claudeSessionId: string | undefined): string[] {
+function buildClaudeArgs(prompt: string, claudeSessionId: string | undefined, sessionName: string | undefined): string[] {
   const args = ['-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose'];
   if (claudeSessionId) args.push('--resume', claudeSessionId);
+  else if (sessionName) args.push('-n', sessionName);
   args.push(prompt);
   return args;
 }

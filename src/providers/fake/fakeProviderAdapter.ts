@@ -47,4 +47,24 @@ export class FakeProviderAdapter implements NativeProviderAdapter {
   async decidePermission(input: { requestId: string; decision: 'approve' | 'deny' | 'abort' }): Promise<void> {
     this.permissionDecisions.push(input);
   }
+
+  async listRecoverableSessions() {
+    return [{
+      id: `${this.id}_recoverable_1`,
+      providerId: this.id,
+      title: `${this.id} recoverable session`,
+    }];
+  }
+
+  async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+    const session: ProviderSession = {
+      bridgeSessionId: input.bridgeSessionId,
+      providerId: this.id,
+      providerSessionId: input.candidateId,
+      cwd: input.cwd,
+      status: 'idle',
+    };
+    this.sessions.set(input.bridgeSessionId, session);
+    return session;
+  }
 }

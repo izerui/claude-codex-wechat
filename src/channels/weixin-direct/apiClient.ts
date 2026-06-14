@@ -83,6 +83,9 @@ export class WeixinDirectApiClient {
       throw new Error(`weixin_get_updates_failed:${response.status}`);
     }
     const payload = await response.json() as {
+      ret?: number;
+      errcode?: number;
+      errmsg?: string;
       msgs?: Array<{
         from_user_id?: string;
         context_token?: string;
@@ -95,6 +98,10 @@ export class WeixinDirectApiClient {
       }>;
       get_updates_buf?: string;
     };
+
+    if ((payload.errcode ?? 0) !== 0 || (payload.ret ?? 0) !== 0) {
+      throw new Error(`weixin_get_updates_failed:${payload.errcode ?? payload.ret ?? -1}:${payload.errmsg ?? 'unknown_error'}`);
+    }
 
     const messages = (payload.msgs ?? [])
       .map((message) => {

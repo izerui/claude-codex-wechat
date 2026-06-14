@@ -1,5 +1,6 @@
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../types';
 import type { ClaudeRunner } from './claudeRunner';
+import { listRecoverableClaudeSessions } from './nativeSessions';
 
 export class ClaudeCodeProvider implements NativeProviderAdapter {
   readonly id = 'claude-code';
@@ -16,6 +17,10 @@ export class ClaudeCodeProvider implements NativeProviderAdapter {
       bridgeSessionId: input.bridgeSessionId,
       cwd: input.cwd,
       initialPrompt: input.initialPrompt,
+      options: typeof input.options === 'object' && input.options ? {
+        providerSessionId: typeof input.options.providerSessionId === 'string' ? input.options.providerSessionId : undefined,
+        sessionName: typeof input.options.sessionName === 'string' ? input.options.sessionName : undefined,
+      } : undefined,
     });
   }
 
@@ -32,5 +37,17 @@ export class ClaudeCodeProvider implements NativeProviderAdapter {
 
   async stopSession(bridgeSessionId: string): Promise<void> {
     await this.options.runner.stopSession(bridgeSessionId);
+  }
+
+  async listRecoverableSessions() {
+    return await listRecoverableClaudeSessions();
+  }
+
+  async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+    return await this.options.runner.startSession({
+      bridgeSessionId: input.bridgeSessionId,
+      cwd: input.cwd,
+      options: { providerSessionId: input.candidateId },
+    });
   }
 }

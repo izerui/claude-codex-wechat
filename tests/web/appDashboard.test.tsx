@@ -32,6 +32,7 @@ describe('App dashboard provider status', () => {
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
           permissionTimeoutMs: 60000,
+          wechatAutoAuthorize: true,
           wechatThrottle: { minIntervalMs: 500, chunkSize: 1000 },
           highRiskCommandPolicy: 'per_request',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -41,9 +42,9 @@ describe('App dashboard provider status', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('detected · 2.0.1')).toBeTruthy();
-    expect(await screen.findByText('missing_binary')).toBeTruthy();
-    expect(await screen.findByText('/opt/bin/claude · checked 1234567890')).toBeTruthy();
-    expect(await screen.findByText('/opt/bin/codex · checked 1234567890')).toBeTruthy();
+    expect(await screen.findByText('已检测 · 2.0.1')).toBeTruthy();
+    expect(await screen.findByText('未找到可执行文件')).toBeTruthy();
+    expect(await screen.findByText('/opt/bin/claude · 检查于 1234567890')).toBeTruthy();
+    expect(await screen.findByText('/opt/bin/codex · 检查于 1234567890')).toBeTruthy();
   });
 });

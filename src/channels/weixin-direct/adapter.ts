@@ -22,6 +22,8 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   private buffer = '';
   private contextTokens = new Map<string, string>();
   private runningTask: Promise<void> | null = null;
+  private healthy = false;
+  private lastError: string | null = null;
 
   constructor(private readonly options: {
     api: WeixinDirectApi;
@@ -55,12 +57,30 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     });
   }
 
+  getHealth(): { connected: boolean; status: string; lastError?: string } {
+    if (this.lastError) {
+      const status = this.lastError.includes('session timeout') ? 'session_timeout' : 'poll_error';
+      return {
+        connected: false,
+        status,
+        lastError: this.lastError,
+      };
+    }
+    if (this.healthy) return { connected: true, status: 'connected' };
+    if (this.stopped) return { connected: false, status: 'stopped' };
+    return { connected: false, status: 'connecting' };
+  }
+
   private async runLoop(): Promise<void> {
     while (!this.stopped) {
       let updates;
       try {
         updates = await this.options.api.getUpdates(this.buffer);
-      } catch {
+        this.healthy = true;
+        this.lastError = null;
+      } catch (error) {
+        this.healthy = false;
+        this.lastError = error instanceof Error ? error.message : String(error);
         if (this.stopped) break;
         await new Promise((resolve) => setTimeout(resolve, this.options.pollIntervalMs ?? 1_000));
         continue;

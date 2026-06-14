@@ -23,6 +23,8 @@ describe('daemon WeChat runtime channel', () => {
       wechat: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'secret-token', accountId: 'wx-account-1' },
     });
 
+    await app.ready();
+
     const response = await app.inject({ method: 'GET', url: '/api/channel/plugins' });
 
     expect(response.statusCode).toBe(200);
@@ -32,11 +34,47 @@ describe('daemon WeChat runtime channel', () => {
         type: 'weixin',
         name: 'WeChat channel',
         enabled: true,
-        connected: true,
+        connected: false,
+        status: 'connecting',
         hasToken: true,
       }),
     ]);
     await app.close();
+  });
+
+  it('reports session timeout as disconnected for the managed weixin runtime', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn()
+      .mockResolvedValue(new Response(JSON.stringify({
+        errcode: -14,
+        errmsg: 'session timeout',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock as typeof fetch);
+
+    const db = memoryDb();
+    const { app } = createDaemonServer({
+      db,
+      wechat: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'secret-token', accountId: 'wx-account-1' },
+    });
+
+    await app.ready();
+
+    await vi.waitFor(async () => {
+      const response = await app.inject({ method: 'GET', url: '/api/channel/plugins' });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual([
+        expect.objectContaining({
+          id: 'weixin',
+          enabled: true,
+          connected: false,
+          status: 'session_timeout',
+          lastError: 'weixin_get_updates_failed:-14:session timeout',
+        }),
+      ]);
+    });
+
+    await app.close();
+    vi.stubGlobal('fetch', originalFetch);
   });
 
   it('proxies AionUi-compatible WeChat login SSE from the clawbot service', async () => {
@@ -256,6 +294,70 @@ describe('daemon WeChat runtime channel', () => {
 
     expect(pairings.listPending()[0]).toMatchObject({
       platformUserId: 'wx_user_unauthorized',
+      status: 'pending',
+    });
+
+    await app.close();
+    vi.stubGlobal('fetch', originalFetch);
+  });
+
+  it('starts direct weixin polling immediately after enabling the plugin from the admin route', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ret: 0,
+        errcode: 0,
+        msgs: [
+          {
+            from_user_id: 'wx_user_late_enable',
+            msg_id: 'msg_1',
+            item_list: [
+              { type: 1, text_item: { text: 'hello after login' } },
+            ],
+          },
+        ],
+        get_updates_buf: 'buf_1',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValue(new Response(JSON.stringify({
+        ret: 0,
+        errcode: 0,
+        msgs: [],
+        get_updates_buf: 'buf_1',
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock as typeof fetch);
+
+    const db = memoryDb();
+    const { app, pairings } = createDaemonServer({
+      db,
+      providers: [new FakeProviderAdapter('claude-code')],
+      wechat: { enabled: false },
+    });
+
+    await app.ready();
+
+    const enable = await app.inject({
+      method: 'POST',
+      url: '/api/channel/plugins/enable',
+      payload: {
+        plugin_id: 'weixin',
+        config: {
+          baseUrl: 'https://ilinkai.weixin.qq.com',
+          credentials: {
+            account_id: 'wx-account-1',
+            bot_token: 'wx-bot-token',
+          },
+        },
+      },
+    });
+
+    expect(enable.statusCode).toBe(200);
+
+    await vi.waitFor(() => {
+      expect(pairings.listPending()).toHaveLength(1);
+    });
+
+    expect(pairings.listPending()[0]).toMatchObject({
+      platformUserId: 'wx_user_late_enable',
       status: 'pending',
     });
 

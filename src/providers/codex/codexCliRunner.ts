@@ -31,13 +31,20 @@ export class CodexCliRunner {
     this.processRunner = input.processRunner ?? defaultCodexProcessRunner;
   }
 
-  async startSession(input: { bridgeSessionId: string; cwd: string; initialPrompt?: string }): Promise<ProviderSession> {
+  async startSession(input: {
+    bridgeSessionId: string;
+    cwd: string;
+    initialPrompt?: string;
+    options?: { providerSessionId?: string };
+  }): Promise<ProviderSession> {
     const session: StoredCodexSession = {
       bridgeSessionId: input.bridgeSessionId,
       providerId: 'codex',
+      providerSessionId: input.options?.providerSessionId,
+      codexSessionId: input.options?.providerSessionId,
       cwd: input.cwd,
       status: 'idle',
-      hasRun: false,
+      hasRun: Boolean(input.options?.providerSessionId),
     };
     this.sessions.set(input.bridgeSessionId, session);
     return session;

@@ -34,9 +34,16 @@ export type ProviderEvent =
 export type ProviderSessionCandidate = {
   id: string;
   providerId: ProviderId;
-  cwd: string;
+  cwd?: string;
   title?: string;
+  resumeTitle?: string;
   lastActivityAt?: number;
+  bridgeBindingSource?: 'sidecar' | 'bridge_tag';
+  bridgeTag?: {
+    platform: 'weixin';
+    platformUserId: string;
+    chatId: string;
+  };
 };
 
 export interface NativeProviderAdapter {
@@ -45,7 +52,10 @@ export interface NativeProviderAdapter {
     bridgeSessionId: string;
     cwd: string;
     initialPrompt?: string;
-    options?: Record<string, unknown>;
+    options?: Record<string, unknown> & {
+      providerSessionId?: string;
+      sessionName?: string;
+    };
   }): Promise<ProviderSession>;
   sendMessage(input: {
     bridgeSessionId: string;
@@ -58,5 +68,9 @@ export interface NativeProviderAdapter {
     decision: Exclude<PermissionChoice, 'approve_for_session'>;
   }): Promise<void>;
   listRecoverableSessions?(): Promise<ProviderSessionCandidate[]>;
-  attachSession?(candidateId: string): Promise<ProviderSession>;
+  attachSession?(input: {
+    candidateId: string;
+    bridgeSessionId: string;
+    cwd: string;
+  }): Promise<ProviderSession>;
 }

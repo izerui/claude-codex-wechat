@@ -40,4 +40,9 @@ export interface ChannelAdapter {
   onMessage(handler: ChannelMessageHandler): void;
   sendMessage(message: ChannelOutgoingMessage): Promise<void>;
   updateMessage?(message: ChannelOutgoingMessage & { platformMessageId: string }): Promise<void>;
+  getHealth?(): {
+    connected: boolean;
+    status: string;
+    lastError?: string;
+  };
 }
