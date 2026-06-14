@@ -240,6 +240,8 @@ For a WeChat-driven Codex session to be recoverable through Codex resume flows:
 
 - `~/.codex/session_index.jsonl` must contain the bridge-owned `thread_name`
 - provider sidecar metadata must preserve the bridge cwd and bridge tag
+- bridge-created interactive Codex threads must be normalized into the same native metadata shape that `codex resume` picker recognizes as a normal CLI session, including native thread/rollout metadata that presents the session as `cli` / `codex-tui` rather than a non-interactive or editor-only source
+- resume-visible Codex session titles should be human-recognizable in the picker. Prefer a stable bridge title or a recent user-facing message/title that helps a human identify the conversation quickly; do not regress titles back to opaque internal ids or low-signal metadata if the picker can instead show something the user can recognize at a glance
 
 Do not auto-attach a recoverable Codex session whose `cwd` does not match the target user/session cwd unless there is an explicit persisted binding. Attaching the wrong native session causes resume UI cwd filtering to lie and binds WeChat traffic to the wrong historical session.
 
