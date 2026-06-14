@@ -100,4 +100,48 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
     expect(history).toContain(`"display":"${resumeTitle}"`);
     expect(history).not.toContain('"display":"旧标题"');
   });
+
+  it('backfills Claude history project when the session history entry is missing cwd metadata', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'claude-native-sessions-'));
+    tempDirs.push(home);
+    const projectCwd = '/Users/liuyuhua/github/claude-codex-wechat';
+    const projectDir = join(home, '.claude', 'projects', '-Users-liuyuhua-github-claude-codex-wechat');
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(projectDir, { recursive: true }));
+    const sidecarDir = join(home, '.claude-codex-wechat', 'provider-sidecar');
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(sidecarDir, { recursive: true }));
+    const sessionId = 'history-project-missing';
+    const sessionPath = join(projectDir, `${sessionId}.jsonl`);
+    const historyPath = join(home, '.claude', 'history.jsonl');
+    const resumeTitle = '微信 · wx_user_1 · [claude-codex-wechat:history-project-missing]';
+    await writeFile(sessionPath, [
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } }),
+      JSON.stringify({ type: 'result', session_id: sessionId }),
+    ].join('\n'), 'utf8');
+    await writeFile(historyPath, JSON.stringify({
+      display: '旧标题',
+      timestamp: 1710000000000,
+      sessionId,
+    }), 'utf8');
+    await writeFile(join(sidecarDir, `claude-code__${sessionId}.json`), JSON.stringify({
+      providerId: 'claude-code',
+      providerSessionId: sessionId,
+      bridgeTag: {
+        platform: 'weixin',
+        platformUserId: 'wx_user_1',
+        chatId: 'chat-a',
+      },
+      cwd: projectCwd,
+      updatedAt: 1710000000000,
+    }, null, 2), 'utf8');
+
+    await ensureClaudeSessionBridgeMetadata({
+      sessionId,
+      resumeTitle,
+      env: { HOME: home },
+    });
+
+    const history = await readFile(historyPath, 'utf8');
+    expect(history).toContain(`"display":"${resumeTitle}"`);
+    expect(history).toContain(`"project":"${projectCwd}"`);
+  });
 });

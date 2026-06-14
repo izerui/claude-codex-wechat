@@ -92,6 +92,7 @@ export async function ensureClaudeSessionBridgeMetadata(input: {
   const env = input.env ?? process.env;
   const sessionPath = await findRecoverableClaudeSessionPath(input.sessionId, env);
   if (!sessionPath) return false;
+  const sidecar = await readProviderSessionSidecar('claude-code', input.sessionId, env);
   const metadata = await readClaudeSessionMetadata(sessionPath).catch(() => null);
   let changed = false;
   if (metadata?.sessionName !== input.resumeTitle) {
@@ -106,6 +107,7 @@ export async function ensureClaudeSessionBridgeMetadata(input: {
   changed = await upsertClaudeHistoryDisplay({
     sessionId: input.sessionId,
     resumeTitle: input.resumeTitle,
+    project: sidecar?.cwd ?? deriveClaudeProjectPathFromSessionFile(sessionPath),
     env,
   }) || changed;
   return changed;
@@ -228,6 +230,7 @@ async function readClaudeHistoryIndex(env: NodeJS.ProcessEnv): Promise<Map<strin
 async function upsertClaudeHistoryDisplay(input: {
   sessionId: string;
   resumeTitle: string;
+  project?: string;
   env: NodeJS.ProcessEnv;
 }): Promise<boolean> {
   const historyPath = join(resolveClaudeConfigDir(input.env), 'history.jsonl');
@@ -243,9 +246,11 @@ async function upsertClaudeHistoryDisplay(input: {
         if (record.sessionId === input.sessionId) {
           replaced = true;
           if (record.display !== input.resumeTitle) changed = true;
+          if (typeof record.project !== 'string' && input.project) changed = true;
           lines.push(JSON.stringify({
             ...record,
             display: input.resumeTitle,
+            ...(typeof record.project !== 'string' && input.project ? { project: input.project } : {}),
           }));
         } else {
           lines.push(line);
@@ -265,6 +270,7 @@ async function upsertClaudeHistoryDisplay(input: {
       pastedContents: {},
       timestamp: Date.now(),
       sessionId: input.sessionId,
+      ...(input.project ? { project: input.project } : {}),
     }));
   }
 
@@ -272,4 +278,16 @@ async function upsertClaudeHistoryDisplay(input: {
   await mkdir(dirname(historyPath), { recursive: true });
   await writeFile(historyPath, `${lines.join('\n')}\n`, 'utf8');
   return true;
+}
+
+function deriveClaudeProjectPathFromSessionFile(sessionPath: string): string | undefined {
+  const normalizedPath = sessionPath.replace(/\\/g, '/');
+  const projectsIndex = normalizedPath.lastIndexOf('/projects/');
+  if (projectsIndex === -1) return undefined;
+  const relativeProjectDir = normalizedPath
+    .slice(projectsIndex + '/projects/'.length)
+    .split('/')[0];
+  if (!relativeProjectDir) return undefined;
+  const withoutPrefix = relativeProjectDir.replace(/^-/, '');
+  return `/${withoutPrefix.replace(/-/g, '/')}`;
 }
