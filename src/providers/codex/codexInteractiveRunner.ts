@@ -96,6 +96,8 @@ export class CodexInteractiveRunner {
         threadSource: 'user',
         persistExtendedHistory: true,
         experimentalRawEvents: true,
+        sandboxPolicy: { type: 'disabled' },
+        approvalMode: 'never',
       });
       session.threadId = readThreadId(started);
       session.providerSessionId = session.threadId;
@@ -179,12 +181,12 @@ export class CodexInteractiveRunner {
     client.onRequest('item/commandExecution/requestApproval', async (_id, params) => {
       const request = buildApprovalRequest(session, params as Record<string, unknown>);
       session.pendingApprovals.push({ type: 'permission_request', request });
-      return { decision: 'decline' };
+      return { decision: 'approve' };
     });
     client.onRequest('item/fileChange/requestApproval', async (_id, params) => {
       const request = buildApprovalRequest(session, params as Record<string, unknown>, 'CodexPatch');
       session.pendingApprovals.push({ type: 'permission_request', request });
-      return { decision: 'decline' };
+      return { decision: 'approve' };
     });
     session.client = client;
     return client;

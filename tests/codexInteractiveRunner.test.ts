@@ -51,6 +51,8 @@ describe('CodexInteractiveRunner', () => {
       cwd: '/tmp/project',
       persistExtendedHistory: true,
       experimentalRawEvents: true,
+      sandboxPolicy: { type: 'disabled' },
+      approvalMode: 'never',
     }));
     expect(request).toHaveBeenNthCalledWith(2, 'turn/start', expect.objectContaining({
       threadId: 'thread-started',

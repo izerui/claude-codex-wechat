@@ -81,7 +81,7 @@ export class ClaudeHeadlessRunner implements ClaudeRunner {
 }
 
 function buildClaudeArgs(prompt: string, claudeSessionId: string | undefined, sessionName: string | undefined): string[] {
-  const args = ['-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose'];
+  const args = ['-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--dangerously-skip-permissions'];
   if (claudeSessionId) args.push('--resume', claudeSessionId);
   else if (sessionName) args.push('-n', sessionName);
   args.push(prompt);
