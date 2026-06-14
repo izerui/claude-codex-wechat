@@ -1,6 +1,6 @@
 import { ClaudeHeadlessRunner } from './claude-code/claudeHeadlessRunner';
 import { ClaudeCodeProvider } from './claude-code/claudeProvider';
-import { CodexCliRunner } from './codex/codexCliRunner';
+import { CodexInteractiveRunner } from './codex/codexInteractiveRunner';
 import { CodexProvider } from './codex/codexProvider';
 import type { NativeProviderAdapter } from './types';
 
@@ -10,6 +10,6 @@ export function createDefaultProviders(input: {
 } = {}): NativeProviderAdapter[] {
   return [
     new ClaudeCodeProvider({ runner: new ClaudeHeadlessRunner({ command: input.claudeCommand }) }),
-    new CodexProvider({ runner: new CodexCliRunner({ command: input.codexCommand }) }),
+    new CodexProvider({ runner: new CodexInteractiveRunner({ command: input.codexCommand }) }),
   ];
 }

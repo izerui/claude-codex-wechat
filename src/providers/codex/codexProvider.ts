@@ -1,11 +1,25 @@
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../types';
-import { CodexCliRunner } from './codexCliRunner';
 import { listRecoverableCodexSessions } from './nativeSessions';
+
+type CodexRunner = {
+  startSession(input: {
+    bridgeSessionId: string;
+    cwd: string;
+    initialPrompt?: string;
+    options?: { providerSessionId?: string; sessionName?: string };
+  }): Promise<ProviderSession>;
+  sendMessage(input: {
+    bridgeSessionId: string;
+    text: string;
+  }): AsyncIterable<ProviderEvent>;
+  stopSession(bridgeSessionId: string): Promise<void>;
+  decidePermission(input: { requestId: string; decision: 'approve' | 'deny' | 'abort' }): Promise<void>;
+};
 
 export class CodexProvider implements NativeProviderAdapter {
   readonly id = 'codex';
 
-  constructor(private readonly options: { runner: CodexCliRunner }) {}
+  constructor(private readonly options: { runner: CodexRunner }) {}
 
   async startSession(input: {
     bridgeSessionId: string;
@@ -19,6 +33,7 @@ export class CodexProvider implements NativeProviderAdapter {
       initialPrompt: input.initialPrompt,
       options: typeof input.options === 'object' && input.options ? {
         providerSessionId: typeof input.options.providerSessionId === 'string' ? input.options.providerSessionId : undefined,
+        sessionName: typeof input.options.sessionName === 'string' ? input.options.sessionName : undefined,
       } : undefined,
     });
   }

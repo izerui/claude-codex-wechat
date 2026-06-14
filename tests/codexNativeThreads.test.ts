@@ -25,15 +25,23 @@ describe('syncCodexThreadForResume', () => {
         '14',
         'rollout-2026-06-14T12-20-07-codex-session-1.jsonl',
       );
-      writeFileSync(rolloutPath, JSON.stringify({
-        timestamp: '2026-06-14T04:20:08.049Z',
-        type: 'session_meta',
-        payload: {
-          id: 'codex-session-1',
-          cwd: '/tmp/codex-project',
-          source: 'exec',
-        },
-      }), 'utf8');
+      writeFileSync(rolloutPath, [
+        JSON.stringify({
+          timestamp: '2026-06-14T04:20:08.049Z',
+          type: 'session_meta',
+          payload: {
+            id: 'codex-session-1',
+            cwd: '/tmp/codex-project',
+            source: 'vscode',
+            originator: 'claude-codex-wechat',
+          },
+        }),
+        JSON.stringify({
+          timestamp: '2026-06-14T04:20:10.000Z',
+          type: 'event_msg',
+          payload: { type: 'task_started' },
+        }),
+      ].join('\n'), 'utf8');
       writeFileSync(join(codexHome, 'session_index.jsonl'), JSON.stringify({
         id: 'codex-session-1',
         thread_name: '微信 · wx_user_1 · [claude-codex-wechat:test]',
@@ -132,6 +140,9 @@ describe('syncCodexThreadForResume', () => {
       });
       expect(Number(thread?.updated_at_ms)).toBeGreaterThanOrEqual(1781410857640);
       expect(readFileSync(join(codexHome, 'session_index.jsonl'), 'utf8')).toContain('微信 · wx_user_1 · [claude-codex-wechat:test]');
+      const rollout = readFileSync(rolloutPath, 'utf8');
+      expect(rollout).toContain('"originator":"codex-tui"');
+      expect(rollout).toContain('"source":"cli"');
     } finally {
       process.env.HOME = previousHome;
       process.env.CODEX_HOME = previousCodexHome;

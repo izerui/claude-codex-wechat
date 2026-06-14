@@ -1,12 +1,13 @@
 import Database from 'better-sqlite3';
 import { mkdtempSync, readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { tmpdir } from 'node:os';
 import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { createDaemonServer } from '../src/daemon/server';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
-import { CodexCliRunner } from '../src/providers/codex/codexCliRunner';
+import { CodexInteractiveRunner } from '../src/providers/codex/codexInteractiveRunner';
 import { CodexProvider } from '../src/providers/codex/codexProvider';
+import { CodexAppServerClient } from '../src/providers/codex/codexAppServerClient';
 import { MessageLogRepository } from '../src/storage/messageLogRepository';
 import { PermissionRequestRepository } from '../src/storage/permissionRequestRepository';
 import { ProviderBindingRepository } from '../src/storage/providerBindingRepository';
@@ -16,6 +17,7 @@ import { SettingsRepository } from '../src/storage/settingsRepository';
 import { UserRepository } from '../src/storage/userRepository';
 import { PRIMARY_WEIXIN_PLATFORM } from '../src/channels/platforms';
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../src/providers/types';
+import type { ProviderSessionCandidate } from '../src/providers/types';
 
 function memoryDb() {
   const db = new Database(':memory:');
@@ -49,7 +51,7 @@ class NoScanAutoAttachProvider implements NativeProviderAdapter {
     this.sessions.delete(bridgeSessionId);
   }
 
-  async listRecoverableSessions() {
+  async listRecoverableSessions(): Promise<ProviderSessionCandidate[]> {
     throw new Error('should_not_scan_recoverable_sessions');
   }
 
@@ -252,17 +254,32 @@ describe('channel message flow', () => {
         defaultCwd: '/tmp/project',
       });
       const channel = new MockChannelAdapter();
+      const notificationHandlers = new Map<string, (params: unknown) => void>();
+      vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+      vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(async (method: string, params?: unknown) => {
+        if (method === 'thread/start') return { threadId: 'codex-session-1' };
+        if (method === 'turn/start') {
+          queueMicrotask(() => {
+            notificationHandlers.get('item/agentMessage/delta')?.({ delta: 'Codex 收到：hello codex' });
+            notificationHandlers.get('turn/completed')?.({ threadId: 'codex-session-1', turn: { id: 'turn-1' } });
+          });
+          return { turn: { id: 'turn-1' } };
+        }
+        if (method === 'thread/resume') return { threadId: (params as { threadId: string }).threadId };
+        return {};
+      });
+      vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+      vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+        notificationHandlers.set(method, handler);
+        return () => {
+          notificationHandlers.delete(method);
+        };
+      });
+      vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+      vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
       const provider = new CodexProvider({
-        runner: new CodexCliRunner({
-          processRunner: async () => ({
-            code: 0,
-            stdout: [
-              JSON.stringify({ type: 'agent_message', message: { content: [{ type: 'output_text', text: 'Codex 收到：hello codex' }] } }),
-              JSON.stringify({ type: 'exec_complete', session_id: 'codex-session-1' }),
-            ].join('\n'),
-            stderr: '',
-          }),
-        }),
+        runner: new CodexInteractiveRunner({ command: 'codex' }),
       });
       const { app, sessions } = createDaemonServer({
         db,
