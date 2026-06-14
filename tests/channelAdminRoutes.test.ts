@@ -327,7 +327,7 @@ describe('channel admin routes', () => {
         providerId: 'claude-code',
         providerSessionId: 'legacy-session-1',
         recoverySource: 'runtime',
-        resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:legacyprobe]',
+        resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:legacyprobe]',
         cwd: '/tmp/project',
         status: 'idle',
         createdAt: 1,
@@ -374,8 +374,8 @@ describe('channel admin routes', () => {
         defaultCwd: '/tmp/project',
       });
       const runtimeSessions = new RuntimeSessionRepository(db);
-      const repairableTitle = '微信 · wx_user_1 · [local-agent-wechat-bridge:batch-attached-1]';
-      const syncedTitle = '微信 · wx_user_1 · [local-agent-wechat-bridge:batch-attached-2]';
+      const repairableTitle = '微信 · wx_user_1 · [claude-codex-wechat:batch-attached-1]';
+      const syncedTitle = '微信 · wx_user_1 · [claude-codex-wechat:batch-attached-2]';
 
       const projectDir = join(process.env.HOME, '.claude', 'projects', '-tmp-project');
       mkdirSync(projectDir, { recursive: true });
@@ -549,8 +549,8 @@ describe('channel admin routes', () => {
         providerSessionId: 'claude-code_recoverable_1',
         preferredResumeMode: 'title',
         providerResumeCommand: 'claude --resume claude-code_recoverable_1',
-        providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [local-agent-wechat-bridge:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hdHRhY2hlZCJ9]',
-        resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hdHRhY2hlZCJ9]',
+        providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hdHRhY2hlZCJ9]',
+        resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hdHRhY2hlZCJ9]',
       },
     });
 
@@ -788,7 +788,7 @@ describe('channel admin routes', () => {
       writeFileSync(join(codexHome, 'session_index.jsonl'), [
         JSON.stringify({
           id: 'codex-session-1',
-          thread_name: '微信 · wx_user_1 · [local-agent-wechat-bridge:codex-test]',
+          thread_name: '微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
           updated_at: '2026-06-14T01:16:00.000Z',
         }),
       ].join('\n'), 'utf8');
@@ -808,10 +808,10 @@ describe('channel admin routes', () => {
           id: 'codex-session-1',
           providerId: 'codex',
           preferredResumeMode: 'title',
-          title: '微信 · wx_user_1 · [local-agent-wechat-bridge:codex-test]',
-          resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:codex-test]',
+          title: '微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
+          resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
           providerResumeCommand: 'codex exec resume --json --last codex-session-1',
-          providerResumeByTitleCommand: 'codex exec resume --json --last 微信 · wx_user_1 · [local-agent-wechat-bridge:codex-test]',
+          providerResumeByTitleCommand: 'codex exec resume --json --last 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
         }),
       ]);
 
@@ -869,7 +869,7 @@ describe('channel admin routes', () => {
 
       const index = readFileSync(join(codexHome, 'session_index.jsonl'), 'utf8');
       expect(index).toContain('codex-session-1');
-      expect(index).toContain('微信 · wx_user_1 · [local-agent-wechat-bridge:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1jb2RleCJ9]');
+      expect(index).toContain('微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1jb2RleCJ9]');
 
       await app.close();
     } finally {
@@ -1135,7 +1135,7 @@ describe('channel admin routes', () => {
       writeFileSync(join(projectDir, 'claude-title-session.jsonl'), [
         JSON.stringify({
           type: 'custom-title',
-          customTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC10aXRsZSJ9]',
+          customTitle: '微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC10aXRsZSJ9]',
           sessionId: 'claude-title-session',
         }),
         JSON.stringify({
@@ -1159,11 +1159,11 @@ describe('channel admin routes', () => {
         expect.objectContaining({
           id: 'claude-title-session',
           title: 'continue bridge',
-          resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC10aXRsZSJ9]',
+          resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC10aXRsZSJ9]',
           providerResumeTitleSynced: true,
           providerResumeRepairable: true,
           providerResumeCommand: 'claude --resume claude-title-session',
-          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [local-agent-wechat-bridge:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC10aXRsZSJ9]',
+          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC10aXRsZSJ9]',
           bridgeTag: {
             platform: 'weixin',
             platformUserId: 'wx_user_1',
@@ -1225,7 +1225,7 @@ describe('channel admin routes', () => {
         session: {
           providerSessionId: 'claude-meta-session',
           cwd: '/tmp/recovered-project',
-          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [local-agent-wechat-bridge:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hdHRhY2hlZCJ9]',
+          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hdHRhY2hlZCJ9]',
         },
       });
 
@@ -1283,7 +1283,7 @@ describe('channel admin routes', () => {
         ok: true,
         session: {
           cwd: '/tmp/project-a',
-          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [local-agent-wechat-bridge:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoid3hfdXNlcl8xIn0]',
+          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoid3hfdXNlcl8xIn0]',
         },
       });
 

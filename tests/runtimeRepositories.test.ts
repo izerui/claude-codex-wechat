@@ -147,7 +147,7 @@ describe('runtime repositories', () => {
       providerId: 'claude-code',
       providerSessionId: 'claude-session-1',
       recoverySource: 'manual_attach',
-      resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:test]',
+      resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test]',
       cwd: '/tmp/project',
       status: 'idle',
       createdAt: 10,
@@ -156,7 +156,7 @@ describe('runtime repositories', () => {
 
     expect(sessions.findById('bs_manual')).toMatchObject({
       recoverySource: 'manual_attach',
-      resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:test]',
+      resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test]',
     });
   });
 });

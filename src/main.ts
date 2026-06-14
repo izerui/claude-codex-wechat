@@ -8,5 +8,5 @@ const db = config.databasePath ? openBridgeDatabase(config.databasePath) : undef
 const { app } = createDaemonServer({ db, wechat: config.wechat, providerCommands: config.providers });
 
 await app.listen({ host: '127.0.0.1', port });
-console.log(`local-agent-wechat-bridge listening on http://127.0.0.1:${port}`);
+console.log(`claude-codex-wechat listening on http://127.0.0.1:${port}`);
 console.log(`config path: ${process.env.BRIDGE_CONFIG ?? defaultConfigPath()}`);

@@ -20,6 +20,12 @@
 - 微信 token 失效后恢复使用
 - 个人日常重新授权
 
+注意：
+
+- 这个脚本生成的是运行时凭据
+- 默认会写到 `/tmp/bridge-weixin-credentials.json` 和 `/tmp/bridge-weixin.env`
+- 如果你后续要直接执行 `pnpm dev`，还需要把新凭据同步进 `~/.claude-codex-wechat/config.json`
+
 ### `weixin-login-helper.ts`
 
 微信扫码登录辅助工具。
@@ -118,6 +124,13 @@ BRIDGE_DEFAULT_PROVIDER=codex bash ./scripts/recover-weixin-runtime.sh
 ```bash
 pnpm tsx scripts/weixin-login-helper.ts
 bash ./scripts/start-runtime-check.sh
+```
+
+如果你只是想先让默认 `pnpm dev` 也读到正式配置，先准备配置文件：
+
+```bash
+mkdir -p ~/.claude-codex-wechat
+cp config.example.json ~/.claude-codex-wechat/config.json
 ```
 
 同样也可以：

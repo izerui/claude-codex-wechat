@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeBridgeConfigForTest } from '../src/daemon/config';
+import { defaultConfigPath, normalizeBridgeConfigForTest } from '../src/daemon/config';
 
 describe('bridge config provider commands', () => {
+  it('uses the renamed default config directory', () => {
+    expect(defaultConfigPath()).toContain('.claude-codex-wechat/config.json');
+  });
+
   it('normalizes provider command paths from config', () => {
     const config = normalizeBridgeConfigForTest({
       providers: {

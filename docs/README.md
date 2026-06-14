@@ -1,8 +1,8 @@
-# local-agent-wechat-bridge 运行说明
+# claude-codex-wechat 运行说明
 
 ## 1. 项目定位
 
-`local-agent-wechat-bridge` 是一个本地运行的桥接层，用来把：
+`claude-codex-wechat` 是一个本地运行的桥接层，用来把：
 
 - 微信 channel（默认通过 AionCore / OpenClaw 风格 direct 模式接入）
 - 本地原生 `claude` / `codex` CLI
@@ -24,7 +24,7 @@
 工程目录：
 
 ```bash
-cd /Users/liuyuhua/github/local-agent-wechat-bridge
+cd /Users/liuyuhua/github/claude-codex-wechat
 ```
 
 安装依赖：
@@ -65,7 +65,7 @@ pnpm test
 默认配置文件路径：
 
 ```text
-~/.local-agent-wechat-bridge/config.json
+~/.claude-codex-wechat/config.json
 ```
 
 也可以通过环境变量覆盖：
@@ -78,7 +78,7 @@ export BRIDGE_CONFIG=/absolute/path/to/config.json
 
 ```json
 {
-  "databasePath": "/Users/you/.local-agent-wechat-bridge/bridge.sqlite",
+  "databasePath": "/Users/you/.claude-codex-wechat/bridge.sqlite",
   "wechat": {
     "enabled": true,
     "mode": "direct",

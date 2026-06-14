@@ -19,12 +19,12 @@ function createFetchStub() {
         providerId: 'claude-code',
         providerSessionId: 'claude-session-1',
         preferredResumeMode: 'title',
-        preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [local-agent-wechat-bridge:test]',
+        preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
         providerResumeCommand: 'claude --resume claude-session-1',
-        providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [local-agent-wechat-bridge:test]',
+        providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
         providerResumeTitleSynced: true,
         providerResumeRepairable: true,
-        resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:test]',
+        resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test]',
         bindingMatched: true,
         bindingSource: 'binding_table',
         bindingPlatformUserId: 'wx_user_1',
@@ -135,9 +135,9 @@ describe('App session log interactions', () => {
     expect(await screen.findByText('按标题恢复')).toBeTruthy();
     expect(await screen.findByText('原生恢复状态')).toBeTruthy();
     expect(await screen.findByText('已同步')).toBeTruthy();
-    expect((await screen.findAllByText('claude -r 微信 · wx_user_1 · [local-agent-wechat-bridge:test]')).length).toBe(2);
+    expect((await screen.findAllByText('claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]')).length).toBe(2);
     expect(await screen.findByText('claude --resume claude-session-1')).toBeTruthy();
-    expect(await screen.findByText('微信 · wx_user_1 · [local-agent-wechat-bridge:test]')).toBeTruthy();
+    expect(await screen.findByText('微信 · wx_user_1 · [claude-codex-wechat:test]')).toBeTruthy();
     expect(await screen.findByText('历史绑定命中')).toBeTruthy();
     expect(await screen.findByText('wx_user_1 · claude-session-1')).toBeTruthy();
   });

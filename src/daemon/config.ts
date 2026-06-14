@@ -23,7 +23,7 @@ export type BridgeConfig = {
 };
 
 export function defaultConfigPath(): string {
-  return join(homedir(), '.local-agent-wechat-bridge', 'config.json');
+  return join(homedir(), '.claude-codex-wechat', 'config.json');
 }
 
 export function loadBridgeConfig(path = process.env.BRIDGE_CONFIG ?? defaultConfigPath()): BridgeConfig {

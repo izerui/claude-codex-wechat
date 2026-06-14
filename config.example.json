@@ -1,5 +1,5 @@
 {
-  "databasePath": "/Users/you/.local-agent-wechat-bridge/bridge.sqlite",
+  "databasePath": "/Users/you/.claude-codex-wechat/bridge.sqlite",
   "wechat": {
     "enabled": true,
     "mode": "direct",

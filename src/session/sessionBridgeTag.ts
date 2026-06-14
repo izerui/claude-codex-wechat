@@ -4,7 +4,7 @@ export type SessionBridgeTag = {
   chatId: string;
 };
 
-const PREFIX = 'local-agent-wechat-bridge' as const;
+const PREFIX = 'claude-codex-wechat' as const;
 
 export function buildSessionBridgeName(input: SessionBridgeTag): string {
   const payload = Buffer.from(JSON.stringify(input), 'utf8').toString('base64url');
@@ -13,7 +13,7 @@ export function buildSessionBridgeName(input: SessionBridgeTag): string {
 
 export function parseSessionBridgeName(value: string | undefined): SessionBridgeTag | null {
   if (!value) return null;
-  const match = value.match(/\[local-agent-wechat-bridge:([A-Za-z0-9_-]+)\]/);
+  const match = value.match(/\[claude-codex-wechat:([A-Za-z0-9_-]+)\]/);
   if (!match?.[1]) return null;
   try {
     const decoded = JSON.parse(Buffer.from(match[1], 'base64url').toString('utf8')) as Record<string, unknown>;

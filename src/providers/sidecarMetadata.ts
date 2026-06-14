@@ -13,7 +13,7 @@ export type ProviderSessionSidecar = {
 };
 
 function resolveSidecarDir(env: NodeJS.ProcessEnv = process.env): string {
-  return join(env.HOME || homedir(), '.local-agent-wechat-bridge', 'provider-sidecar');
+  return join(env.HOME || homedir(), '.claude-codex-wechat', 'provider-sidecar');
 }
 
 function resolveSidecarPath(providerId: ProviderId, providerSessionId: string, env: NodeJS.ProcessEnv = process.env): string {

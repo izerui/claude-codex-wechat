@@ -1,6 +1,6 @@
-# local-agent-wechat-bridge
+# claude-codex-wechat
 
-`local-agent-wechat-bridge` 是一个本地桥接服务，用来把：
+`claude-codex-wechat` 是一个本地桥接服务，用来把：
 
 - 微信 bot 通道
 - 本地原生 `Claude Code`
@@ -88,14 +88,14 @@
 
 脚本分层索引见：
 
-- [scripts/README.md](/Users/liuyuhua/github/local-agent-wechat-bridge/scripts/README.md:1)
+- [scripts/README.md](./scripts/README.md)
 
 ---
 
 ## 安装
 
 ```bash
-cd /Users/liuyuhua/github/local-agent-wechat-bridge
+cd /Users/liuyuhua/github/claude-codex-wechat
 pnpm install
 ```
 
@@ -130,20 +130,21 @@ pnpm build:web
 默认配置文件路径：
 
 ```text
-~/.local-agent-wechat-bridge/config.json
+~/.claude-codex-wechat/config.json
 ```
 
 可以从示例复制：
 
 ```bash
-cp config.example.json ~/.local-agent-wechat-bridge/config.json
+mkdir -p ~/.claude-codex-wechat
+cp config.example.json ~/.claude-codex-wechat/config.json
 ```
 
 最小配置示例：
 
 ```json
 {
-  "databasePath": "/Users/you/.local-agent-wechat-bridge/bridge.sqlite",
+  "databasePath": "/Users/you/.claude-codex-wechat/bridge.sqlite",
   "wechat": {
     "enabled": true,
     "baseUrl": "https://ilinkai.weixin.qq.com",
@@ -224,6 +225,24 @@ BRIDGE_DEFAULT_PROVIDER=codex
 /tmp/bridge-weixin-credentials.json
 /tmp/bridge-weixin.env
 ```
+
+注意：
+
+- 这两个 `/tmp` 文件是临时运行时凭据
+- 直接执行 `pnpm dev` 不会自动把它们持久化到正式配置
+- 如果想让重启后继续生效，需要把新值写回 `~/.claude-codex-wechat/config.json`
+
+最少要同步这几个字段：
+
+- `wechat.baseUrl`
+- `wechat.token`
+- `wechat.accountId`
+
+否则你会看到一种典型现象：
+
+- 扫码后当前 runtime 能用
+- 重启 `pnpm dev` 后又读不到刚才的新凭据
+- 看起来像“每次重启都要重新扫码”
 
 ### 2. 启动成功后检查 bridge 是否真的连通
 
@@ -414,5 +433,5 @@ BRIDGE_PORT=8788 WAIT_SECONDS=120 bash ./scripts/check-codex-wechat-flow.sh
 
 ## 更多文档
 
-- [docs/README.md](/Users/liuyuhua/github/local-agent-wechat-bridge/docs/README.md:1)
-- [scripts/README.md](/Users/liuyuhua/github/local-agent-wechat-bridge/scripts/README.md:1)
+- [docs/README.md](./docs/README.md)
+- [scripts/README.md](./scripts/README.md)

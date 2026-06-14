@@ -226,7 +226,7 @@ enablePlugin({
 
 ## 5. 对当前 TS 工程的直接指导
 
-如果当前 `local-agent-wechat-bridge` 要完全对齐 `AionCore` 风格，意味着：
+如果当前 `claude-codex-wechat` 要完全对齐 `AionCore` 风格，意味着：
 
 ### 5.1 可以保留的部分
 

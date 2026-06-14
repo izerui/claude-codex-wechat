@@ -1,4 +1,4 @@
-# local-agent-wechat-bridge 状态与下一步（2026-06-13）
+# claude-codex-wechat 状态与下一步（2026-06-13）
 
 ## 1. 项目目标回顾
 
@@ -22,7 +22,7 @@
 
 已完成：
 
-- 独立新工程已创建：`/Users/liuyuhua/github/local-agent-wechat-bridge`
+- 独立新工程已创建：`/Users/liuyuhua/github/claude-codex-wechat`
 - 基础技术栈已落地：
   - Node.js
   - TypeScript

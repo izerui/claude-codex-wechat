@@ -27,7 +27,7 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
 
     const changed = await ensureClaudeSessionBridgeMetadata({
       sessionId,
-      resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:testpayload]',
+      resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:testpayload]',
       env: { HOME: home },
     });
 
@@ -35,7 +35,7 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
     const content = await readFile(sessionPath, 'utf8');
     expect(content).toContain('"type":"custom-title"');
     expect(content).toContain('"type":"agent-name"');
-    expect(content).toContain('[local-agent-wechat-bridge:testpayload]');
+    expect(content).toContain('[claude-codex-wechat:testpayload]');
   });
 
   it('does not rewrite sessions that already contain bridge resume metadata', async () => {
@@ -47,12 +47,12 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
     const sessionPath = join(projectDir, `${sessionId}.jsonl`);
     const historyPath = join(home, '.claude', 'history.jsonl');
     const original = [
-      JSON.stringify({ type: 'custom-title', customTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:existing]', sessionId }),
-      JSON.stringify({ type: 'agent-name', agentName: '微信 · wx_user_1 · [local-agent-wechat-bridge:existing]', sessionId }),
+      JSON.stringify({ type: 'custom-title', customTitle: '微信 · wx_user_1 · [claude-codex-wechat:existing]', sessionId }),
+      JSON.stringify({ type: 'agent-name', agentName: '微信 · wx_user_1 · [claude-codex-wechat:existing]', sessionId }),
     ].join('\n');
     await writeFile(sessionPath, original, 'utf8');
     await writeFile(historyPath, JSON.stringify({
-      display: '微信 · wx_user_1 · [local-agent-wechat-bridge:existing]',
+      display: '微信 · wx_user_1 · [claude-codex-wechat:existing]',
       timestamp: 1710000000000,
       project: '/tmp/project',
       sessionId,
@@ -60,7 +60,7 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
 
     const changed = await ensureClaudeSessionBridgeMetadata({
       sessionId,
-      resumeTitle: '微信 · wx_user_1 · [local-agent-wechat-bridge:existing]',
+      resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:existing]',
       env: { HOME: home },
     });
 
@@ -76,7 +76,7 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
     const sessionId = 'history-session-1';
     const sessionPath = join(projectDir, `${sessionId}.jsonl`);
     const historyPath = join(home, '.claude', 'history.jsonl');
-    const resumeTitle = '微信 · wx_user_1 · [local-agent-wechat-bridge:historyprobe]';
+    const resumeTitle = '微信 · wx_user_1 · [claude-codex-wechat:historyprobe]';
     await writeFile(sessionPath, [
       JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } }),
       JSON.stringify({ type: 'result', session_id: sessionId }),

@@ -1,5 +1,5 @@
 {
-  "name": "local-agent-wechat-bridge",
+  "name": "claude-codex-wechat",
   "version": "0.1.0",
   "private": true,
   "type": "module",

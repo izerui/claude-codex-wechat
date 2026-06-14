@@ -162,7 +162,7 @@ custom local clawbot wrapper
 
 ## 6. 对当前工程的直接影响
 
-对 `local-agent-wechat-bridge` 来说，后续应当调整为：
+对 `claude-codex-wechat` 来说，后续应当调整为：
 
 ### 6.1 登录侧
 
