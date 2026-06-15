@@ -152,7 +152,6 @@ export class WeixinDirectApiClient {
       throw new Error(`weixin_get_config_failed:${response.status}`);
     }
     const raw = await response.text();
-    console.error('[weixin-typing] getConfig raw response:', raw);
     const payload = JSON.parse(raw) as {
       ret?: number;
       errmsg?: string;
@@ -186,9 +185,12 @@ export class WeixinDirectApiClient {
         base_info: {},
       }),
     });
-    console.error('[weixin-typing] sendTyping status:', input.status, 'http:', response.status);
     if (!response.ok) {
       throw new Error(`weixin_send_typing_failed:${response.status}`);
+    }
+    const payload = await response.json() as { ret?: number; errmsg?: string };
+    if ((payload.ret ?? 0) !== 0) {
+      throw new Error(`weixin_send_typing_failed:${payload.ret ?? -1}:${payload.errmsg ?? 'unknown_error'}`);
     }
   }
 }

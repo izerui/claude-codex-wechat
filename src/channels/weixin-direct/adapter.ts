@@ -66,7 +66,6 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     if (!this.options.api.getConfig || !this.options.api.sendTyping) return;
     try {
       const typingTicket = await this.getTypingTicket(chatId);
-      console.error('[weixin-typing] setTyping chatId:', chatId, 'active:', active, 'ticketLen:', typingTicket.length);
       if (!typingTicket) return;
       await this.options.api.sendTyping({
         ilinkUserId: chatId,

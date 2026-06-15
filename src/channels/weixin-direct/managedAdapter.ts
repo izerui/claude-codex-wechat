@@ -56,6 +56,10 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
     await this.adapter.sendMessage(message);
   }
 
+  async setTyping(chatId: string, active: boolean): Promise<void> {
+    await this.adapter?.setTyping?.(chatId, active);
+  }
+
   getHealth(): { connected: boolean; status: string; lastError?: string } {
     if (!this.adapter) return { connected: false, status: this.running ? 'not_configured' : 'disabled' };
     return this.adapter.getHealth?.() ?? { connected: this.running, status: this.running ? 'configured' : 'stopped' };
