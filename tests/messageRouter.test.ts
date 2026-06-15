@@ -137,7 +137,7 @@ describe('MessageRouter', () => {
   });
 
 
-  it('does not trigger a provider for unauthorized users', async () => {
+  it('does not trigger a provider for unactive wechat users', async () => {
     const channel = new MockChannelAdapter();
     const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });

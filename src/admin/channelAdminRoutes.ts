@@ -305,7 +305,7 @@ export function registerChannelAdminRoutes(input: {
 
 }
 
-function toWechatPluginStatus(wechat: WeixinConfig | undefined, users: ActiveWeChatUserStore, channel?: ChannelAdapter) {
+function toWechatPluginStatus(wechat: WeixinConfig | undefined, activeUserStore: ActiveWeChatUserStore, channel?: ChannelAdapter) {
   const health = channel?.getHealth?.();
   return {
     id: PRIMARY_WEIXIN_PLATFORM,
@@ -315,7 +315,7 @@ function toWechatPluginStatus(wechat: WeixinConfig | undefined, users: ActiveWeC
     connected: health ? health.connected : wechat?.enabled === true && Boolean(wechat.baseUrl),
     status: health ? health.status : wechat?.enabled === true ? 'configured' : 'disabled',
     ...(health?.lastError ? { lastError: health.lastError } : {}),
-    activeUsers: users.getActiveUser()?.platform === PRIMARY_WEIXIN_PLATFORM ? 1 : 0,
+    activeUsers: activeUserStore.getActiveUser()?.platform === PRIMARY_WEIXIN_PLATFORM ? 1 : 0,
     hasToken: Boolean(wechat?.token),
     botUsername: wechat?.accountId,
   };

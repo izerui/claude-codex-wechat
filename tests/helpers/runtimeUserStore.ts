@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { RuntimeUserStore } from '../../src/storage/runtimeUserStore';
 import type { ActiveWeChatUserRecord } from '../../src/storage/userStore';
 
-export function createRuntimeUserStore(prefix = 'bridge-runtime-users-') {
+export function createRuntimeUserStore(prefix = 'bridge-active-wechat-user-') {
   const configDir = mkdtempSync(join(tmpdir(), prefix));
   const configPath = join(configDir, 'config.json');
   return {

@@ -20,8 +20,8 @@ function createMemoryDb() {
 
 describe('channel auth repositories', () => {
   it('stores the current active wechat user as a single record', () => {
-    const store = createRuntimeUserStore('bridge-auth-users-');
-    const users = store.activeUserStore;
+    const store = createRuntimeUserStore('bridge-auth-active-wechat-user-');
+    const activeUserStore = store.activeUserStore;
     const created = seedRuntimeUserStore(store, {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
@@ -30,12 +30,12 @@ describe('channel auth repositories', () => {
       cwd: '/tmp/project',
     });
 
-    expect(users.isActiveUser('weixin', 'wx_user_1')).toMatchObject({
+    expect(activeUserStore.isActiveUser('weixin', 'wx_user_1')).toMatchObject({
       id: created.id,
       platformUserId: 'wx_user_1',
       provider: 'claude-code',
     });
-    expect(users.getActiveUser()).toMatchObject({ platformUserId: 'wx_user_1' });
+    expect(activeUserStore.getActiveUser()).toMatchObject({ platformUserId: 'wx_user_1' });
   });
 
   it('persists activeWeChatUser into config.json for the default daemon store', async () => {

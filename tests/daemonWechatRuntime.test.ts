@@ -15,7 +15,7 @@ function memoryDb() {
 }
 
 function seededUsers(platformUserId = 'wx_user_1') {
-  const store = createRuntimeUserStore('bridge-daemon-wechat-users-');
+  const store = createRuntimeUserStore('bridge-daemon-active-wechat-user-');
   seedRuntimeUserStore(store, {
     platform: 'weixin',
     platformUserId,
@@ -139,7 +139,7 @@ describe('daemon WeChat runtime channel', () => {
 
   it('can drive provider chat from weixin-direct polling without inbound webhook posts', async () => {
     const db = memoryDb();
-    const users = seededUsers();
+    const activeUserStore = seededUsers();
 
     const api = {
       getUpdates: vi.fn()
@@ -168,7 +168,7 @@ describe('daemon WeChat runtime channel', () => {
       db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
-      activeUserStore: users,
+      activeUserStore: activeUserStore,
       permissionsRouter: permissions,
     });
 
@@ -214,7 +214,7 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
-    const users = seededUsers();
+    const activeUserStore = seededUsers();
 
     const permissions = new PermissionRouter();
     const { app } = createDaemonServer({
@@ -226,7 +226,7 @@ describe('daemon WeChat runtime channel', () => {
         token: 'wx-bot-token',
         accountId: 'wx-account-1',
       },
-      activeUserStore: users,
+      activeUserStore: activeUserStore,
       permissionsRouter: permissions,
     });
 

@@ -36,7 +36,7 @@ describe('channel admin routes', () => {
   it('returns the active user without exposing revoke route', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
-    const { app, activeUserStore } = createDaemonServer({ db, activeUserStore: createRuntimeUserStore('bridge-admin-users-').activeUserStore });
+    const { app, activeUserStore } = createDaemonServer({ db, activeUserStore: createRuntimeUserStore('bridge-admin-active-wechat-user-').activeUserStore });
     const created = activeUserStore.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user', provider: 'codex', cwd: '/tmp/project' });
 
     const response = await app.inject({ method: 'GET', url: '/api/channel/active-user' });
@@ -44,7 +44,7 @@ describe('channel admin routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ platformUserId: 'wx_user_1', provider: 'codex' });
 
-    const revoke = await app.inject({ method: 'POST', url: `/api/channel/users/${created.id}/revoke` });
+    const revoke = await app.inject({ method: 'POST', url: `/api/channel/active-user/${created.id}/revoke` });
     expect(revoke.statusCode).toBe(404);
 
     const after = await app.inject({ method: 'GET', url: '/api/channel/active-user' });
@@ -261,7 +261,7 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
-  it('notifies authorized weixin users after switching the provider from the wechat panel setting', async () => {
+  it('notifies the active weixin user after switching the provider from the wechat panel setting', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const channel = new MockChannelAdapter();

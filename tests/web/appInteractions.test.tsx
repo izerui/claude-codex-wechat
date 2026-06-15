@@ -600,7 +600,7 @@ describe('App admin interactions', () => {
     });
   });
 
-  it('loads recoverable Claude sessions for the authorized user flow', async () => {
+  it('loads recoverable Claude sessions for the active wechat user flow', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
     vi.stubGlobal('WebSocket', class {
