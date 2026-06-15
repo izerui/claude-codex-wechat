@@ -23,7 +23,7 @@ function seededUsers(platformUserId = 'wx_user_1') {
     provider: 'claude-code',
     cwd: '/tmp/project',
   });
-  return store.users;
+  return store.activeUserStore;
 }
 
 describe('daemon WeChat runtime channel', () => {
@@ -32,7 +32,7 @@ describe('daemon WeChat runtime channel', () => {
     const { app } = createDaemonServer({
       db,
       wechat: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'secret-token', accountId: 'wx-account-1' },
-      usersStore: createRuntimeUserStore('bridge-daemon-wechat-status-').users,
+      activeUserStore: createRuntimeUserStore('bridge-daemon-wechat-status-').activeUserStore,
     });
 
     await app.ready();
@@ -66,7 +66,7 @@ describe('daemon WeChat runtime channel', () => {
     const { app } = createDaemonServer({
       db,
       wechat: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'secret-token', accountId: 'wx-account-1' },
-      usersStore: createRuntimeUserStore('bridge-daemon-wechat-timeout-').users,
+      activeUserStore: createRuntimeUserStore('bridge-daemon-wechat-timeout-').activeUserStore,
     });
 
     await app.ready();
@@ -118,7 +118,7 @@ describe('daemon WeChat runtime channel', () => {
     const { app } = createDaemonServer({
       db,
       wechat: { enabled: false },
-      usersStore: createRuntimeUserStore('bridge-daemon-wechat-login-').users,
+      activeUserStore: createRuntimeUserStore('bridge-daemon-wechat-login-').activeUserStore,
     });
 
     const response = await app.inject({
@@ -168,7 +168,7 @@ describe('daemon WeChat runtime channel', () => {
       db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
-      usersStore: users,
+      activeUserStore: users,
       permissionsRouter: permissions,
     });
 
@@ -226,7 +226,7 @@ describe('daemon WeChat runtime channel', () => {
         token: 'wx-bot-token',
         accountId: 'wx-account-1',
       },
-      usersStore: users,
+      activeUserStore: users,
       permissionsRouter: permissions,
     });
 
@@ -270,8 +270,8 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
-    const usersStore = createRuntimeUserStore('bridge-daemon-wechat-auto-auth-').users;
-    const { app, users } = createDaemonServer({
+    const activeUserStore = createRuntimeUserStore('bridge-daemon-wechat-auto-auth-').activeUserStore;
+    const { app } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: {
@@ -280,16 +280,16 @@ describe('daemon WeChat runtime channel', () => {
         token: 'wx-bot-token',
         accountId: 'wx-account-1',
       },
-      usersStore,
+      activeUserStore,
     });
 
     await app.ready();
 
     await vi.waitFor(() => {
-      expect(users.getActiveUser()).not.toBeNull();
+      expect(activeUserStore.getActiveUser()).not.toBeNull();
     });
 
-    expect(users.getActiveUser()).toMatchObject({
+    expect(activeUserStore.getActiveUser()).toMatchObject({
       platformUserId: 'wx_user_unauthorized',
       provider: 'claude-code',
     });
@@ -324,12 +324,12 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
-    const usersStore = createRuntimeUserStore('bridge-daemon-wechat-late-enable-').users;
-    const { app, users } = createDaemonServer({
+    const activeUserStore = createRuntimeUserStore('bridge-daemon-wechat-late-enable-').activeUserStore;
+    const { app } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: { enabled: false },
-      usersStore,
+      activeUserStore,
     });
 
     await app.ready();
@@ -352,10 +352,10 @@ describe('daemon WeChat runtime channel', () => {
     expect(enable.statusCode).toBe(200);
 
     await vi.waitFor(() => {
-      expect(users.getActiveUser()).not.toBeNull();
+      expect(activeUserStore.getActiveUser()).not.toBeNull();
     });
 
-    expect(users.getActiveUser()).toMatchObject({
+    expect(activeUserStore.getActiveUser()).toMatchObject({
       platformUserId: 'wx_user_late_enable',
       provider: 'claude-code',
     });

@@ -9,7 +9,7 @@ export function createRuntimeUserStore(prefix = 'bridge-runtime-users-') {
   const configPath = join(configDir, 'config.json');
   return {
     configPath,
-    users: new RuntimeUserStore(configPath),
+    activeUserStore: new RuntimeUserStore(configPath),
   };
 }
 
@@ -17,5 +17,5 @@ export function seedRuntimeUserStore(
   input: ReturnType<typeof createRuntimeUserStore>,
   user: Omit<ActiveWeChatUserRecord, 'id' | 'createdAt'>,
 ) {
-  return input.users.setActiveUser(user);
+  return input.activeUserStore.setActiveUser(user);
 }

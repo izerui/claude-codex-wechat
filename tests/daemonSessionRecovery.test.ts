@@ -25,8 +25,8 @@ describe('daemon provider session recovery', () => {
     process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-daemon-home-`);
     const db = memoryDb();
     try {
-      const usersStore = createRuntimeUserStore('bridge-daemon-recovery-').users;
-      usersStore.setActiveUser({
+      const activeUserStore = createRuntimeUserStore('bridge-daemon-recovery-').activeUserStore;
+      activeUserStore.setActiveUser({
         platform: PRIMARY_WEIXIN_PLATFORM,
         platformUserId: 'wx_user_1',
         role: 'user',
@@ -54,7 +54,7 @@ describe('daemon provider session recovery', () => {
         db,
         channel: firstChannel,
         providers: [new ClaudeCodeProvider({ runner: firstRunner })],
-        usersStore,
+        activeUserStore,
       });
 
       await firstChannel.emitIncoming({
@@ -97,7 +97,7 @@ describe('daemon provider session recovery', () => {
         db,
         channel: secondChannel,
         providers: [new ClaudeCodeProvider({ runner: secondRunner })],
-        usersStore,
+        activeUserStore,
       });
 
       await secondChannel.emitIncoming({
@@ -174,7 +174,7 @@ describe('daemon provider session recovery', () => {
         db,
         channel: new MockChannelAdapter(),
         providers: [new ClaudeCodeProvider({ runner: new ClaudeHeadlessRunner() })],
-        usersStore: store.users,
+        activeUserStore: store.activeUserStore,
       });
 
       await server.app.ready();

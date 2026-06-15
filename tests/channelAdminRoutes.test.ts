@@ -20,7 +20,7 @@ describe('channel admin routes', () => {
   it('does not expose pairing approval routes', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
-    const { app } = createDaemonServer({ db, usersStore: createRuntimeUserStore('bridge-admin-pairings-').users });
+    const { app } = createDaemonServer({ db, activeUserStore: createRuntimeUserStore('bridge-admin-pairings-').activeUserStore });
 
     const list = await app.inject({ method: 'GET', url: '/api/channel/pairings' });
     expect(list.statusCode).toBe(404);
@@ -36,8 +36,8 @@ describe('channel admin routes', () => {
   it('returns the active user without exposing revoke route', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
-    const { app, users } = createDaemonServer({ db, usersStore: createRuntimeUserStore('bridge-admin-users-').users });
-    const created = users.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user', provider: 'codex', cwd: '/tmp/project' });
+    const { app, activeUserStore } = createDaemonServer({ db, activeUserStore: createRuntimeUserStore('bridge-admin-users-').activeUserStore });
+    const created = activeUserStore.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user', provider: 'codex', cwd: '/tmp/project' });
 
     const response = await app.inject({ method: 'GET', url: '/api/channel/active-user' });
 
@@ -57,8 +57,8 @@ describe('channel admin routes', () => {
     db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, users, sessions } = createDaemonServer({ db, channel, providers: [provider], usersStore: createRuntimeUserStore('bridge-admin-stop-').users });
-    users.setActiveUser({
+    const { app, activeUserStore, sessions } = createDaemonServer({ db, channel, providers: [provider], activeUserStore: createRuntimeUserStore('bridge-admin-stop-').activeUserStore });
+    activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
@@ -127,8 +127,8 @@ describe('channel admin routes', () => {
     db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, users, sessions } = createDaemonServer({ db, channel, providers: [provider], usersStore: createRuntimeUserStore('bridge-admin-no-events-').users });
-    users.setActiveUser({
+    const { app, activeUserStore, sessions } = createDaemonServer({ db, channel, providers: [provider], activeUserStore: createRuntimeUserStore('bridge-admin-no-events-').activeUserStore });
+    activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
@@ -158,8 +158,8 @@ describe('channel admin routes', () => {
     db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, users } = createDaemonServer({ db, channel, providers: [provider], usersStore: createRuntimeUserStore('bridge-admin-status-').users });
-    users.setActiveUser({
+    const { app, activeUserStore } = createDaemonServer({ db, channel, providers: [provider], activeUserStore: createRuntimeUserStore('bridge-admin-status-').activeUserStore });
+    activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
@@ -221,7 +221,7 @@ describe('channel admin routes', () => {
     const configPath = join(configDir, 'config.json');
     const { app } = createDaemonServer({
       db,
-      usersStore: createRuntimeUserStore('bridge-admin-settings-').users,
+      activeUserStore: createRuntimeUserStore('bridge-admin-settings-').activeUserStore,
       configPath,
       bridgeDefaults: {
         defaultProvider: 'claude-code',
@@ -267,16 +267,16 @@ describe('channel admin routes', () => {
     const channel = new MockChannelAdapter();
     const sent: Array<{ chatId: string; kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ chatId: message.chatId, kind: message.kind, text: message.text }));
-    const { app, users } = createDaemonServer({
+    const { app, activeUserStore } = createDaemonServer({
       db,
       channel,
-      usersStore: createRuntimeUserStore('bridge-admin-switch-notify-').users,
+      activeUserStore: createRuntimeUserStore('bridge-admin-switch-notify-').activeUserStore,
       bridgeDefaults: {
         defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
       },
     });
-    const user = users.setActiveUser({
+    const user = activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
@@ -321,7 +321,7 @@ describe('channel admin routes', () => {
     db.exec(schemaSql);
     const { app } = createDaemonServer({
       db,
-      usersStore: createRuntimeUserStore('bridge-admin-runtime-config-').users,
+      activeUserStore: createRuntimeUserStore('bridge-admin-runtime-config-').activeUserStore,
       wechat: {
         enabled: true,
         baseUrl: 'https://ilinkai.weixin.qq.com',
@@ -349,7 +349,7 @@ describe('channel admin routes', () => {
     const configPath = join(configDir, 'config.json');
     const { app } = createDaemonServer({
       db,
-      usersStore: createRuntimeUserStore('bridge-admin-wechat-disable-').users,
+      activeUserStore: createRuntimeUserStore('bridge-admin-wechat-disable-').activeUserStore,
       wechat: { enabled: false },
       configPath,
     });
@@ -515,12 +515,12 @@ describe('channel admin routes', () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const channel = new MockChannelAdapter();
-    const { app, users, sessions } = createDaemonServer({
+    const { app, activeUserStore, sessions } = createDaemonServer({
       db,
       channel,
       providers: [new FakeProviderAdapter('claude-code'), new FakeProviderAdapter('codex')],
     });
-    users.setActiveUser({
+    activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
@@ -573,8 +573,8 @@ describe('channel admin routes', () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, users } = createDaemonServer({ db, providers: [provider] });
-    users.setActiveUser({
+    const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+    activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
@@ -887,8 +887,8 @@ describe('channel admin routes', () => {
       const db = new Database(':memory:');
       db.exec(schemaSql);
       const runner = new CodexCliRunner({ processRunner: async () => ({ code: 0, stdout: '', stderr: '' }) });
-      const { app, users } = createDaemonServer({ db, providers: [new CodexProvider({ runner })] });
-      users.setActiveUser({
+      const { app, activeUserStore } = createDaemonServer({ db, providers: [new CodexProvider({ runner })] });
+      activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
@@ -927,8 +927,8 @@ describe('channel admin routes', () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, users } = createDaemonServer({ db, providers: [provider] });
-    users.setActiveUser({
+    const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+    activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
@@ -961,8 +961,8 @@ describe('channel admin routes', () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, users } = createDaemonServer({ db, providers: [provider] });
-    users.setActiveUser({
+    const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+    activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
@@ -1005,8 +1005,8 @@ describe('channel admin routes', () => {
       const db = new Database(':memory:');
       db.exec(schemaSql);
       const provider = new FakeProviderAdapter('claude-code');
-      const { app, users } = createDaemonServer({ db, providers: [provider] });
-      users.setActiveUser({
+      const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+      activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
@@ -1102,8 +1102,8 @@ describe('channel admin routes', () => {
       const db = new Database(':memory:');
       db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app, users } = createDaemonServer({ db, providers: [provider] });
-      users.setActiveUser({
+      const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+      activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
@@ -1219,8 +1219,8 @@ describe('channel admin routes', () => {
       const db = new Database(':memory:');
       db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app, users } = createDaemonServer({ db, providers: [provider] });
-      users.setActiveUser({
+      const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+      activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
@@ -1280,8 +1280,8 @@ describe('channel admin routes', () => {
       const db = new Database(':memory:');
       db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app, users } = createDaemonServer({ db, providers: [provider] });
-      users.setActiveUser({
+      const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+      activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
@@ -1357,8 +1357,8 @@ describe('channel admin routes', () => {
       const db = new Database(':memory:');
       db.exec(schemaSql);
       const provider = new CodexProvider({ runner: new CodexCliRunner() });
-      const { app, users } = createDaemonServer({ db, providers: [provider] });
-      users.setActiveUser({
+      const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+      activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
@@ -1389,8 +1389,8 @@ describe('channel admin routes', () => {
     db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, users } = createDaemonServer({ db, channel, providers: [provider] });
-    users.setActiveUser({
+    const { app, activeUserStore } = createDaemonServer({ db, channel, providers: [provider] });
+    activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',

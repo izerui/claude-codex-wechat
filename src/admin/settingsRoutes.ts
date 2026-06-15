@@ -40,15 +40,15 @@ export function registerSettingsRoutes(input: {
     });
     if (input.channel && current.defaultProvider !== next.defaultProvider) {
       const activeUser = input.users?.getActiveUser();
-      const users = activeUser && activeUser.platform === PRIMARY_WEIXIN_PLATFORM ? [activeUser] : [];
+      const targetUsers = activeUser && activeUser.platform === PRIMARY_WEIXIN_PLATFORM ? [activeUser] : [];
       const providerLabel = next.defaultProvider === 'codex' ? 'Codex' : 'Claude Code';
-      await Promise.all(users.map(async (user) => {
+      await Promise.all(targetUsers.map(async (activeUserRecord) => {
         const activeSession = input.sessions?.list().find((session) => (
-          session.ownerUserId === user.id
+          session.ownerUserId === activeUserRecord.id
         ));
-        const cwd = activeSession?.cwd ?? user.cwd ?? next.defaultWorkspace;
+        const cwd = activeSession?.cwd ?? activeUserRecord.cwd ?? next.defaultWorkspace;
         await input.channel?.sendMessage({
-          chatId: user.platformUserId,
+          chatId: activeUserRecord.platformUserId,
           kind: 'status',
           text: `对话模型已切换为 ${providerLabel}，项目目录：${cwd}。`,
         });

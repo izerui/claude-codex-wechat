@@ -21,7 +21,7 @@ function createMemoryDb() {
 describe('channel auth repositories', () => {
   it('stores the current active wechat user as a single record', () => {
     const store = createRuntimeUserStore('bridge-auth-users-');
-    const users = store.users;
+    const users = store.activeUserStore;
     const created = seedRuntimeUserStore(store, {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
@@ -152,11 +152,11 @@ describe('channel auth repositories', () => {
       cwd: '/tmp/project-b',
     });
 
-    expect(store.users.isActiveUser('weixin', 'wx_user_1')).toBeNull();
-    expect(store.users.isActiveUser('weixin', 'wx_user_2')).toMatchObject({
+    expect(store.activeUserStore.isActiveUser('weixin', 'wx_user_1')).toBeNull();
+    expect(store.activeUserStore.isActiveUser('weixin', 'wx_user_2')).toMatchObject({
       id: replaced.id,
       provider: 'codex',
     });
-    expect(store.users.getActiveUser()).toMatchObject({ platformUserId: 'wx_user_2' });
+    expect(store.activeUserStore.getActiveUser()).toMatchObject({ platformUserId: 'wx_user_2' });
   });
 });

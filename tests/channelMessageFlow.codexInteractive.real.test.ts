@@ -24,7 +24,7 @@ maybeReal('channel message flow real Codex interactive', () => {
   it('creates a real resume-visible Codex session from a simulated WeChat message', async () => {
     const db = memoryDb();
     const store = createRuntimeUserStore('bridge-real-codex-users-');
-    const users = store.users;
+    const users = store.activeUserStore;
     seedRuntimeUserStore(store, {
       platform: PRIMARY_WEIXIN_PLATFORM,
       platformUserId: 'wx_user_real_codex',
@@ -39,7 +39,7 @@ maybeReal('channel message flow real Codex interactive', () => {
       db,
       channel,
       providers: [provider],
-      usersStore: users,
+      activeUserStore: users,
     });
 
     await channel.emitIncoming({

@@ -27,7 +27,7 @@ export function createDaemonServer(options: {
   db?: BridgeDatabase;
   channel?: ChannelAdapter;
   providers?: NativeProviderAdapter[];
-  usersStore?: ActiveWeChatUserStore;
+  activeUserStore?: ActiveWeChatUserStore;
   permissionsRouter?: PermissionRouter;
   wechat?: WeixinConfig;
   bridgeDefaults?: { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string };
@@ -52,7 +52,7 @@ export function createDaemonServer(options: {
     codexCommand: options.providerCommands?.codex?.command,
   });
   const configPath = options.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath();
-  const users = options.usersStore
+  const activeUserStore = options.activeUserStore
     ?? new RuntimeUserStore(configPath);
   const providerBindings = new ProviderBindingRepository(db);
   const runtimeSessions = new RuntimeSessionRepository(db);
@@ -103,11 +103,11 @@ export function createDaemonServer(options: {
         permissions,
         providers: providerAdapters,
         sessions,
-        resolveUser: (message) => users.isActiveUser(PRIMARY_WEIXIN_PLATFORM, message.user.id),
+        resolveUser: (message) => activeUserStore.isActiveUser(PRIMARY_WEIXIN_PLATFORM, message.user.id),
         autoAuthorizeUser: (message) => {
-          const existing = users.isActiveUser(PRIMARY_WEIXIN_PLATFORM, message.user.id);
+          const existing = activeUserStore.isActiveUser(PRIMARY_WEIXIN_PLATFORM, message.user.id);
           if (existing) return existing;
-          const created = users.setActiveUser({
+          const created = activeUserStore.setActiveUser({
             platform: PRIMARY_WEIXIN_PLATFORM,
             platformUserId: message.user.id,
             displayName: message.user.displayName,
@@ -162,7 +162,7 @@ export function createDaemonServer(options: {
   void app.register(websocket);
   registerChannelAdminRoutes({
     app,
-    users,
+    users: activeUserStore,
     ...(channel ? { channel } : {}),
     providerBindings,
     sessions: runtimeSessions,
@@ -173,7 +173,7 @@ export function createDaemonServer(options: {
     events,
     configPath,
     onWechatConfigChanged: managedWechatChannel
-      ? async (next) => {
+    ? async (next) => {
           await managedWechatChannel.configure(next);
         }
       : undefined,
@@ -182,7 +182,7 @@ export function createDaemonServer(options: {
     app,
     defaults: bridgeDefaults,
     configPath,
-    users,
+    users: activeUserStore,
     sessions: runtimeSessions,
     ...(channel ? { channel } : {}),
   });
@@ -217,5 +217,5 @@ export function createDaemonServer(options: {
     await channel?.stop();
   });
 
-  return { app, sessions, permissions, events, users };
+  return { app, sessions, permissions, events, activeUserStore };
 }
