@@ -1,22 +1,3 @@
-export type PairingView = {
-  code: string;
-  platformUserId: string;
-  chatId: string;
-  displayName?: string;
-  requestedAt: number;
-  expiresAt: number;
-  status: string;
-};
-
-export type PairingEventView = {
-  code: string;
-  platformUserId: string;
-  platformType: 'weixin';
-  display_name?: string;
-  requestedAt: number;
-  expiresAt: number;
-};
-
 type BrowserLike = Partial<Pick<Location, 'host' | 'origin'>>;
 type WindowBridgeLike = { __bridgeApiOrigin?: string };
 
@@ -146,7 +127,6 @@ export type BridgeEventView = {
 };
 
 export type BridgeWsEvent =
-  | { type: 'channel.pairing-requested'; pairing: PairingEventView }
   | { type: 'channel.user-authorized'; user: AuthorizedUserEventView }
   | { type: 'channel.plugin-status-changed'; plugin_id: 'weixin'; status: ChannelPluginView }
   | { type: 'status'; message: string }
@@ -190,18 +170,6 @@ export async function fetchStatus(): Promise<StatusView> {
 
 export async function fetchProviderStatus(): Promise<ProviderStatusView> {
   return await requestJson('/api/providers/status');
-}
-
-export async function fetchPairings(): Promise<PairingView[]> {
-  return await requestJson('/api/channel/pairings');
-}
-
-export async function approvePairing(code: string): Promise<void> {
-  await requestJson(`/api/channel/pairings/${encodeURIComponent(code)}/approve`, { method: 'POST' });
-}
-
-export async function rejectPairing(code: string): Promise<void> {
-  await requestJson(`/api/channel/pairings/${encodeURIComponent(code)}/reject`, { method: 'POST' });
 }
 
 export async function fetchAuthorizedUsers(): Promise<AuthorizedUserView[]> {
@@ -248,10 +216,6 @@ export async function syncWeixinChannelSettings(): Promise<void> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ platform: 'weixin' }),
   });
-}
-
-export async function revokeAuthorizedUser(id: string): Promise<void> {
-  await requestJson(`/api/channel/users/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
 }
 
 export async function fetchSessions(): Promise<BridgeSessionView[]> {

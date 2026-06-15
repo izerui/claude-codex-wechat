@@ -7,6 +7,10 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/new codex')).toEqual({ kind: 'new_session', providerId: 'codex' });
   });
 
+  it('parses reload command', () => {
+    expect(parseBridgeCommand('/reload')).toEqual({ kind: 'reload' });
+  });
+
   it('parses permission decisions', () => {
     expect(parseBridgeCommand('/approve pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'approve' });
     expect(parseBridgeCommand('/deny pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'deny' });

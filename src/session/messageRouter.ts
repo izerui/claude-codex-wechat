@@ -8,9 +8,7 @@ import type { RuntimeSessionRepository } from '../storage/runtimeSessionReposito
 import type { AuthorizedUserRecord } from '../storage/userRepository';
 import { parseBridgeCommand } from './commandParser';
 import type { BridgeSessionRecord, SessionManager } from './sessionManager';
-import type { PairingRepository } from '../storage/pairingRepository';
 import type { BridgeEventHub } from '../daemon/events';
-import { ensurePairingForMessage } from '../channels/pairing';
 import { buildSessionBridgeName } from './sessionBridgeTag';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
 import { writeProviderSessionSidecar } from '../providers/sidecarMetadata';
@@ -33,7 +31,6 @@ export class MessageRouter {
       sessionRepository?: RuntimeSessionRepository;
       permissionRepository?: PermissionRequestRepository;
       eventLogRepository?: BridgeEventRepository;
-      pairingRepository?: PairingRepository;
       bindingRepository?: ProviderBindingRepository;
       events?: BridgeEventHub;
     },
@@ -49,10 +46,6 @@ export class MessageRouter {
       user = this.options.autoAuthorizeUser?.(message) ?? null;
     }
     if (!user) {
-      if (this.options.pairingRepository && this.options.events) {
-        const pairing = ensurePairingForMessage(this.options.pairingRepository, this.options.events, message);
-        return { status: 'pairing_required', code: pairing.code };
-      }
       return { status: 'pairing_required', code: 'pairing_required' };
     }
     if (message.content.type !== 'text' || !message.content.text) return { status: 'accepted' };
@@ -310,6 +303,41 @@ export class MessageRouter {
         chatId,
         kind: 'status',
         text: `Stopped session ${session.id}`,
+      });
+      return;
+    }
+
+    if (command.kind === 'reload') {
+      const session = this.options.sessions.getActiveSession(chatId);
+      if (!session) {
+        await this.options.channel.sendMessage({ chatId, kind: 'status', text: 'No active session to reload' });
+        return;
+      }
+      const provider = this.providers.get(session.providerId);
+      if (!provider) throw new Error(`provider_not_registered:${session.providerId}`);
+      await provider.stopSession(session.id);
+      const reloaded = await provider.startSession({
+        bridgeSessionId: session.id,
+        cwd: session.cwd,
+        options: {
+          ...(session.providerSessionId ? { providerSessionId: session.providerSessionId } : {}),
+          ...(session.resumeTitle ? { sessionName: session.resumeTitle } : {}),
+        },
+      });
+      const updated = this.options.sessions.updateSession(session.id, {
+        providerSessionId: reloaded.providerSessionId,
+        status: reloaded.status,
+        lastActivityAt: Date.now(),
+      });
+      this.options.sessionRepository?.update(updated.id, {
+        providerSessionId: updated.providerSessionId,
+        status: updated.status,
+        lastActivityAt: updated.lastActivityAt,
+      });
+      await this.options.channel.sendMessage({
+        chatId,
+        kind: 'status',
+        text: `Reloaded active ${session.providerId} session ${session.id}`,
       });
     }
   }

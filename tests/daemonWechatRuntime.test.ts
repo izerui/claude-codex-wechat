@@ -275,7 +275,7 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
-    const { app, pairings, users } = createDaemonServer({
+    const { app, users } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: {
@@ -292,7 +292,6 @@ describe('daemon WeChat runtime channel', () => {
       expect(users.listUsers()).toHaveLength(1);
     });
 
-    expect(pairings.listPending()).toEqual([]);
     expect(users.listUsers()[0]).toMatchObject({
       platformUserId: 'wx_user_unauthorized',
       defaultProvider: 'claude-code',
@@ -328,7 +327,7 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
-    const { app, pairings, users } = createDaemonServer({
+    const { app, users } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: { enabled: false },
@@ -357,7 +356,6 @@ describe('daemon WeChat runtime channel', () => {
       expect(users.listUsers()).toHaveLength(1);
     });
 
-    expect(pairings.listPending()).toEqual([]);
     expect(users.listUsers()[0]).toMatchObject({
       platformUserId: 'wx_user_late_enable',
       defaultProvider: 'claude-code',

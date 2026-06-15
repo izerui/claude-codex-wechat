@@ -19,34 +19,23 @@ import { schemaSql } from '../src/storage/schema';
 import { UserRepository } from '../src/storage/userRepository';
 
 describe('channel admin routes', () => {
-  it('lists, approves, and rejects pairings', async () => {
+  it('does not expose pairing approval routes', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
-    const { app, pairings } = createDaemonServer({ db });
-    const approveMe = pairings.createPending({ platformUserId: 'wx_user_1', chatId: 'chat-a', ttlMs: 60_000 });
-    const rejectMe = pairings.createPending({ platformUserId: 'wx_user_2', chatId: 'chat-b', ttlMs: 60_000 });
+    const { app } = createDaemonServer({ db });
 
-    const listBefore = await app.inject({ method: 'GET', url: '/api/channel/pairings' });
-    expect(listBefore.statusCode).toBe(200);
-    expect(listBefore.json()).toHaveLength(2);
+    const list = await app.inject({ method: 'GET', url: '/api/channel/pairings' });
+    expect(list.statusCode).toBe(404);
 
-    const approve = await app.inject({ method: 'POST', url: `/api/channel/pairings/${approveMe.code}/approve` });
-    expect(approve.statusCode).toBe(200);
-    expect(approve.json()).toEqual({ ok: true });
+    const approve = await app.inject({ method: 'POST', url: '/api/channel/pairings/pair_test/approve' });
+    expect(approve.statusCode).toBe(404);
 
-    const usersAfterApprove = await app.inject({ method: 'GET', url: '/api/channel/users' });
-    expect(usersAfterApprove.json()).toMatchObject([{ platformUserId: 'wx_user_1', defaultProvider: 'claude-code' }]);
-
-    const reject = await app.inject({ method: 'POST', url: `/api/channel/pairings/${rejectMe.code}/reject` });
-    expect(reject.statusCode).toBe(200);
-    expect(reject.json()).toEqual({ ok: true });
-
-    const listAfter = await app.inject({ method: 'GET', url: '/api/channel/pairings' });
-    expect(listAfter.json()).toEqual([]);
+    const reject = await app.inject({ method: 'POST', url: '/api/channel/pairings/pair_test/reject' });
+    expect(reject.statusCode).toBe(404);
     await app.close();
   });
 
-  it('lists and revokes authorized users', async () => {
+  it('lists authorized users without exposing revoke route', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const { app, users } = createDaemonServer({ db });
@@ -58,11 +47,10 @@ describe('channel admin routes', () => {
     expect(response.json()).toMatchObject([{ platformUserId: 'wx_user_1', defaultProvider: 'codex' }]);
 
     const revoke = await app.inject({ method: 'POST', url: `/api/channel/users/${created.id}/revoke` });
-    expect(revoke.statusCode).toBe(200);
-    expect(revoke.json()).toEqual({ ok: true });
+    expect(revoke.statusCode).toBe(404);
 
     const after = await app.inject({ method: 'GET', url: '/api/channel/users' });
-    expect(after.json()).toEqual([]);
+    expect(after.json()).toMatchObject([{ platformUserId: 'wx_user_1', defaultProvider: 'codex' }]);
     await app.close();
   });
 

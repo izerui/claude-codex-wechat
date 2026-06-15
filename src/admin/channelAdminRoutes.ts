@@ -7,7 +7,6 @@ import { defaultConfigPath } from '../daemon/config';
 import { persistWechatCredentialsToConfigFile } from '../daemon/configPersistence';
 import type { BridgeEventHub } from '../daemon/events';
 import type { BridgeEventRepository } from '../storage/bridgeEventRepository';
-import type { PairingRepository } from '../storage/pairingRepository';
 import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
 import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import type { SettingsRepository } from '../storage/settingsRepository';
@@ -20,7 +19,6 @@ import { attachProviderSessionToBridge, listUnattachedRecoverableSessions, selec
 
 export function registerChannelAdminRoutes(input: {
   app: FastifyInstance;
-  pairings: PairingRepository;
   providerBindings?: ProviderBindingRepository;
   sessions?: RuntimeSessionRepository;
   sessionManager?: SessionManager;
@@ -136,46 +134,6 @@ export function registerChannelAdminRoutes(input: {
       status: toWechatPluginStatus(wechat, input.users, input.channel),
     });
     return { ok: true };
-  });
-
-  input.app.get('/api/channel/pairings', async () => input.pairings.listPending());
-
-  input.app.post<{ Params: { code: string } }>('/api/channel/pairings/:code/approve', async (request, reply) => {
-    const pairing = input.pairings.findByCode(request.params.code);
-    if (!pairing || pairing.status !== 'pending') return reply.code(400).send({ ok: false, error: 'pairing_not_pending' });
-    const result = input.pairings.approve(request.params.code);
-    if (!result.ok) return reply.code(400).send(result);
-    const defaults = readBridgeDefaults(input.settings);
-    if (!input.users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, pairing.platformUserId)) {
-      const created = input.users.createUser({
-        platform: PRIMARY_WEIXIN_PLATFORM,
-        platformUserId: pairing.platformUserId,
-        displayName: pairing.displayName,
-        role: 'user',
-        defaultProvider: defaults.defaultProvider,
-        defaultCwd: defaults.defaultWorkspace,
-      });
-      input.events?.emit({
-        type: 'channel.user-authorized',
-        user: {
-          id: created.id,
-          platformUserId: created.platformUserId,
-          platformType: 'weixin',
-          display_name: created.displayName,
-          authorizedAt: created.createdAt,
-          lastActive: created.lastActiveAt,
-          defaultProvider: created.defaultProvider,
-          defaultCwd: created.defaultCwd,
-        },
-      });
-    }
-    return result;
-  });
-
-  input.app.post<{ Params: { code: string } }>('/api/channel/pairings/:code/reject', async (request, reply) => {
-    const result = input.pairings.reject(request.params.code);
-    if (!result.ok) return reply.code(400).send(result);
-    return result;
   });
 
   input.app.get('/api/channel/users', async () => input.users.listUsers());
@@ -340,12 +298,6 @@ export function registerChannelAdminRoutes(input: {
         providerResumeByTitleCommand: buildProviderResumeByTitleCommand(attached.providerId, attached.resumeTitle),
       },
     };
-  });
-
-  input.app.post<{ Params: { id: string } }>('/api/channel/users/:id/revoke', async (request, reply) => {
-    const result = input.users.revokeUser(request.params.id);
-    if (!result.ok) return reply.code(404).send(result);
-    return result;
   });
 
   input.app.get('/api/channel/sessions', async () => await Promise.all((input.sessions?.list() ?? []).map(async (session) => {

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  approvePairing,
   type AuthorizedUserEventView,
   disableWeixinPlugin,
   enableWeixinPlugin,
@@ -9,24 +8,19 @@ import {
   fetchChannelPlugins,
   fetchWeixinRuntimeConfig,
   fetchAuthorizedUsers,
-  fetchPairings,
   fetchRecoverableProviderSessions,
   fetchSettings,
   attachProviderSession,
   autoAttachProviderSession,
   repairAllRecoverableProviderSessionsNativeResume,
   repairRecoverableProviderSessionNativeResume,
-  type PairingEventView,
-  rejectPairing,
   resolveApiUrl,
   type RecoverableProviderSessionView,
-  revokeAuthorizedUser,
   syncWeixinChannelSettings,
   updateSettings,
   type AuthorizedUserView,
   type BridgeSettingsView,
   type ChannelPluginView,
-  type PairingView,
   type WeixinRuntimeConfigView,
 } from './apiClient';
 
@@ -62,7 +56,6 @@ function formatPluginHint(plugin: ChannelPluginView | null): string | null {
 }
 
 export function WeChatPanel() {
-  const [pairings, setPairings] = useState<PairingView[]>([]);
   const [users, setUsers] = useState<AuthorizedUserView[]>([]);
   const [plugin, setPlugin] = useState<ChannelPluginView | null>(null);
   const [runtimeConfig, setRuntimeConfig] = useState<WeixinRuntimeConfigView | null>(null);
@@ -79,14 +72,12 @@ export function WeChatPanel() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [nextPairings, nextUsers, nextPlugins, nextSettings] = await Promise.all([
-        fetchPairings(),
+      const [nextUsers, nextPlugins, nextSettings] = await Promise.all([
         fetchAuthorizedUsers(),
         fetchChannelPlugins(),
         fetchSettings(),
       ]);
       const nextRuntimeConfig = await fetchWeixinRuntimeConfig().catch(() => null);
-      setPairings(nextPairings);
       setUsers(nextUsers);
       setSettings(nextSettings);
       setRuntimeConfig(nextRuntimeConfig);
@@ -128,13 +119,8 @@ export function WeChatPanel() {
     socketRef.current = socket;
     socket.addEventListener('message', (event) => {
       const payload = JSON.parse(event.data) as BridgeWsEvent;
-      if (payload.type === 'channel.pairing-requested') {
-        setPairings((current) => prependPairing(current, payload.pairing));
-        return;
-      }
       if (payload.type === 'channel.user-authorized') {
         setUsers((current) => prependAuthorizedUser(current, payload.user));
-        setPairings((current) => current.filter((pairing) => pairing.platformUserId !== payload.user.platformUserId));
         return;
       }
       if (payload.type === 'channel.plugin-status-changed') {
@@ -148,17 +134,6 @@ export function WeChatPanel() {
       socketRef.current = null;
     };
   }, []);
-
-  const decide = async (code: string, decision: 'approve' | 'reject') => {
-    if (decision === 'approve') await approvePairing(code);
-    else await rejectPairing(code);
-    await refresh();
-  };
-
-  const revoke = async (userId: string) => {
-    await revokeAuthorizedUser(userId);
-    await refresh();
-  };
 
   const disconnect = async () => {
     setBusy(true);
@@ -337,7 +312,7 @@ export function WeChatPanel() {
 
       <div style={styles.statusCard}>
         <div>
-          <div style={styles.statusLabel}>账号 ID</div>
+          <div style={styles.statusLabel}>微信 Bot 账号</div>
           <div style={styles.statusValue}>{plugin?.enabled ? (plugin.botUsername ?? formatPluginBadge(plugin)) : '未连接'}</div>
           {runtimeConfig?.baseUrl ? <div style={styles.statusMeta}>网关：{runtimeConfig.baseUrl}</div> : null}
           {runtimeConfig?.token ? <div style={styles.statusMeta}>Token：已配置</div> : null}
@@ -389,35 +364,20 @@ export function WeChatPanel() {
         </select>
       </div>
 
-      <h3 style={styles.inlineTitle}>待审批配对</h3>
-      {pairings.length === 0 ? <p>暂无待审批配对。</p> : (
-        <ul>
-          {pairings.map((pairing) => (
-            <li key={pairing.code} style={{ marginBottom: 12 }}>
-              <strong>{pairing.displayName ?? pairing.platformUserId}</strong>
-              <div>会话：{pairing.chatId}</div>
-              <div>配对码：{pairing.code}</div>
-              <button type="button" onClick={() => void decide(pairing.code, 'approve')}>允许</button>{' '}
-              <button type="button" onClick={() => void decide(pairing.code, 'reject')}>拒绝</button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <h3 style={styles.inlineTitle}>已授权用户</h3>
-      {users.length === 0 ? <p>暂无已授权用户。</p> : (
+      <h3 style={styles.inlineTitle}>通过这个 Bot 对话的微信用户</h3>
+      <div style={styles.panelSubtle}>这些用户会通过上面的 Bot 账号和桥交互。</div>
+      {users.length === 0 ? <p>暂时还没有用户通过这个 Bot 发来消息。</p> : (
         <ul>
           {users.map((user) => (
             <li key={user.id} style={{ marginBottom: 12 }}>
-              <strong>{user.displayName ?? user.platformUserId}</strong> · {user.defaultProvider} · {user.defaultCwd}{' '}
-              <button type="button" onClick={() => void revoke(user.id)}>撤销授权</button>
+              <strong>{user.displayName ?? user.platformUserId}</strong> · {user.defaultProvider} · {user.defaultCwd}
             </li>
           ))}
         </ul>
       )}
 
       <h3 style={styles.inlineTitle}>可恢复原生会话</h3>
-      {users.length === 0 ? <p>请先完成微信用户授权。</p> : (
+      {users.length === 0 ? <p>请先让用户给上面的 Bot 发一条消息。</p> : (
         <div>
           <div style={styles.sectionRow}>
             <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)} style={styles.select}>
@@ -464,19 +424,6 @@ export function WeChatPanel() {
       )}
     </section>
   );
-}
-
-function prependPairing(current: PairingView[], pairing: PairingEventView): PairingView[] {
-  if (current.some((item) => item.code === pairing.code)) return current;
-  return [{
-    code: pairing.code,
-    platformUserId: pairing.platformUserId,
-    chatId: pairing.platformUserId,
-    displayName: pairing.display_name,
-    requestedAt: pairing.requestedAt,
-    expiresAt: pairing.expiresAt,
-    status: 'pending',
-  }, ...current];
 }
 
 function prependAuthorizedUser(current: AuthorizedUserView[], user: AuthorizedUserEventView): AuthorizedUserView[] {

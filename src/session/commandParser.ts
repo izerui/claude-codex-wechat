@@ -7,6 +7,7 @@ export type BridgeCommand =
   | { kind: 'use_provider'; providerId: ProviderId }
   | { kind: 'set_cwd'; cwd: string }
   | { kind: 'stop' }
+  | { kind: 'reload' }
   | { kind: 'permission_decision'; requestId: string; decision: Exclude<PermissionChoice, 'approve_for_session'> }
   | { kind: 'chat'; text: string };
 
@@ -26,6 +27,7 @@ export function parseBridgeCommand(input: string): BridgeCommand {
   if (command === '/help') return { kind: 'help' };
   if (command === '/status') return { kind: 'status' };
   if (command === '/stop') return { kind: 'stop' };
+  if (command === '/reload') return { kind: 'reload' };
 
   if (command === '/new') {
     const providerId = parseProvider(first);

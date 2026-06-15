@@ -11,16 +11,6 @@ CREATE TABLE IF NOT EXISTS authorized_users (
   last_active_at INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS pairing_requests (
-  code TEXT PRIMARY KEY,
-  platform_user_id TEXT NOT NULL,
-  chat_id TEXT NOT NULL,
-  display_name TEXT,
-  requested_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
-  status TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS bridge_sessions (
   id TEXT PRIMARY KEY,
   chat_id TEXT NOT NULL,

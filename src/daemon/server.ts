@@ -16,7 +16,6 @@ import { autoAttachProviderSessionForMessage } from '../session/providerAutoAtta
 import { SessionManager } from '../session/sessionManager';
 import type { BridgeDatabase } from '../storage/db';
 import { BridgeEventRepository, ensureBridgeEventStorage } from '../storage/bridgeEventRepository';
-import { PairingRepository } from '../storage/pairingRepository';
 import { PermissionRequestRepository } from '../storage/permissionRequestRepository';
 import { ProviderBindingRepository } from '../storage/providerBindingRepository';
 import { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
@@ -51,7 +50,6 @@ export function createDaemonServer(options: {
     codexCommand: options.providerCommands?.codex?.command,
   });
   const users = new UserRepository(db);
-  const pairings = new PairingRepository(db);
   const providerBindings = new ProviderBindingRepository(db);
   const runtimeSessions = new RuntimeSessionRepository(db);
   const permissionRequests = new PermissionRequestRepository(db);
@@ -154,7 +152,6 @@ export function createDaemonServer(options: {
         sessionRepository: runtimeSessions,
         permissionRepository: permissionRequests,
         eventLogRepository: eventLog,
-        pairingRepository: pairings,
         bindingRepository: providerBindings,
         events,
       })
@@ -169,7 +166,6 @@ export function createDaemonServer(options: {
   registerChannelAdminRoutes({
     app,
     users,
-    pairings,
     ...(channel ? { channel } : {}),
     providerBindings,
     sessions: runtimeSessions,
@@ -226,7 +222,7 @@ export function createDaemonServer(options: {
     await channel?.stop();
   });
 
-  return { app, sessions, permissions, events, users, pairings };
+  return { app, sessions, permissions, events, users };
 }
 
 function readBridgeDefaults(settings: SettingsRepository): { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string } {

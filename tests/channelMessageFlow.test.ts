@@ -66,7 +66,7 @@ describe('channel message flow', () => {
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
-    const { app, pairings, sessions } = createDaemonServer({
+    const { app, sessions } = createDaemonServer({
       db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
@@ -81,7 +81,6 @@ describe('channel message flow', () => {
       timestamp: 1,
     });
 
-    expect(pairings.listPending()).toEqual([]);
     expect(new UserRepository(db).findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, 'wx_user_1')).toMatchObject({
       platformUserId: 'wx_user_1',
       defaultProvider: 'claude-code',
@@ -94,14 +93,14 @@ describe('channel message flow', () => {
     await app.close();
   });
 
-  it('accepts authorized message flow and auto-authorizes again after revoke by default', async () => {
+  it('accepts subsequent messages from an already authorized user', async () => {
     const db = memoryDb();
     const users = new UserRepository(db);
-    const created = users.createUser({ platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'claude-code', defaultCwd: '/tmp/project' });
+    users.createUser({ platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'claude-code', defaultCwd: '/tmp/project' });
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
-    const { app, permissions, sessions, pairings } = createDaemonServer({
+    const { app, permissions, sessions } = createDaemonServer({
       db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
@@ -138,9 +137,6 @@ describe('channel message flow', () => {
       expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
     ]);
 
-    const revoke = await app.inject({ method: 'POST', url: `/api/channel/users/${created.id}/revoke` });
-    expect(revoke.statusCode).toBe(200);
-
     await channel.emitIncoming({
       id: 'm2',
       platform: PRIMARY_WEIXIN_PLATFORM,
@@ -150,7 +146,6 @@ describe('channel message flow', () => {
       timestamp: 2,
     });
     expect(new PermissionRequestRepository(db).listPending()).toHaveLength(2);
-    expect(pairings.listPending()).toEqual([]);
     await app.close();
   });
 
@@ -235,6 +230,47 @@ describe('channel message flow', () => {
     await app.close();
   });
 
+  it('reloads the active provider session through an incoming command', async () => {
+    const db = memoryDb();
+    const users = new UserRepository(db);
+    users.createUser({ platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'claude-code', defaultCwd: '/tmp/project' });
+    const channel = new MockChannelAdapter();
+    const sent: string[] = [];
+    channel.onSent((message) => sent.push(message.text));
+    const provider = new FakeProviderAdapter('claude-code');
+    const { app, sessions } = createDaemonServer({
+      db,
+      channel,
+      providers: [provider],
+    });
+
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-reload',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hello reload' },
+      timestamp: 1,
+    });
+    const active = sessions.getActiveSession('chat-reload');
+    expect(active?.providerSessionId).toMatch(/^claude-code_fake_/);
+
+    await channel.emitIncoming({
+      id: 'm2',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-reload',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/reload' },
+      timestamp: 2,
+    });
+
+    expect(provider.stoppedSessions).toEqual([active!.id]);
+    expect(sessions.getActiveSession('chat-reload')?.id).toBe(active?.id);
+    expect(sent.at(-1)).toContain(`Reloaded active claude-code session ${active?.id}`);
+
+    await app.close();
+  });
+
   it('writes a bridge-owned Codex thread name into session_index for a new chat session', async () => {
     const previousCodexHome = process.env.CODEX_HOME;
     const codexHome = mkdtempSync(`${tmpdir()}/bridge-codex-home-`);
@@ -312,7 +348,7 @@ describe('channel message flow', () => {
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
-    const { app, pairings, sessions } = createDaemonServer({
+    const { app, sessions } = createDaemonServer({
       db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
@@ -327,7 +363,6 @@ describe('channel message flow', () => {
       timestamp: 1,
     });
 
-    expect(pairings.listPending()).toEqual([]);
     expect(users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, 'wx_user_auto')).toMatchObject({
       platformUserId: 'wx_user_auto',
       defaultProvider: 'claude-code',

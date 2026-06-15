@@ -83,9 +83,6 @@ function createFetchStub() {
     if (url.endsWith('/api/providers/status')) {
       return new Response(JSON.stringify({ claude: { detected: true, version: '2.0.1' }, codex: { detected: false, reason: 'missing_binary' } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/channel/pairings')) {
-      return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }
     if (url.endsWith('/api/channel/users')) {
       return new Response(JSON.stringify(state.users), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -221,10 +218,6 @@ function createFetchStub() {
       }];
       return new Response(JSON.stringify({ ok: true, repaired: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/channel/users/user_1/revoke') && method === 'POST') {
-      state.users = [];
-      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }
     throw new Error(`Unhandled fetch: ${method} ${url}`);
   });
 
@@ -237,7 +230,7 @@ afterEach(() => {
 });
 
 describe('App admin interactions', () => {
-  it('stops a session and revokes a user from the UI', async () => {
+  it('stops a session from the UI without showing revoke controls', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
@@ -249,13 +242,18 @@ describe('App admin interactions', () => {
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/stop') && call.method === 'POST')).toBe(true);
     });
+    expect(screen.queryByText('撤销授权')).toBeNull();
+  });
 
-    const revokeButton = await screen.findByText('撤销授权');
-    fireEvent.click(revokeButton);
+  it('does not render pending pairing controls', async () => {
+    const { fetchImpl } = createFetchStub();
+    vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
-    await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/users/user_1/revoke') && call.method === 'POST')).toBe(true);
-    });
+    render(<App />);
+
+    await screen.findAllByText('通过这个 Bot 对话的微信用户');
+    expect(screen.queryByText('待审批配对')).toBeNull();
+    expect(fetchImpl.mock.calls.some(([input]) => String(input).endsWith('/api/channel/pairings'))).toBe(false);
   });
 
   it('repairs native Claude resume metadata from the sessions panel', async () => {
@@ -308,7 +306,7 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findByText('claude-session-1');
+    await screen.findAllByText('claude-session-1');
     const repairButtons = await screen.findAllByRole('button', { name: '修复原生恢复' });
     fireEvent.click(repairButtons[0]!);
 

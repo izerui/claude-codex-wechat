@@ -5,17 +5,6 @@ export type BridgeEvent =
   | { type: 'permission_requested'; requestId: string }
   | { type: 'permission_decided'; requestId: string; decision: string }
   | {
-      type: 'channel.pairing-requested';
-      pairing: {
-        code: string;
-        platformUserId: string;
-        platformType: 'weixin';
-        display_name?: string;
-        requestedAt: number;
-        expiresAt: number;
-      };
-    }
-  | {
       type: 'channel.user-authorized';
       user: {
         id: string;
