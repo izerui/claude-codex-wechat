@@ -13,6 +13,8 @@ type WeixinDirectApi = {
     }>;
   }>;
   sendTextMessage(input: { toUserId: string; text: string; contextToken?: string }): Promise<void>;
+  getConfig?(input: { ilinkUserId: string; contextToken?: string }): Promise<{ typingTicket: string }>;
+  sendTyping?(input: { ilinkUserId: string; typingTicket: string; status: 1 | 2 }): Promise<void>;
 };
 
 export class WeixinDirectAdapter implements ChannelAdapter {
@@ -22,6 +24,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   private stopped = true;
   private buffer = '';
   private contextTokens = new Map<string, string>();
+  private typingTickets = new Map<string, string>();
   private runningTask: Promise<void> | null = null;
   private healthy = false;
   private lastError: string | null = null;
@@ -57,6 +60,22 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       text: message.text,
       contextToken: this.contextTokens.get(message.chatId),
     });
+  }
+
+  async setTyping(chatId: string, active: boolean): Promise<void> {
+    if (!this.options.api.getConfig || !this.options.api.sendTyping) return;
+    try {
+      const typingTicket = await this.getTypingTicket(chatId);
+      console.error('[weixin-typing] setTyping chatId:', chatId, 'active:', active, 'ticketLen:', typingTicket.length);
+      if (!typingTicket) return;
+      await this.options.api.sendTyping({
+        ilinkUserId: chatId,
+        typingTicket,
+        status: active ? 1 : 2,
+      });
+    } catch (error) {
+      console.error('[weixin-typing] setTyping failed:', error);
+    }
   }
 
   getHealth(): { connected: boolean; status: string; lastError?: string } {
@@ -111,5 +130,18 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       if (this.stopped) break;
       await new Promise((resolve) => setTimeout(resolve, this.options.pollIntervalMs ?? 1_000));
     }
+  }
+
+  private async getTypingTicket(chatId: string): Promise<string> {
+    if (!this.options.api.getConfig) return '';
+    const cached = this.typingTickets.get(chatId);
+    if (cached) return cached;
+    const config = await this.options.api.getConfig({
+      ilinkUserId: chatId,
+      contextToken: this.contextTokens.get(chatId),
+    });
+    const ticket = config.typingTicket.trim();
+    if (ticket) this.typingTickets.set(chatId, ticket);
+    return ticket;
   }
 }

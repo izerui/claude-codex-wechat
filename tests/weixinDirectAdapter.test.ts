@@ -199,4 +199,55 @@ describe('WeixinDirectAdapter', () => {
 
     await adapter.stop();
   });
+
+  it('fetches typing ticket once and sends typing start/cancel for the chat', async () => {
+    const api = {
+      getUpdates: vi.fn()
+        .mockResolvedValueOnce({
+          nextBuffer: 'buf_1',
+          messages: [
+            {
+              id: 'msg_1',
+              chatId: 'user_a',
+              userId: 'user_a',
+              text: 'hello from weixin',
+              contextToken: 'ctx_123',
+            },
+          ],
+        })
+        .mockResolvedValue({
+          nextBuffer: 'buf_1',
+          messages: [],
+        }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+      getConfig: vi.fn().mockResolvedValue({ typingTicket: 'ticket_123' }),
+      sendTyping: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
+    adapter.onMessage(async () => {});
+
+    await adapter.start({ background: true });
+    await adapter.setTyping('user_a', true);
+    await adapter.setTyping('user_a', false);
+
+    await vi.waitFor(() => {
+      expect(api.getConfig).toHaveBeenCalledWith({
+        ilinkUserId: 'user_a',
+        contextToken: 'ctx_123',
+      });
+      expect(api.sendTyping).toHaveBeenNthCalledWith(1, {
+        ilinkUserId: 'user_a',
+        typingTicket: 'ticket_123',
+        status: 1,
+      });
+      expect(api.sendTyping).toHaveBeenNthCalledWith(2, {
+        ilinkUserId: 'user_a',
+        typingTicket: 'ticket_123',
+        status: 2,
+      });
+    });
+
+    await adapter.stop();
+  });
 });

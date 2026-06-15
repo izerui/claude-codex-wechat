@@ -129,4 +129,66 @@ export class WeixinDirectApiClient {
       messages,
     };
   }
+
+  async getConfig(input: {
+    ilinkUserId: string;
+    contextToken?: string;
+  }): Promise<{ typingTicket: string }> {
+    const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/getconfig`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        AuthorizationType: 'ilink_bot_token',
+        Authorization: `Bearer ${this.botToken}`,
+        'X-WECHAT-UIN': this.wechatUin,
+      },
+      body: JSON.stringify({
+        ilink_user_id: input.ilinkUserId,
+        ...(input.contextToken ? { context_token: input.contextToken } : {}),
+        base_info: {},
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`weixin_get_config_failed:${response.status}`);
+    }
+    const raw = await response.text();
+    console.error('[weixin-typing] getConfig raw response:', raw);
+    const payload = JSON.parse(raw) as {
+      ret?: number;
+      errmsg?: string;
+      typing_ticket?: string;
+    };
+    if ((payload.ret ?? 0) !== 0) {
+      throw new Error(`weixin_get_config_failed:${payload.ret ?? -1}:${payload.errmsg ?? 'unknown_error'}`);
+    }
+    return {
+      typingTicket: payload.typing_ticket?.trim() ?? '',
+    };
+  }
+
+  async sendTyping(input: {
+    ilinkUserId: string;
+    typingTicket: string;
+    status: 1 | 2;
+  }): Promise<void> {
+    const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/sendtyping`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        AuthorizationType: 'ilink_bot_token',
+        Authorization: `Bearer ${this.botToken}`,
+        'X-WECHAT-UIN': this.wechatUin,
+      },
+      body: JSON.stringify({
+        ilink_user_id: input.ilinkUserId,
+        typing_ticket: input.typingTicket,
+        status: input.status,
+        base_info: {},
+      }),
+    });
+    console.error('[weixin-typing] sendTyping status:', input.status, 'http:', response.status);
+    if (!response.ok) {
+      throw new Error(`weixin_send_typing_failed:${response.status}`);
+    }
+  }
 }

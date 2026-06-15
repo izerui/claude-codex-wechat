@@ -75,6 +75,7 @@ class PartialThenErrorProviderAdapter implements NativeProviderAdapter {
   }
 }
 
+
 describe('MessageRouter', () => {
   it('routes authorized chat text through a provider and sends output to the channel', async () => {
     const channel = new MockChannelAdapter();
@@ -106,6 +107,36 @@ describe('MessageRouter', () => {
     ]);
     expect(permissions.getPendingRequests()).toHaveLength(1);
   });
+
+  it('toggles typing state around a normal chat turn', async () => {
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [new FakeProviderAdapter('claude-code')],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+    const typingStates: Array<{ chatId: string; active: boolean }> = [];
+    channel.onTyping((state) => typingStates.push(state));
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'run tests' },
+      timestamp: 1,
+    });
+
+    expect(typingStates).toEqual([
+      { chatId: 'chat-a', active: true },
+      { chatId: 'chat-a', active: false },
+    ]);
+  });
+
 
   it('does not trigger a provider for unauthorized users', async () => {
     const channel = new MockChannelAdapter();

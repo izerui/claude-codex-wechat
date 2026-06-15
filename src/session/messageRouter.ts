@@ -18,6 +18,7 @@ import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nati
 import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
 
 export class MessageRouter {
+  private static readonly TYPING_KEEPALIVE_MS = 5_000;
   private readonly providers = new Map<ProviderId, NativeProviderAdapter>();
 
   constructor(
@@ -124,81 +125,92 @@ export class MessageRouter {
     }
 
     let bufferedText = '';
-    for await (const event of provider.sendMessage({ bridgeSessionId: session.id, text: command.text })) {
-      if (event.type === 'text_delta' && event.text) {
-        bufferedText += event.text;
-      }
-      if (event.type === 'message_done' && bufferedText.trim()) {
-        await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
-        bufferedText = '';
-      }
-      if (event.type === 'permission_request') {
-        if (bufferedText.trim()) {
+    await this.options.channel.setTyping?.(message.chatId, true);
+    const typingKeepalive = this.options.channel.setTyping
+      ? setInterval(() => {
+          void this.options.channel.setTyping?.(message.chatId, true);
+        }, MessageRouter.TYPING_KEEPALIVE_MS)
+      : null;
+    try {
+      for await (const event of provider.sendMessage({ bridgeSessionId: session.id, text: command.text })) {
+        if (event.type === 'text_delta' && event.text) {
+          bufferedText += event.text;
+        }
+        if (event.type === 'message_done' && bufferedText.trim()) {
           await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
           bufferedText = '';
         }
-        this.options.permissions.addRequest(event.request);
-        this.options.permissionRepository?.create({
-          id: event.request.id,
-          bridgeSessionId: event.request.bridgeSessionId,
-          providerId: event.request.providerId,
-          toolName: event.request.toolName,
-          summary: event.request.summary,
-          details: event.request.details,
-          status: 'pending',
-          requestedAt: Date.now(),
-        });
-        this.options.eventLogRepository?.append({
-          bridgeSessionId: session.id,
-          direction: 'provider_event',
-          providerEventType: event.type,
-          text: event.request.summary,
-          createdAt: Date.now(),
-        });
-        await this.options.channel.sendMessage({
-          chatId: message.chatId,
-          kind: 'permission_request',
-          text: formatPermissionMessage(event.request),
-        });
-      }
-      if (event.type === 'session_state') {
-        const updated = this.options.sessions.updateSession(session.id, {
-          providerSessionId: event.state.providerSessionId,
-          status: event.state.status,
-          lastActivityAt: Date.now(),
-        });
-        this.options.sessionRepository?.update(updated.id, {
-          providerSessionId: updated.providerSessionId,
-          status: updated.status,
-          lastActivityAt: updated.lastActivityAt,
-        });
-        if (updated.providerId === 'codex' && updated.providerSessionId && updated.resumeTitle) {
-          await upsertCodexSessionIndexEntry({
-            sessionId: updated.providerSessionId,
-            threadName: updated.resumeTitle,
+        if (event.type === 'permission_request') {
+          if (bufferedText.trim()) {
+            await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
+            bufferedText = '';
+          }
+          this.options.permissions.addRequest(event.request);
+          this.options.permissionRepository?.create({
+            id: event.request.id,
+            bridgeSessionId: event.request.bridgeSessionId,
+            providerId: event.request.providerId,
+            toolName: event.request.toolName,
+            summary: event.request.summary,
+            details: event.request.details,
+            status: 'pending',
+            requestedAt: Date.now(),
+          });
+          this.options.eventLogRepository?.append({
+            bridgeSessionId: session.id,
+            direction: 'provider_event',
+            providerEventType: event.type,
+            text: event.request.summary,
+            createdAt: Date.now(),
+          });
+          await this.options.channel.sendMessage({
+            chatId: message.chatId,
+            kind: 'permission_request',
+            text: formatPermissionMessage(event.request),
           });
         }
-        await this.persistBridgeMetadata(updated, message.user.id);
-      }
-      if (event.type === 'error' && event.error) {
-        if (bufferedText.trim()) {
-          await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
-          bufferedText = '';
+        if (event.type === 'session_state') {
+          const updated = this.options.sessions.updateSession(session.id, {
+            providerSessionId: event.state.providerSessionId,
+            status: event.state.status,
+            lastActivityAt: Date.now(),
+          });
+          this.options.sessionRepository?.update(updated.id, {
+            providerSessionId: updated.providerSessionId,
+            status: updated.status,
+            lastActivityAt: updated.lastActivityAt,
+          });
+          if (updated.providerId === 'codex' && updated.providerSessionId && updated.resumeTitle) {
+            await upsertCodexSessionIndexEntry({
+              sessionId: updated.providerSessionId,
+              threadName: updated.resumeTitle,
+            });
+          }
+          await this.persistBridgeMetadata(updated, message.user.id);
         }
-        this.options.eventLogRepository?.append({
-          bridgeSessionId: session.id,
-          direction: 'provider_event',
-          providerEventType: event.type,
-          text: event.error,
-          createdAt: Date.now(),
-        });
-        const errorText = `Provider error: ${event.error}`;
-        await this.options.channel.sendMessage({
-          chatId: message.chatId,
-          kind: 'status',
-          text: errorText,
-        });
+        if (event.type === 'error' && event.error) {
+          if (bufferedText.trim()) {
+            await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
+            bufferedText = '';
+          }
+          this.options.eventLogRepository?.append({
+            bridgeSessionId: session.id,
+            direction: 'provider_event',
+            providerEventType: event.type,
+            text: event.error,
+            createdAt: Date.now(),
+          });
+          const errorText = `Provider error: ${event.error}`;
+          await this.options.channel.sendMessage({
+            chatId: message.chatId,
+            kind: 'status',
+            text: errorText,
+          });
+        }
       }
+    } finally {
+      if (typingKeepalive) clearInterval(typingKeepalive);
+      await this.options.channel.setTyping?.(message.chatId, false);
     }
     return { status: 'accepted' };
   }
