@@ -10,7 +10,7 @@ import { CodexInteractiveRunner } from '../src/providers/codex/codexInteractiveR
 import { CodexProvider } from '../src/providers/codex/codexProvider';
 import { findRecoverableCodexSessionPath } from '../src/providers/codex/nativeSessions';
 import { schemaSql } from '../src/storage/schema';
-import { UserRepository } from '../src/storage/userRepository';
+import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
 
 const maybeReal = process.env.BRIDGE_REAL_CODEX === '1' ? describe : describe.skip;
 
@@ -23,13 +23,14 @@ function memoryDb() {
 maybeReal('channel message flow real Codex interactive', () => {
   it('creates a real resume-visible Codex session from a simulated WeChat message', async () => {
     const db = memoryDb();
-    const users = new UserRepository(db);
-    users.createUser({
+    const store = createRuntimeUserStore('bridge-real-codex-users-');
+    const users = store.users;
+    seedRuntimeUserStore(store, {
       platform: PRIMARY_WEIXIN_PLATFORM,
       platformUserId: 'wx_user_real_codex',
       role: 'user',
-      defaultProvider: 'codex',
-      defaultCwd: process.cwd(),
+      provider: 'codex',
+      cwd: process.cwd(),
     });
 
     const channel = new MockChannelAdapter();
@@ -38,6 +39,7 @@ maybeReal('channel message flow real Codex interactive', () => {
       db,
       channel,
       providers: [provider],
+      usersStore: users,
     });
 
     await channel.emitIncoming({

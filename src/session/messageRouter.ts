@@ -2,10 +2,8 @@ import type { ChannelAdapter, ChannelIncomingMessage } from '../channels/types';
 import { formatPermissionMessage } from '../permissions/formatPermissionMessage';
 import type { PermissionRouter } from '../permissions/permissionRouter';
 import type { NativeProviderAdapter, ProviderId } from '../providers/types';
-import type { BridgeEventRepository } from '../storage/bridgeEventRepository';
-import type { PermissionRequestRepository } from '../storage/permissionRequestRepository';
 import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
-import type { AuthorizedUserRecord } from '../storage/userRepository';
+import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { parseBridgeCommand } from './commandParser';
 import type { BridgeSessionRecord, SessionManager } from './sessionManager';
 import type { BridgeEventHub } from '../daemon/events';
@@ -25,12 +23,10 @@ export class MessageRouter {
       permissions: PermissionRouter;
       providers: NativeProviderAdapter[];
       sessions: SessionManager;
-      resolveUser(message: ChannelIncomingMessage): AuthorizedUserRecord | null;
-      autoAuthorizeUser?(message: ChannelIncomingMessage): AuthorizedUserRecord | null;
-      autoAttachSession?(message: ChannelIncomingMessage, user: AuthorizedUserRecord): Promise<BridgeSessionRecord | null>;
+      resolveUser(message: ChannelIncomingMessage): ActiveWeChatUserRecord | null;
+      autoAuthorizeUser?(message: ChannelIncomingMessage): ActiveWeChatUserRecord | null;
+      autoAttachSession?(message: ChannelIncomingMessage, user: ActiveWeChatUserRecord): Promise<BridgeSessionRecord | null>;
       sessionRepository?: RuntimeSessionRepository;
-      permissionRepository?: PermissionRequestRepository;
-      eventLogRepository?: BridgeEventRepository;
       bindingRepository?: ProviderBindingRepository;
       events?: BridgeEventHub;
     },
@@ -71,8 +67,8 @@ export class MessageRouter {
       ?? this.options.sessions.createSession({
         chatId: message.chatId,
         ownerUserId: user.id,
-        providerId: user.defaultProvider,
-        cwd: user.defaultCwd,
+        providerId: user.provider,
+        cwd: user.cwd,
         resumeTitle: sessionResumeTitle,
       });
     this.persistSessionIfNeeded(session);
@@ -139,23 +135,6 @@ export class MessageRouter {
             bufferedText = '';
           }
           this.options.permissions.addRequest(event.request);
-          this.options.permissionRepository?.create({
-            id: event.request.id,
-            bridgeSessionId: event.request.bridgeSessionId,
-            providerId: event.request.providerId,
-            toolName: event.request.toolName,
-            summary: event.request.summary,
-            details: event.request.details,
-            status: 'pending',
-            requestedAt: Date.now(),
-          });
-          this.options.eventLogRepository?.append({
-            bridgeSessionId: session.id,
-            direction: 'provider_event',
-            providerEventType: event.type,
-            text: event.request.summary,
-            createdAt: Date.now(),
-          });
           await this.options.channel.sendMessage({
             chatId: message.chatId,
             kind: 'permission_request',
@@ -186,13 +165,6 @@ export class MessageRouter {
             await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
             bufferedText = '';
           }
-          this.options.eventLogRepository?.append({
-            bridgeSessionId: session.id,
-            direction: 'provider_event',
-            providerEventType: event.type,
-            text: event.error,
-            createdAt: Date.now(),
-          });
           const errorText = `Provider error: ${event.error}`;
           await this.options.channel.sendMessage({
             chatId: message.chatId,
@@ -210,7 +182,7 @@ export class MessageRouter {
 
   private async handleCommand(
     chatId: string,
-    user: AuthorizedUserRecord,
+    user: ActiveWeChatUserRecord,
     command: Exclude<ReturnType<typeof parseBridgeCommand>, { kind: 'chat' } | { kind: 'permission_decision' }>,
   ): Promise<void> {
     if (command.kind === 'help') {
@@ -227,7 +199,7 @@ export class MessageRouter {
         chatId,
         ownerUserId: user.id,
         providerId: command.providerId,
-        cwd: this.options.sessions.getActiveSession(chatId)?.cwd ?? user.defaultCwd,
+        cwd: this.options.sessions.getActiveSession(chatId)?.cwd ?? user.cwd,
       });
       this.persistSessionIfNeeded(session);
       await this.options.channel.sendMessage({
@@ -263,7 +235,7 @@ export class MessageRouter {
         : this.options.sessions.createSession({
             chatId,
             ownerUserId: user.id,
-            providerId: user.defaultProvider,
+            providerId: user.provider,
             cwd: command.cwd,
           });
       if (session) {
@@ -297,8 +269,8 @@ export class MessageRouter {
         return;
       }
       await this.providers.get(session.providerId)?.stopSession(session.id);
-      const archived = this.options.sessions.archiveSession(session.id);
-      this.options.sessionRepository?.archive(session.id, archived.archivedAt);
+      this.options.sessions.removeSession(session.id);
+      this.options.sessionRepository?.delete(session.id);
       await this.options.channel.sendMessage({
         chatId,
         kind: 'status',
@@ -348,12 +320,6 @@ export class MessageRouter {
     const request = this.options.permissions.getRequest(input.requestId);
     const result = this.options.permissions.decide(input);
     if (!result.ok) return result;
-    this.options.permissionRepository?.decide({
-      id: input.requestId,
-      decision: input.decision,
-      decidedBy: input.userId,
-      decidedAt: Date.now(),
-    });
     if (request) {
       await this.providers.get(request.providerId)?.decidePermission?.({
         requestId: input.requestId,
@@ -378,7 +344,6 @@ export class MessageRouter {
       status: session.status,
       createdAt: session.createdAt,
       lastActivityAt: session.lastActivityAt,
-      archivedAt: session.archivedAt,
     });
   }
 

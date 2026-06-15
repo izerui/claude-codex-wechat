@@ -15,13 +15,11 @@ import { MessageRouter } from '../session/messageRouter';
 import { autoAttachProviderSessionForMessage } from '../session/providerAutoAttach';
 import { SessionManager } from '../session/sessionManager';
 import type { BridgeDatabase } from '../storage/db';
-import { BridgeEventRepository, ensureBridgeEventStorage } from '../storage/bridgeEventRepository';
-import { PermissionRequestRepository } from '../storage/permissionRequestRepository';
 import { ProviderBindingRepository } from '../storage/providerBindingRepository';
 import { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import { schemaSql } from '../storage/schema';
-import { SettingsRepository } from '../storage/settingsRepository';
-import { UserRepository } from '../storage/userRepository';
+import { RuntimeUserStore } from '../storage/runtimeUserStore';
+import type { ActiveWeChatUserStore } from '../storage/userStore';
 import { defaultConfigPath, type WeixinConfig, type BridgeConfig } from './config';
 import { BridgeEventHub } from './events';
 
@@ -29,7 +27,10 @@ export function createDaemonServer(options: {
   db?: BridgeDatabase;
   channel?: ChannelAdapter;
   providers?: NativeProviderAdapter[];
+  usersStore?: ActiveWeChatUserStore;
+  permissionsRouter?: PermissionRouter;
   wechat?: WeixinConfig;
+  bridgeDefaults?: { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string };
   providerCommands?: BridgeConfig['providers'];
   configPath?: string;
 } = {}) {
@@ -37,23 +38,24 @@ export function createDaemonServer(options: {
   const events = new BridgeEventHub();
   const db = options.db ?? new Database(':memory:');
   db.exec(schemaSql);
-  ensureBridgeEventStorage(db);
-  const settings = new SettingsRepository(db);
-  const bridgeDefaults = readBridgeDefaults(settings);
+  const bridgeDefaults = {
+    defaultProvider: options.bridgeDefaults?.defaultProvider ?? 'claude-code',
+    defaultWorkspace: options.bridgeDefaults?.defaultWorkspace ?? process.cwd(),
+  };
   const sessions = new SessionManager({
     defaultCwd: bridgeDefaults.defaultWorkspace,
     defaultProviderId: bridgeDefaults.defaultProvider,
   });
-  const permissions = new PermissionRouter();
+  const permissions = options.permissionsRouter ?? new PermissionRouter();
   const providers = new ProviderRegistry({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
   });
-  const users = new UserRepository(db);
+  const configPath = options.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath();
+  const users = options.usersStore
+    ?? new RuntimeUserStore(configPath);
   const providerBindings = new ProviderBindingRepository(db);
   const runtimeSessions = new RuntimeSessionRepository(db);
-  const permissionRequests = new PermissionRequestRepository(db);
-  const eventLog = new BridgeEventRepository(db);
   const sessionBindingMatch = new Map<string, boolean>();
   const providerAdapters = options.providers ?? createDefaultProviders({
     claudeCommand: options.providerCommands?.claude?.command,
@@ -73,11 +75,9 @@ export function createDaemonServer(options: {
       status: persistedSession.status,
       createdAt: persistedSession.createdAt,
       lastActivityAt: persistedSession.lastActivityAt,
-      archivedAt: persistedSession.archivedAt,
     });
   }
   for (const persistedSession of persistedSessions) {
-    if (persistedSession.archivedAt) continue;
     if (
       persistedSession.providerId === 'claude-code' &&
       persistedSession.providerSessionId &&
@@ -103,18 +103,17 @@ export function createDaemonServer(options: {
         permissions,
         providers: providerAdapters,
         sessions,
-        resolveUser: (message) => users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, message.user.id),
+        resolveUser: (message) => users.isActiveUser(PRIMARY_WEIXIN_PLATFORM, message.user.id),
         autoAuthorizeUser: (message) => {
-          const existing = users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, message.user.id);
+          const existing = users.isActiveUser(PRIMARY_WEIXIN_PLATFORM, message.user.id);
           if (existing) return existing;
-          const defaults = readBridgeDefaults(settings);
-          const created = users.createUser({
+          const created = users.setActiveUser({
             platform: PRIMARY_WEIXIN_PLATFORM,
             platformUserId: message.user.id,
             displayName: message.user.displayName,
             role: 'user',
-            defaultProvider: defaults.defaultProvider,
-            defaultCwd: defaults.defaultWorkspace,
+            provider: bridgeDefaults.defaultProvider,
+            cwd: bridgeDefaults.defaultWorkspace,
           });
           events.emit({
             type: 'channel.user-authorized',
@@ -124,16 +123,16 @@ export function createDaemonServer(options: {
               platformType: 'weixin',
               display_name: created.displayName,
               authorizedAt: created.createdAt,
-              lastActive: created.lastActiveAt,
-              defaultProvider: created.defaultProvider,
-              defaultCwd: created.defaultCwd,
+              lastActive: created.updatedAt,
+              provider: created.provider,
+              cwd: created.cwd,
             },
           });
           return created;
         },
         autoAttachSession: async (message, user) => {
           if (sessions.getActiveSession(message.chatId)) return null;
-          const provider = providerAdapters.find((candidate) => candidate.id === user.defaultProvider);
+          const provider = providerAdapters.find((candidate) => candidate.id === user.provider);
           if (!provider?.attachSession || !provider.listRecoverableSessions) return null;
           const attached = await autoAttachProviderSessionForMessage({
             message,
@@ -150,8 +149,6 @@ export function createDaemonServer(options: {
           return null;
         },
         sessionRepository: runtimeSessions,
-        permissionRepository: permissionRequests,
-        eventLogRepository: eventLog,
         bindingRepository: providerBindings,
         events,
       })
@@ -172,11 +169,9 @@ export function createDaemonServer(options: {
     sessionManager: sessions,
     providers: providerAdapters,
     getSessionBindingMatch: (sessionId) => sessionBindingMatch.get(sessionId) === true,
-    settings,
-    eventLog,
     wechat: options.wechat,
     events,
-    configPath: options.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath(),
+    configPath,
     onWechatConfigChanged: managedWechatChannel
       ? async (next) => {
           await managedWechatChannel.configure(next);
@@ -185,8 +180,8 @@ export function createDaemonServer(options: {
   });
   registerSettingsRoutes({
     app,
-    settings,
-    defaultWorkspace: process.cwd(),
+    defaults: bridgeDefaults,
+    configPath,
     users,
     sessions: runtimeSessions,
     ...(channel ? { channel } : {}),
@@ -195,7 +190,7 @@ export function createDaemonServer(options: {
   app.get('/api/status', async () => ({
     ok: true,
     sessions: runtimeSessions.list(),
-    permissions: permissionRequests.listPending(),
+    permissions: permissions.getPendingRequests(),
   }));
 
   app.get('/api/providers/status', async () => providers.getStatus());
@@ -223,12 +218,4 @@ export function createDaemonServer(options: {
   });
 
   return { app, sessions, permissions, events, users };
-}
-
-function readBridgeDefaults(settings: SettingsRepository): { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string } {
-  const defaultProvider = settings.get('settings.defaultProvider') === 'codex' ? 'codex' : 'claude-code';
-  const defaultWorkspace = typeof settings.get('settings.defaultWorkspace') === 'string'
-    ? String(settings.get('settings.defaultWorkspace'))
-    : process.cwd();
-  return { defaultProvider, defaultWorkspace };
 }

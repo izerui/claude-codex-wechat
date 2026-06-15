@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import type { ChannelAdapter } from '../channels/types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
+import { persistBridgeDefaultsToConfigFile } from '../daemon/configPersistence';
 import type { ProviderId } from '../providers/types';
 import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
-import type { SettingsRepository } from '../storage/settingsRepository';
-import type { UserRepository } from '../storage/userRepository';
+import type { ActiveWeChatUserStore } from '../storage/userStore';
 
 export type BridgeSettings = {
   defaultProvider: ProviderId;
@@ -13,33 +13,40 @@ export type BridgeSettings = {
 
 export function registerSettingsRoutes(input: {
   app: FastifyInstance;
-  settings: SettingsRepository;
-  defaultWorkspace: string;
-  users?: UserRepository;
+  defaults: BridgeSettings;
+  configPath: string;
+  users?: ActiveWeChatUserStore;
   channel?: ChannelAdapter;
   sessions?: RuntimeSessionRepository;
 }): void {
-  input.app.get('/api/settings', async () => readSettings(input.settings, input.defaultWorkspace));
+  input.app.get('/api/settings', async () => input.defaults);
 
   input.app.post<{ Body: Partial<BridgeSettings> }>('/api/settings', async (request) => {
-    const current = readSettings(input.settings, input.defaultWorkspace);
+    const current = { ...input.defaults };
     const next = normalizeSettings({
       ...current,
       ...request.body,
-    }, input.defaultWorkspace);
-    for (const [key, value] of Object.entries(next)) input.settings.set(`settings.${key}`, value);
-    input.users?.updateDefaultsForPlatform(PRIMARY_WEIXIN_PLATFORM, {
+    }, current.defaultWorkspace);
+    input.defaults.defaultProvider = next.defaultProvider;
+    input.defaults.defaultWorkspace = next.defaultWorkspace;
+    await persistBridgeDefaultsToConfigFile({
+      configPath: input.configPath,
       defaultProvider: next.defaultProvider,
-      defaultCwd: next.defaultWorkspace,
+      defaultWorkspace: next.defaultWorkspace,
+    });
+    input.users?.updateActiveUser(PRIMARY_WEIXIN_PLATFORM, {
+      provider: next.defaultProvider,
+      cwd: next.defaultWorkspace,
     });
     if (input.channel && current.defaultProvider !== next.defaultProvider) {
-      const users = input.users?.listUsers().filter((user) => user.platform === PRIMARY_WEIXIN_PLATFORM) ?? [];
+      const activeUser = input.users?.getActiveUser();
+      const users = activeUser && activeUser.platform === PRIMARY_WEIXIN_PLATFORM ? [activeUser] : [];
       const providerLabel = next.defaultProvider === 'codex' ? 'Codex' : 'Claude Code';
       await Promise.all(users.map(async (user) => {
         const activeSession = input.sessions?.list().find((session) => (
-          session.ownerUserId === user.id && !session.archivedAt
+          session.ownerUserId === user.id
         ));
-        const cwd = activeSession?.cwd ?? user.defaultCwd ?? next.defaultWorkspace;
+        const cwd = activeSession?.cwd ?? user.cwd ?? next.defaultWorkspace;
         await input.channel?.sendMessage({
           chatId: user.platformUserId,
           kind: 'status',
@@ -49,13 +56,6 @@ export function registerSettingsRoutes(input: {
     }
     return { ok: true };
   });
-}
-
-function readSettings(settings: SettingsRepository, defaultWorkspace: string): BridgeSettings {
-  return normalizeSettings({
-    defaultProvider: settings.get('settings.defaultProvider'),
-    defaultWorkspace: settings.get('settings.defaultWorkspace'),
-  }, defaultWorkspace);
 }
 
 function normalizeSettings(input: Partial<Record<keyof BridgeSettings, unknown>>, defaultWorkspace: string): BridgeSettings {

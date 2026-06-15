@@ -1,11 +1,8 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { BridgeEventRepository } from '../src/storage/bridgeEventRepository';
-import { PermissionRequestRepository } from '../src/storage/permissionRequestRepository';
 import { ProviderBindingRepository } from '../src/storage/providerBindingRepository';
 import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
 import { schemaSql } from '../src/storage/schema';
-import { SettingsRepository } from '../src/storage/settingsRepository';
 
 function createMemoryDb() {
   const db = new Database(':memory:');
@@ -14,7 +11,7 @@ function createMemoryDb() {
 }
 
 describe('runtime repositories', () => {
-  it('creates, updates, and lists bridge sessions by active chat', () => {
+  it('creates, updates, deletes, and lists bridge sessions by active chat', () => {
     const sessions = new RuntimeSessionRepository(createMemoryDb());
     const created = sessions.create({
       chatId: 'chat-a',
@@ -38,70 +35,49 @@ describe('runtime repositories', () => {
     });
     expect(sessions.list()).toHaveLength(1);
 
-    sessions.archive(created.id, created.createdAt + 10);
+    sessions.delete(created.id);
     expect(sessions.getActiveByChat('chat-a')).toBeNull();
   });
 
-  it('stores permission request details and records decisions', () => {
-    const permissions = new PermissionRequestRepository(createMemoryDb());
-    permissions.create({
-      id: 'pr_1',
-      bridgeSessionId: 'bs_1',
+  it('replaces the prior bridge session record when a new session is created for the same chat', () => {
+    const sessions = new RuntimeSessionRepository(createMemoryDb());
+    sessions.createWithId({
+      id: 'bs_old',
+      chatId: 'chat-a',
+      ownerUserId: 'user-a',
       providerId: 'claude-code',
-      toolName: 'Bash',
-      summary: 'Run tests',
-      details: { command: 'pnpm test' },
-      status: 'pending',
-      requestedAt: 100,
+      providerSessionId: 'claude-old',
+      recoverySource: 'runtime',
+      resumeTitle: 'old',
+      cwd: '/tmp/project-a',
+      status: 'idle',
+      createdAt: 1,
+      lastActivityAt: 1,
+    });
+    sessions.createWithId({
+      id: 'bs_new',
+      chatId: 'chat-a',
+      ownerUserId: 'user-a',
+      providerId: 'codex',
+      providerSessionId: 'codex-new',
+      recoverySource: 'runtime',
+      resumeTitle: 'new',
+      cwd: '/tmp/project-b',
+      status: 'starting',
+      createdAt: 2,
+      lastActivityAt: 2,
     });
 
-    expect(permissions.listPending()).toEqual([
+    expect(sessions.list()).toEqual([
       expect.objectContaining({
-        id: 'pr_1',
-        details: { command: 'pnpm test' },
-        status: 'pending',
+        id: 'bs_new',
+        chatId: 'chat-a',
+        providerId: 'codex',
+        providerSessionId: 'codex-new',
       }),
     ]);
-
-    expect(permissions.decide({ id: 'pr_1', decision: 'approve', decidedBy: 'user-a', decidedAt: 120 })).toEqual({ ok: true });
-    expect(permissions.findById('pr_1')).toMatchObject({
-      status: 'decided',
-      decision: 'approve',
-      decidedBy: 'user-a',
-      decidedAt: 120,
-    });
-  });
-
-  it('appends bridge event entries in chronological order', () => {
-    const log = new BridgeEventRepository(createMemoryDb());
-    log.append({
-      bridgeSessionId: 'bs_1',
-      direction: 'provider_event',
-      providerEventType: 'permission_request',
-      text: 'allow command?',
-      createdAt: 100,
-    });
-    log.append({
-      bridgeSessionId: 'bs_1',
-      direction: 'provider_event',
-      providerEventType: 'error',
-      text: 'provider_failed',
-      createdAt: 110,
-    });
-
-    expect(log.listForSession('bs_1')).toEqual([
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: 'allow command?' }),
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'error', text: 'provider_failed' }),
-    ]);
-  });
-
-  it('persists settings as typed JSON values', () => {
-    const settings = new SettingsRepository(createMemoryDb());
-    expect(settings.get('permission.timeoutMs')).toBeNull();
-
-    settings.set('permission.timeoutMs', 60_000);
-
-    expect(settings.get('permission.timeoutMs')).toBe(60_000);
+    expect(sessions.findById('bs_old')).toBeNull();
+    expect(sessions.getActiveByChat('chat-a')).toMatchObject({ id: 'bs_new' });
   });
 
   it('stores and updates provider session bindings by chat', () => {

@@ -13,8 +13,8 @@ export type BridgeEvent =
         display_name?: string;
         authorizedAt: number;
         lastActive?: number;
-        defaultProvider: 'claude-code' | 'codex';
-        defaultCwd: string;
+        provider: 'claude-code' | 'codex';
+        cwd: string;
       };
     }
   | {

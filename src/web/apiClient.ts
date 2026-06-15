@@ -1,27 +1,27 @@
 type BrowserLike = Partial<Pick<Location, 'host' | 'origin'>>;
 type WindowBridgeLike = { __bridgeApiOrigin?: string };
 
-export type AuthorizedUserView = {
+export type ActiveWeChatUserView = {
   id: string;
   platform: string;
   platformUserId: string;
   displayName?: string;
   role: string;
-  defaultProvider: string;
-  defaultCwd: string;
+  provider: string;
+  cwd: string;
   createdAt: number;
-  lastActiveAt?: number;
+  updatedAt?: number;
 };
 
-export type AuthorizedUserEventView = {
+export type ActiveWeChatUserEventView = {
   id: string;
   platformUserId: string;
   platformType: 'weixin';
   display_name?: string;
   authorizedAt: number;
   lastActive?: number;
-  defaultProvider: 'claude-code' | 'codex';
-  defaultCwd: string;
+  provider: 'claude-code' | 'codex';
+  cwd: string;
 };
 
 export type ChannelPluginView = {
@@ -116,18 +116,8 @@ export type BridgeSettingsView = {
   defaultWorkspace: string;
 };
 
-export type BridgeEventView = {
-  id: string;
-  bridgeSessionId: string;
-  direction: 'provider_event';
-  platformMessageId?: string;
-  providerEventType?: string;
-  text?: string;
-  createdAt: number;
-};
-
 export type BridgeWsEvent =
-  | { type: 'channel.user-authorized'; user: AuthorizedUserEventView }
+  | { type: 'channel.user-authorized'; user: ActiveWeChatUserEventView }
   | { type: 'channel.plugin-status-changed'; plugin_id: 'weixin'; status: ChannelPluginView }
   | { type: 'status'; message: string }
   | { type: 'permission_requested'; requestId: string }
@@ -172,8 +162,8 @@ export async function fetchProviderStatus(): Promise<ProviderStatusView> {
   return await requestJson('/api/providers/status');
 }
 
-export async function fetchAuthorizedUsers(): Promise<AuthorizedUserView[]> {
-  return await requestJson('/api/channel/users');
+export async function fetchActiveUser(): Promise<ActiveWeChatUserView | null> {
+  return await requestJsonOptional('/api/channel/active-user');
 }
 
 export async function fetchChannelPlugins(): Promise<ChannelPluginView[]> {
@@ -255,10 +245,6 @@ export async function repairAllRecoverableProviderSessionsNativeResume(input: {
   return await requestJson(`/api/channel/providers/${encodeURIComponent(input.providerId)}/recoverable-sessions/repair-native-resume`, {
     method: 'POST',
   });
-}
-
-export async function fetchSessionEvents(id: string): Promise<BridgeEventView[]> {
-  return await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/events`);
 }
 
 export async function stopSession(id: string): Promise<void> {

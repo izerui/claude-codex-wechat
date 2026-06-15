@@ -14,7 +14,6 @@ export type RuntimeSessionRecord = {
   status: ProviderSessionStatus;
   createdAt: number;
   lastActivityAt: number;
-  archivedAt?: number;
 };
 
 export class RuntimeSessionRepository {
@@ -44,6 +43,9 @@ export class RuntimeSessionRepository {
 
   createWithId(record: RuntimeSessionRecord): RuntimeSessionRecord {
     this.db.prepare(`
+      DELETE FROM bridge_sessions WHERE chat_id = @chatId
+    `).run({ chatId: record.chatId });
+    this.db.prepare(`
       INSERT INTO bridge_sessions (
         id, chat_id, owner_user_id, provider_id, provider_session_id, recovery_source, resume_title, cwd, status, created_at, last_activity_at, archived_at
       ) VALUES (
@@ -53,7 +55,7 @@ export class RuntimeSessionRepository {
       ...record,
       providerSessionId: record.providerSessionId ?? null,
       resumeTitle: record.resumeTitle ?? null,
-      archivedAt: record.archivedAt ?? null,
+      archivedAt: null,
     });
     return record;
   }
@@ -82,10 +84,10 @@ export class RuntimeSessionRepository {
     return next;
   }
 
-  archive(id: string, archivedAt = Date.now()): void {
+  delete(id: string): void {
     this.db.prepare(`
-      UPDATE bridge_sessions SET archived_at = ?, status = 'closed' WHERE id = ?
-    `).run(archivedAt, id);
+      DELETE FROM bridge_sessions WHERE id = ?
+    `).run(id);
   }
 
   findById(id: string): RuntimeSessionRecord | null {
@@ -98,7 +100,7 @@ export class RuntimeSessionRepository {
   getActiveByChat(chatId: string): RuntimeSessionRecord | null {
     const row = this.db.prepare(`
       SELECT * FROM bridge_sessions
-      WHERE chat_id = ? AND archived_at IS NULL
+      WHERE chat_id = ?
       ORDER BY last_activity_at DESC
       LIMIT 1
     `).get(chatId) as Record<string, unknown> | undefined;
@@ -110,14 +112,6 @@ export class RuntimeSessionRepository {
       SELECT * FROM bridge_sessions ORDER BY last_activity_at DESC
     `).all() as Record<string, unknown>[];
     return rows.map(mapSessionRow);
-  }
-
-  archiveAllActive(archivedAt = Date.now()): void {
-    this.db.prepare(`
-      UPDATE bridge_sessions
-      SET archived_at = ?, status = 'closed'
-      WHERE archived_at IS NULL
-    `).run(archivedAt);
   }
 }
 
@@ -134,7 +128,6 @@ function mapSessionRow(row: Record<string, unknown>): RuntimeSessionRecord {
     status: mapStatus(row.status),
     createdAt: Number(row.created_at),
     lastActivityAt: Number(row.last_activity_at),
-    archivedAt: typeof row.archived_at === 'number' ? row.archived_at : undefined,
   };
 }
 

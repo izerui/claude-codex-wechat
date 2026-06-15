@@ -10,8 +10,8 @@ import { ClaudeHeadlessRunner, type ClaudeProcessRunner } from '../src/providers
 import { ClaudeCodeProvider } from '../src/providers/claude-code/claudeProvider';
 import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
 import { schemaSql } from '../src/storage/schema';
-import { UserRepository } from '../src/storage/userRepository';
 import { PRIMARY_WEIXIN_PLATFORM } from '../src/channels/platforms';
+import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
 
 function memoryDb() {
   const db = new Database(':memory:');
@@ -25,12 +25,13 @@ describe('daemon provider session recovery', () => {
     process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-daemon-home-`);
     const db = memoryDb();
     try {
-      new UserRepository(db).createUser({
+      const usersStore = createRuntimeUserStore('bridge-daemon-recovery-').users;
+      usersStore.setActiveUser({
         platform: PRIMARY_WEIXIN_PLATFORM,
         platformUserId: 'wx_user_1',
         role: 'user',
-        defaultProvider: 'claude-code',
-        defaultCwd: '/tmp/project',
+        provider: 'claude-code',
+        cwd: '/tmp/project',
       });
 
       const firstRunnerCalls: Parameters<ClaudeProcessRunner>[0][] = [];
@@ -53,6 +54,7 @@ describe('daemon provider session recovery', () => {
         db,
         channel: firstChannel,
         providers: [new ClaudeCodeProvider({ runner: firstRunner })],
+        usersStore,
       });
 
       await firstChannel.emitIncoming({
@@ -95,6 +97,7 @@ describe('daemon provider session recovery', () => {
         db,
         channel: secondChannel,
         providers: [new ClaudeCodeProvider({ runner: secondRunner })],
+        usersStore,
       });
 
       await secondChannel.emitIncoming({
@@ -135,12 +138,13 @@ describe('daemon provider session recovery', () => {
     process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-daemon-home-`);
     const db = memoryDb();
     try {
-      const user = new UserRepository(db).createUser({
+      const store = createRuntimeUserStore('bridge-daemon-legacy-');
+      const user = seedRuntimeUserStore(store, {
         platform: PRIMARY_WEIXIN_PLATFORM,
         platformUserId: 'wx_user_legacy',
         role: 'user',
-        defaultProvider: 'claude-code',
-        defaultCwd: '/tmp/project',
+        provider: 'claude-code',
+        cwd: '/tmp/project',
       });
       const runtimeSessions = new RuntimeSessionRepository(db);
       const resumeTitle = '微信 · wx_user_legacy · [claude-codex-wechat:legacyprobe]';
@@ -170,6 +174,7 @@ describe('daemon provider session recovery', () => {
         db,
         channel: new MockChannelAdapter(),
         providers: [new ClaudeCodeProvider({ runner: new ClaudeHeadlessRunner() })],
+        usersStore: store.users,
       });
 
       await server.app.ready();

@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import type { ProviderId } from '../providers/types';
 
 export async function persistWechatCredentialsToConfigFile(input: {
   configPath: string;
@@ -16,6 +17,25 @@ export async function persistWechatCredentialsToConfigFile(input: {
       baseUrl: input.baseUrl,
       token: input.token,
       accountId: input.accountId,
+    },
+  };
+
+  await mkdir(dirname(input.configPath), { recursive: true });
+  await writeFile(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+}
+
+export async function persistBridgeDefaultsToConfigFile(input: {
+  configPath: string;
+  defaultProvider: ProviderId;
+  defaultWorkspace: string;
+}): Promise<void> {
+  const currentConfig = await readConfigFile(input.configPath);
+  const nextConfig = {
+    ...currentConfig,
+    bridge: {
+      ...(isRecord(currentConfig.bridge) ? currentConfig.bridge : {}),
+      defaultProvider: input.defaultProvider,
+      defaultWorkspace: input.defaultWorkspace,
     },
   };
 

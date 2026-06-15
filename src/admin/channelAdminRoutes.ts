@@ -6,11 +6,9 @@ import type { WeixinConfig } from '../daemon/config';
 import { defaultConfigPath } from '../daemon/config';
 import { persistWechatCredentialsToConfigFile } from '../daemon/configPersistence';
 import type { BridgeEventHub } from '../daemon/events';
-import type { BridgeEventRepository } from '../storage/bridgeEventRepository';
 import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
 import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
-import type { SettingsRepository } from '../storage/settingsRepository';
-import type { UserRepository } from '../storage/userRepository';
+import type { ActiveWeChatUserStore } from '../storage/userStore';
 import type { SessionManager } from '../session/sessionManager';
 import type { NativeProviderAdapter } from '../providers/types';
 import { ensureClaudeSessionBridgeMetadata, findRecoverableClaudeSessionPath, getClaudeRecoverableSessionById, hasClaudeHistoryDisplay, hasClaudeSessionBridgeMetadata, listRecoverableClaudeSessions } from '../providers/claude-code/nativeSessions';
@@ -24,16 +22,14 @@ export function registerChannelAdminRoutes(input: {
   sessionManager?: SessionManager;
   providers?: NativeProviderAdapter[];
   getSessionBindingMatch?: (sessionId: string) => boolean;
-  settings?: SettingsRepository;
-  eventLog?: BridgeEventRepository;
-  users: UserRepository;
+  users: ActiveWeChatUserStore;
   wechat?: WeixinConfig;
   channel?: ChannelAdapter;
   events?: BridgeEventHub;
   onWechatConfigChanged?: (next: WeixinConfig) => Promise<void>;
   configPath?: string;
 }): void {
-  let wechat = input.wechat ?? readWechatSettings(input.settings);
+  let wechat = input.wechat;
   const configPath = input.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath();
 
   input.app.get('/api/channel/plugins', async () => [toWechatPluginStatus(wechat, input.users, input.channel)]);
@@ -45,7 +41,7 @@ export function registerChannelAdminRoutes(input: {
     }
     const config = request.body.config ?? {};
     const credentials = typeof config.credentials === 'object' && config.credentials ? config.credentials as Record<string, unknown> : {};
-    const previousWechat = wechat ?? readWechatSettings(input.settings);
+    const previousWechat = wechat;
     const baseUrl = typeof config.baseUrl === 'string'
       ? config.baseUrl
       : typeof credentials.baseUrl === 'string'
@@ -67,7 +63,6 @@ export function registerChannelAdminRoutes(input: {
       });
     }
     wechat = nextWechat;
-    writeWechatSettings(input.settings, wechat);
     input.events?.emit({
       type: 'channel.plugin-status-changed',
       plugin_id: 'weixin',
@@ -127,7 +122,6 @@ export function registerChannelAdminRoutes(input: {
     const nextWechat = { enabled: false };
     await input.onWechatConfigChanged?.(nextWechat);
     wechat = nextWechat;
-    writeWechatSettings(input.settings, wechat);
     input.events?.emit({
       type: 'channel.plugin-status-changed',
       plugin_id: 'weixin',
@@ -136,7 +130,7 @@ export function registerChannelAdminRoutes(input: {
     return { ok: true };
   });
 
-  input.app.get('/api/channel/users', async () => input.users.listUsers());
+  input.app.get('/api/channel/active-user', async () => input.users.getActiveUser());
 
   input.app.get<{ Params: { providerId: string } }>('/api/channel/providers/:providerId/recoverable-sessions', async (request, reply) => {
     const provider = input.providers?.find((candidate) => candidate.id === request.params.providerId);
@@ -170,9 +164,9 @@ export function registerChannelAdminRoutes(input: {
     if (!provider?.attachSession) {
       return reply.code(404).send({ ok: false, error: 'provider_session_attach_not_supported' });
     }
-    const user = input.users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, request.body.platformUserId);
+    const user = input.users.isActiveUser(PRIMARY_WEIXIN_PLATFORM, request.body.platformUserId);
     if (!user) {
-      return reply.code(404).send({ ok: false, error: 'authorized_user_not_found' });
+      return reply.code(404).send({ ok: false, error: 'active_wechat_user_not_found' });
     }
     if (!input.sessionManager) {
       return reply.code(500).send({ ok: false, error: 'bridge_session_manager_unavailable' });
@@ -189,7 +183,7 @@ export function registerChannelAdminRoutes(input: {
       providerId: request.body.providerId === 'codex' ? 'codex' : 'claude-code',
       providerSessionId: request.body.providerSessionId,
       chatId: request.body.chatId ?? user.platformUserId,
-      cwd: request.body.cwd ?? recoverableCandidate?.cwd ?? user.defaultCwd,
+      cwd: request.body.cwd ?? recoverableCandidate?.cwd ?? user.cwd,
       recoverySource: 'manual_attach',
     });
     return {
@@ -214,14 +208,14 @@ export function registerChannelAdminRoutes(input: {
     if (!provider?.attachSession || !provider.listRecoverableSessions) {
       return reply.code(404).send({ ok: false, error: 'provider_session_attach_not_supported' });
     }
-    const user = input.users.findByPlatformUser(PRIMARY_WEIXIN_PLATFORM, request.body.platformUserId);
+    const user = input.users.isActiveUser(PRIMARY_WEIXIN_PLATFORM, request.body.platformUserId);
     if (!user) {
-      return reply.code(404).send({ ok: false, error: 'authorized_user_not_found' });
+      return reply.code(404).send({ ok: false, error: 'active_wechat_user_not_found' });
     }
     if (!input.sessionManager) {
       return reply.code(500).send({ ok: false, error: 'bridge_session_manager_unavailable' });
     }
-    const targetCwd = request.body.cwd ?? user.defaultCwd;
+    const targetCwd = request.body.cwd ?? user.cwd;
     const selection = await selectBestRecoverableSession({
       provider,
       providerId: request.body.providerId === 'codex' ? 'codex' : 'claude-code',
@@ -243,7 +237,7 @@ export function registerChannelAdminRoutes(input: {
       providerId: request.body.providerId === 'codex' ? 'codex' : 'claude-code',
       providerSessionId: selection.candidate.id,
       chatId: request.body.chatId ?? user.platformUserId,
-      cwd: request.body.cwd ?? selection.candidate.cwd ?? user.defaultCwd,
+      cwd: request.body.cwd ?? selection.candidate.cwd ?? user.cwd,
       recoverySource: selection.bindingSource,
       resumeTitle: selection.candidate.resumeTitle,
     });
@@ -288,47 +282,30 @@ export function registerChannelAdminRoutes(input: {
   })));
 
   input.app.post<{ Body: { platform: string } }>('/api/channel/settings/sync', async (_request) => {
-    const archivedAt = Date.now();
     for (const session of input.sessions?.list() ?? []) {
-      if (!session.archivedAt) input.sessionManager?.archiveSession(session.id, archivedAt);
+      input.sessionManager?.removeSession(session.id);
+      input.sessions?.delete(session.id);
     }
-    input.sessions?.archiveAllActive(archivedAt);
     return { ok: true };
   });
-
-  const listSessionEvents = async (
-    request: { params: { id: string } },
-    reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } },
-  ) => {
-    const runtimeSession = input.sessions?.findById(request.params.id);
-    if (!runtimeSession) return reply.code(404).send({ ok: false, error: 'session_not_found' });
-    const events = input.eventLog?.listEventsForSession(request.params.id) ?? [];
-    return events;
-  };
-
-  input.app.get<{ Params: { id: string } }>('/api/channel/sessions/:id/events', listSessionEvents);
 
   input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/stop', async (request, reply) => {
     const runtimeSession = input.sessions?.findById(request.params.id);
     if (!runtimeSession) return reply.code(404).send({ ok: false, error: 'session_not_found' });
     const provider = input.providers?.find((candidate) => candidate.id === runtimeSession.providerId);
     await provider?.stopSession(runtimeSession.id);
-    input.sessionManager?.archiveSession(runtimeSession.id);
-    input.sessions?.archive(runtimeSession.id);
+    input.sessionManager?.removeSession(runtimeSession.id);
+    input.sessions?.delete(runtimeSession.id);
     return { ok: true };
   });
 
   input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/archive', async (request, reply) => {
-    const runtimeSession = input.sessions?.findById(request.params.id);
-    if (!runtimeSession) return reply.code(404).send({ ok: false, error: 'session_not_found' });
-    input.sessionManager?.archiveSession(runtimeSession.id);
-    input.sessions?.archive(runtimeSession.id);
-    return { ok: true };
+    return reply.code(404).send({ ok: false, error: 'session_archive_not_supported' });
   });
 
 }
 
-function toWechatPluginStatus(wechat: WeixinConfig | undefined, users: UserRepository, channel?: ChannelAdapter) {
+function toWechatPluginStatus(wechat: WeixinConfig | undefined, users: ActiveWeChatUserStore, channel?: ChannelAdapter) {
   const health = channel?.getHealth?.();
   return {
     id: PRIMARY_WEIXIN_PLATFORM,
@@ -338,34 +315,10 @@ function toWechatPluginStatus(wechat: WeixinConfig | undefined, users: UserRepos
     connected: health ? health.connected : wechat?.enabled === true && Boolean(wechat.baseUrl),
     status: health ? health.status : wechat?.enabled === true ? 'configured' : 'disabled',
     ...(health?.lastError ? { lastError: health.lastError } : {}),
-    activeUsers: users.listUsers().filter((user) => user.platform === PRIMARY_WEIXIN_PLATFORM).length,
+    activeUsers: users.getActiveUser()?.platform === PRIMARY_WEIXIN_PLATFORM ? 1 : 0,
     hasToken: Boolean(wechat?.token),
     botUsername: wechat?.accountId,
   };
-}
-
-function readWechatSettings(settings: SettingsRepository | undefined): WeixinConfig | undefined {
-  const raw = settings?.get('channel.wechat');
-  if (!raw || typeof raw !== 'object') return undefined;
-  const record = raw as Record<string, unknown>;
-  return {
-    enabled: record.enabled === true,
-    baseUrl: typeof record.baseUrl === 'string' ? record.baseUrl : undefined,
-    token: typeof record.token === 'string' ? record.token : undefined,
-    accountId: typeof record.accountId === 'string' ? record.accountId : undefined,
-  };
-}
-
-function writeWechatSettings(settings: SettingsRepository | undefined, wechat: WeixinConfig): void {
-  settings?.set('channel.wechat', wechat);
-}
-
-function readBridgeDefaults(settings: SettingsRepository | undefined): { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string } {
-  const defaultProvider = settings?.get('settings.defaultProvider') === 'codex' ? 'codex' : 'claude-code';
-  const defaultWorkspace = typeof settings?.get('settings.defaultWorkspace') === 'string'
-    ? String(settings?.get('settings.defaultWorkspace'))
-    : process.cwd();
-  return { defaultProvider, defaultWorkspace };
 }
 
 function buildProviderResumeCommand(providerId: string, providerSessionId: string | undefined): string | undefined {

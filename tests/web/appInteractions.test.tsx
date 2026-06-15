@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
-import type { AuthorizedUserView, BridgeSessionView } from '../../src/web/apiClient';
+import type { ActiveWeChatUserView, BridgeSessionView } from '../../src/web/apiClient';
 
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
@@ -39,7 +39,7 @@ function createFetchStub() {
   const calls: Array<{ url: string; method: string; body?: string }> = [];
   const state: {
     sessions: BridgeSessionView[];
-    users: AuthorizedUserView[];
+    activeUser: ActiveWeChatUserView | null;
   } = {
     sessions: [
       {
@@ -59,17 +59,16 @@ function createFetchStub() {
         lastActivityAt: 2,
       },
     ],
-    users: [
+    activeUser: 
       {
         id: 'user_1',
         platform: 'weixin',
         platformUserId: 'wx_user_1',
-        defaultProvider: 'claude-code',
-        defaultCwd: '/tmp/project',
+        provider: 'claude-code',
+        cwd: '/tmp/project',
         role: 'user',
         createdAt: 1,
       },
-    ],
   };
 
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -83,8 +82,8 @@ function createFetchStub() {
     if (url.endsWith('/api/providers/status')) {
       return new Response(JSON.stringify({ claude: { detected: true, version: '2.0.1' }, codex: { detected: false, reason: 'missing_binary' } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/channel/users')) {
-      return new Response(JSON.stringify(state.users), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (url.endsWith('/api/channel/active-user')) {
+      return new Response(JSON.stringify(state.activeUser), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/plugins')) {
       return new Response(JSON.stringify([
@@ -95,7 +94,7 @@ function createFetchStub() {
           enabled: false,
           connected: false,
           status: 'disabled',
-          activeUsers: state.users.length,
+          activeUsers: state.activeUser ? 1 : 0,
           hasToken: false,
         },
       ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -116,7 +115,7 @@ function createFetchStub() {
     }
     if (url.endsWith('/api/settings')) {
       return new Response(JSON.stringify({
-        defaultProvider: 'claude-code',
+        provider: 'claude-code',
         defaultWorkspace: '/tmp/project',
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -230,7 +229,7 @@ afterEach(() => {
 });
 
 describe('App admin interactions', () => {
-  it('stops a session from the UI without showing revoke controls', async () => {
+  it('stops the current bridge session from the UI without showing revoke or archive controls', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
@@ -243,6 +242,7 @@ describe('App admin interactions', () => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/stop') && call.method === 'POST')).toBe(true);
     });
     expect(screen.queryByText('撤销授权')).toBeNull();
+    expect(screen.queryByText('归档')).toBeNull();
   });
 
   it('does not render pending pairing controls', async () => {
@@ -251,7 +251,7 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findAllByText('通过这个 Bot 对话的微信用户');
+    await screen.findAllByText('当前活跃微信用户');
     expect(screen.queryByText('待审批配对')).toBeNull();
     expect(fetchImpl.mock.calls.some(([input]) => String(input).endsWith('/api/channel/pairings'))).toBe(false);
   });
@@ -284,6 +284,31 @@ describe('App admin interactions', () => {
     });
     expect(await screen.findByText('原生会话 ID：codex-session-1')).toBeTruthy();
     expect(screen.queryByText('原生会话 ID：claude-session-1')).toBeNull();
+  });
+
+  it('renders a simplified bridge sessions table without duplicate recovery columns', async () => {
+    const { fetchImpl } = createFetchStub();
+    vi.stubGlobal('fetch', fetchImpl as typeof fetch);
+
+    render(<App />);
+
+    await screen.findAllByRole('button', { name: '桥接会话' });
+    expect((await screen.findAllByText('微信用户')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('提供方')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('原生标题')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('工作目录')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('状态')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('操作')).length).toBeGreaterThan(0);
+
+    expect((await screen.findAllByText('桥接会话')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('提供方会话')).toBeNull();
+    expect(screen.queryByText('恢复模式')).toBeNull();
+    expect(screen.queryByText('推荐恢复')).toBeNull();
+    expect(screen.queryByText('按 ID 恢复')).toBeNull();
+    expect(screen.queryByText('按标题恢复')).toBeNull();
+    expect(screen.queryByText('绑定状态')).toBeNull();
+    expect(screen.queryByText('绑定详情')).toBeNull();
+    expect(screen.queryByText('原生状态')).toBeNull();
   });
 
   it('does not render bridge-session native resume repair controls', async () => {
@@ -336,7 +361,7 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findAllByText('claude-session-1');
+    expect((await screen.findAllByText('微信 · wx_user_1 · [claude-codex-wechat:test]')).length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: '修复原生恢复' })).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/repair-native-resume'))).toBe(false);
   });
@@ -391,8 +416,8 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findByText('待修复');
-    const sessionsHeaders = await screen.findAllByText('会话');
+    await screen.findAllByText('微信 · wx_user_1 · [claude-codex-wechat:test]');
+    const sessionsHeaders = await screen.findAllByText('桥接会话');
     const sessionsSection = sessionsHeaders.at(-1)?.closest('section');
     if (!sessionsSection) throw new Error('sessions_section_not_found');
     expect(within(sessionsSection).queryByRole('button', { name: '批量修复 Claude 恢复' })).toBeNull();

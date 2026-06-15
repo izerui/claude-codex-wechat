@@ -1,15 +1,14 @@
 /** @vitest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
-import type { AuthorizedUserView, BridgeEventView, BridgeSessionView } from '../../src/web/apiClient';
+import type { ActiveWeChatUserView, BridgeSessionView } from '../../src/web/apiClient';
 
 function createFetchStub() {
   const calls: Array<{ url: string; method: string }> = [];
   const state: {
     sessions: BridgeSessionView[];
-    users: AuthorizedUserView[];
-    events: Record<string, BridgeEventView[]>;
+    activeUser: ActiveWeChatUserView | null;
   } = {
     sessions: [
       {
@@ -35,19 +34,7 @@ function createFetchStub() {
         lastActivityAt: 2,
       },
     ],
-    users: [],
-    events: {
-      bs_1: [
-        {
-          id: 'msg_1',
-          bridgeSessionId: 'bs_1',
-          direction: 'provider_event',
-          providerEventType: 'permission_request',
-          text: '允许执行 fake command?',
-          createdAt: 1,
-        },
-      ],
-    },
+    activeUser: null,
   };
 
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -64,8 +51,8 @@ function createFetchStub() {
         codex: { detected: false, reason: 'missing_binary', command: '/opt/bin/codex', checkedAt: 1234567890 },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/channel/users')) {
-      return new Response(JSON.stringify(state.users), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (url.endsWith('/api/channel/active-user')) {
+      return new Response(JSON.stringify(state.activeUser), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/plugins')) {
       return new Response(JSON.stringify([
@@ -76,7 +63,7 @@ function createFetchStub() {
           enabled: false,
           connected: false,
           status: 'disabled',
-          activeUsers: state.users.length,
+          activeUsers: state.activeUser ? 1 : 0,
           hasToken: false,
         },
       ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -84,12 +71,9 @@ function createFetchStub() {
     if (url.endsWith('/api/channel/sessions')) {
       return new Response(JSON.stringify(state.sessions), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/channel/sessions/bs_1/events')) {
-      return new Response(JSON.stringify(state.events.bs_1), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }
     if (url.endsWith('/api/settings')) {
       return new Response(JSON.stringify({
-        defaultProvider: 'claude-code',
+        provider: 'claude-code',
         defaultWorkspace: '/tmp/project',
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -99,35 +83,20 @@ function createFetchStub() {
   return { fetchImpl, calls };
 }
 
-describe('App session event interactions', () => {
-  it('loads and renders session bridge events when the event button is clicked', async () => {
+describe('App session interactions without bridge event history', () => {
+  it('does not render bridge event controls or panels', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
     render(<App />);
 
-    const eventButtons = await screen.findAllByText('事件');
-    fireEvent.click(eventButtons[0]!);
-
-    await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/events') && call.method === 'GET')).toBe(true);
-    });
-
-    expect(await screen.findByText('桥接事件 · bs_1')).toBeTruthy();
-    expect(await screen.findByText('允许执行 fake command?')).toBeTruthy();
-    expect(await screen.findByText('标题恢复')).toBeTruthy();
-    expect(await screen.findByText('推荐恢复')).toBeTruthy();
-    expect(await screen.findByText('按标题恢复')).toBeTruthy();
-    expect(await screen.findByText('原生恢复状态')).toBeTruthy();
-    expect(await screen.findByText('已同步')).toBeTruthy();
-    expect((await screen.findAllByText('claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]')).length).toBe(2);
-    expect(await screen.findByText('claude --resume claude-session-1')).toBeTruthy();
     expect(await screen.findByText('微信 · wx_user_1 · [claude-codex-wechat:test]')).toBeTruthy();
-    expect(await screen.findByText('历史绑定命中')).toBeTruthy();
-    expect(await screen.findByText('wx_user_1 · claude-session-1')).toBeTruthy();
+    expect(screen.queryByText('事件')).toBeNull();
+    expect(screen.queryByText('桥接事件 · bs_1')).toBeNull();
+    expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/events'))).toBe(false);
   });
 
-  it('renders sidecar recovery source label for sidecar-attached sessions', async () => {
+  it('still renders session rows for sidecar-attached sessions', async () => {
     const { fetchImpl } = createFetchStub();
     const sidecarFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -161,43 +130,7 @@ describe('App session event interactions', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('Sidecar 命中')).toBeTruthy();
-  });
-
-  it('renders bridge event rows without relying on text delta/outbound deduplication', async () => {
-    const { fetchImpl } = createFetchStub();
-    const mergedFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith('/api/channel/sessions/bs_1/events')) {
-        return new Response(JSON.stringify([
-          {
-            id: 'msg_1',
-            bridgeSessionId: 'bs_1',
-            direction: 'provider_event',
-            providerEventType: 'permission_request',
-            text: '允许执行 read file?',
-            createdAt: 1,
-          },
-          {
-            id: 'msg_2',
-            bridgeSessionId: 'bs_1',
-            direction: 'provider_event',
-            providerEventType: 'error',
-            text: 'provider_failed:read file',
-            createdAt: 2,
-          },
-        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
-      }
-      return await fetchImpl(input, init);
-    });
-    vi.stubGlobal('fetch', mergedFetch as typeof fetch);
-
-    render(<App />);
-
-    const eventButtons = await screen.findAllByText('事件');
-    fireEvent.click(eventButtons[0]!);
-
-    expect(await screen.findByText('允许执行 read file?')).toBeTruthy();
-    expect(await screen.findByText('provider_failed:read file')).toBeTruthy();
+    expect(await screen.findByText('/tmp/sidecar')).toBeTruthy();
+    expect(screen.queryByText('事件')).toBeNull();
   });
 });

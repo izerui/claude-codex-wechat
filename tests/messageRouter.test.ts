@@ -5,20 +5,19 @@ import { PermissionRouter } from '../src/permissions/permissionRouter';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { SessionManager } from '../src/session/sessionManager';
 import { MessageRouter } from '../src/session/messageRouter';
-import { BridgeEventRepository } from '../src/storage/bridgeEventRepository';
 import { ProviderBindingRepository } from '../src/storage/providerBindingRepository';
 import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
 import { schemaSql } from '../src/storage/schema';
-import type { AuthorizedUserRecord } from '../src/storage/userRepository';
+import type { ActiveWeChatUserRecord } from '../src/storage/userStore';
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../src/providers/types';
 
-const authorizedUser: AuthorizedUserRecord = {
+const authorizedUser: ActiveWeChatUserRecord = {
   id: 'user_a',
   platform: 'weixin',
   platformUserId: 'wx_user_1',
   role: 'user',
-  defaultProvider: 'claude-code',
-  defaultCwd: '/tmp/project',
+  provider: 'claude-code',
+  cwd: '/tmp/project',
   createdAt: 1,
 };
 
@@ -471,10 +470,7 @@ describe('MessageRouter', () => {
     expect(requestIds).toHaveLength(2);
   });
 
-  it('writes outbound logs after sending provider replies back to the channel', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
-    const eventLogRepository = new BridgeEventRepository(db);
+  it('sends permission requests back to the channel without bridge event history', async () => {
     const channel = new MockChannelAdapter();
     const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
@@ -483,9 +479,10 @@ describe('MessageRouter', () => {
       permissions,
       providers: [new FakeProviderAdapter('codex')],
       sessions,
-      resolveUser: () => ({ ...authorizedUser, defaultProvider: 'codex' }),
-      eventLogRepository,
+      resolveUser: () => ({ ...authorizedUser, provider: 'codex' }),
     });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
 
     await router.handleMessage({
       id: 'm1',
@@ -496,18 +493,13 @@ describe('MessageRouter', () => {
       timestamp: 1,
     });
 
-    const activeSession = sessions.getActiveSession('chat-outbound');
-    expect(activeSession).not.toBeNull();
-    const logs = eventLogRepository.listForSession(activeSession!.id);
-    expect(logs).toEqual([
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
+    expect(sent).toEqual([
+      { kind: 'text', text: '收到：hello codex' },
+      { kind: 'permission_request', text: expect.stringContaining('/approve pr_fake_1') },
     ]);
   });
 
   it('sends an error message back to the channel when the provider emits an error event', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
-    const eventLogRepository = new BridgeEventRepository(db);
     const channel = new MockChannelAdapter();
     const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
@@ -516,8 +508,7 @@ describe('MessageRouter', () => {
       permissions,
       providers: [new ErrorProviderAdapter()],
       sessions,
-      resolveUser: () => ({ ...authorizedUser, defaultProvider: 'codex' }),
-      eventLogRepository,
+      resolveUser: () => ({ ...authorizedUser, provider: 'codex' }),
     });
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
@@ -534,17 +525,9 @@ describe('MessageRouter', () => {
     expect(sent).toEqual([
       { kind: 'status', text: 'Provider error: provider_failed:news' },
     ]);
-    const activeSession = sessions.getActiveSession('chat-error');
-    expect(activeSession).not.toBeNull();
-    expect(eventLogRepository.listForSession(activeSession!.id)).toEqual([
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'error', text: 'provider_failed:news' }),
-    ]);
   });
 
-  it('does not archive buffered reply text when a provider errors before message completion', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
-    const eventLogRepository = new BridgeEventRepository(db);
+  it('flushes buffered reply text before reporting a provider error', async () => {
     const channel = new MockChannelAdapter();
     const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
@@ -553,8 +536,7 @@ describe('MessageRouter', () => {
       permissions,
       providers: [new PartialThenErrorProviderAdapter()],
       sessions,
-      resolveUser: () => ({ ...authorizedUser, defaultProvider: 'codex' }),
-      eventLogRepository,
+      resolveUser: () => ({ ...authorizedUser, provider: 'codex' }),
     });
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
@@ -571,11 +553,6 @@ describe('MessageRouter', () => {
     expect(sent).toEqual([
       { kind: 'text', text: 'partial:news' },
       { kind: 'status', text: 'Provider error: provider_failed:news' },
-    ]);
-    const activeSession = sessions.getActiveSession('chat-partial-error');
-    expect(activeSession).not.toBeNull();
-    expect(eventLogRepository.listForSession(activeSession!.id)).toEqual([
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'error', text: 'provider_failed:news' }),
     ]);
   });
 });

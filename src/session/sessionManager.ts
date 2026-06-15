@@ -13,7 +13,6 @@ export type BridgeSessionRecord = {
   status: ProviderSessionStatus;
   createdAt: number;
   lastActivityAt: number;
-  archivedAt?: number;
 };
 
 export class SessionManager {
@@ -29,7 +28,7 @@ export class SessionManager {
 
   getOrCreateSession(input: { chatId: string; ownerUserId: string; providerId?: ProviderId; cwd?: string }): BridgeSessionRecord {
     const existing = this.getActiveSession(input.chatId);
-    if (existing && !existing.archivedAt) return existing;
+    if (existing) return existing;
     return this.createSession({
       chatId: input.chatId,
       ownerUserId: input.ownerUserId,
@@ -46,6 +45,8 @@ export class SessionManager {
     recoverySource?: BridgeSessionRecord['recoverySource'];
     resumeTitle?: string;
   }): BridgeSessionRecord {
+    const existingId = this.activeByChat.get(input.chatId);
+    if (existingId) this.sessions.delete(existingId);
     const now = Date.now();
     const record: BridgeSessionRecord = {
       id: `bs_${nanoid(10)}`,
@@ -66,11 +67,9 @@ export class SessionManager {
 
   hydrateSession(record: BridgeSessionRecord): BridgeSessionRecord {
     this.sessions.set(record.id, record);
-    if (!record.archivedAt) {
-      const current = this.getActiveSession(record.chatId);
-      if (!current || current.lastActivityAt <= record.lastActivityAt) {
-        this.activeByChat.set(record.chatId, record.id);
-      }
+    const current = this.getActiveSession(record.chatId);
+    if (!current || current.lastActivityAt <= record.lastActivityAt) {
+      this.activeByChat.set(record.chatId, record.id);
     }
     return record;
   }
@@ -91,20 +90,14 @@ export class SessionManager {
     return next;
   }
 
-  archiveSession(id: string, archivedAt = Date.now()): BridgeSessionRecord {
+  removeSession(id: string): BridgeSessionRecord {
     const existing = this.sessions.get(id);
     if (!existing) throw new Error(`Unknown bridge session: ${id}`);
-    const next: BridgeSessionRecord = {
-      ...existing,
-      status: 'closed',
-      archivedAt,
-      lastActivityAt: archivedAt,
-    };
-    this.sessions.set(id, next);
+    this.sessions.delete(id);
     if (this.activeByChat.get(existing.chatId) === id) {
       this.activeByChat.delete(existing.chatId);
     }
-    return next;
+    return existing;
   }
 
   listSessions(): BridgeSessionRecord[] {

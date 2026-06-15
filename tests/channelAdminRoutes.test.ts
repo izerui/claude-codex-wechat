@@ -12,17 +12,15 @@ import { CodexProvider } from '../src/providers/codex/codexProvider';
 import { CodexCliRunner } from '../src/providers/codex/codexCliRunner';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { buildSessionBridgeName } from '../src/session/sessionBridgeTag';
-import { BridgeEventRepository } from '../src/storage/bridgeEventRepository';
-import { PermissionRequestRepository } from '../src/storage/permissionRequestRepository';
 import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
 import { schemaSql } from '../src/storage/schema';
-import { UserRepository } from '../src/storage/userRepository';
+import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
 
 describe('channel admin routes', () => {
   it('does not expose pairing approval routes', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
-    const { app } = createDaemonServer({ db });
+    const { app } = createDaemonServer({ db, usersStore: createRuntimeUserStore('bridge-admin-pairings-').users });
 
     const list = await app.inject({ method: 'GET', url: '/api/channel/pairings' });
     expect(list.statusCode).toBe(404);
@@ -35,37 +33,37 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
-  it('lists authorized users without exposing revoke route', async () => {
+  it('returns the active user without exposing revoke route', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
-    const { app, users } = createDaemonServer({ db });
-    const created = users.createUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user', defaultProvider: 'codex', defaultCwd: '/tmp/project' });
+    const { app, users } = createDaemonServer({ db, usersStore: createRuntimeUserStore('bridge-admin-users-').users });
+    const created = users.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user', provider: 'codex', cwd: '/tmp/project' });
 
-    const response = await app.inject({ method: 'GET', url: '/api/channel/users' });
+    const response = await app.inject({ method: 'GET', url: '/api/channel/active-user' });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject([{ platformUserId: 'wx_user_1', defaultProvider: 'codex' }]);
+    expect(response.json()).toMatchObject({ platformUserId: 'wx_user_1', provider: 'codex' });
 
     const revoke = await app.inject({ method: 'POST', url: `/api/channel/users/${created.id}/revoke` });
     expect(revoke.statusCode).toBe(404);
 
-    const after = await app.inject({ method: 'GET', url: '/api/channel/users' });
-    expect(after.json()).toMatchObject([{ platformUserId: 'wx_user_1', defaultProvider: 'codex' }]);
+    const after = await app.inject({ method: 'GET', url: '/api/channel/active-user' });
+    expect(after.json()).toMatchObject({ platformUserId: 'wx_user_1', provider: 'codex' });
     await app.close();
   });
 
-  it('lists, stops, and archives runtime sessions', async () => {
+  it('lists and stops runtime sessions without retaining historical bridge rows', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, users, sessions } = createDaemonServer({ db, channel, providers: [provider] });
-    users.createUser({
+    const { app, users, sessions } = createDaemonServer({ db, channel, providers: [provider], usersStore: createRuntimeUserStore('bridge-admin-stop-').users });
+    users.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/project',
+      provider: 'claude-code',
+      cwd: '/tmp/project',
     });
 
     await channel.emitIncoming({
@@ -90,9 +88,7 @@ describe('channel admin routes', () => {
     expect(stopMissing.json()).toEqual({ ok: false, error: 'session_not_found' });
 
     const listed = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
-    expect(listed.json()).toEqual([
-      expect.objectContaining({ id: active!.id, status: 'closed' }),
-    ]);
+    expect(listed.json()).toEqual([]);
 
     await channel.emitIncoming({
       id: 'm2',
@@ -107,33 +103,37 @@ describe('channel admin routes', () => {
     expect(next!.id).not.toBe(active!.id);
 
     const archive = await app.inject({ method: 'POST', url: `/api/channel/sessions/${next!.id}/archive` });
-    expect(archive.statusCode).toBe(200);
-    expect(archive.json()).toEqual({ ok: true });
+    expect(archive.statusCode).toBe(404);
+    expect(archive.json()).toEqual({ ok: false, error: 'session_archive_not_supported' });
 
     const archiveMissing = await app.inject({ method: 'POST', url: '/api/channel/sessions/does-not-exist/archive' });
     expect(archiveMissing.statusCode).toBe(404);
-    expect(archiveMissing.json()).toEqual({ ok: false, error: 'session_not_found' });
+    expect(archiveMissing.json()).toEqual({ ok: false, error: 'session_archive_not_supported' });
 
     const afterArchive = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
     expect(afterArchive.json()).toEqual([
-      expect.objectContaining({ id: next!.id, status: 'closed', archivedAt: expect.any(Number) }),
-      expect.objectContaining({ id: active!.id, status: 'closed' }),
+      expect.objectContaining({
+        id: next!.id,
+        status: 'idle',
+        recoverySource: 'binding_table',
+        providerSessionId: expect.stringContaining('claude-code_fake_'),
+      }),
     ]);
     await app.close();
   });
 
-  it('lists bridge events for a session', async () => {
+  it('does not expose bridge event history routes', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, users, sessions } = createDaemonServer({ db, channel, providers: [provider] });
-    users.createUser({
+    const { app, users, sessions } = createDaemonServer({ db, channel, providers: [provider], usersStore: createRuntimeUserStore('bridge-admin-no-events-').users });
+    users.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/project',
+      provider: 'claude-code',
+      cwd: '/tmp/project',
     });
 
     await channel.emitIncoming({
@@ -149,10 +149,7 @@ describe('channel admin routes', () => {
     expect(active).not.toBeNull();
 
     const response = await app.inject({ method: 'GET', url: `/api/channel/sessions/${active!.id}/events` });
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
-    ]));
+    expect(response.statusCode).toBe(404);
     await app.close();
   });
 
@@ -161,13 +158,13 @@ describe('channel admin routes', () => {
     db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, users } = createDaemonServer({ db, channel, providers: [provider] });
-    users.createUser({
+    const { app, users } = createDaemonServer({ db, channel, providers: [provider], usersStore: createRuntimeUserStore('bridge-admin-status-').users });
+    users.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/project',
+      provider: 'claude-code',
+      cwd: '/tmp/project',
     });
 
     await channel.emitIncoming({
@@ -208,10 +205,10 @@ describe('channel admin routes', () => {
     });
     expect(decision.statusCode).toBe(200);
     expect(decision.json()).toEqual({ ok: true });
-    expect(new PermissionRequestRepository(db).findById('pr_fake_1')).toMatchObject({
-      status: 'decided',
-      decision: 'deny',
-      decidedBy: 'user_admin',
+    const statusAfterDecision = await app.inject({ method: 'GET', url: '/api/status' });
+    expect(statusAfterDecision.json()).toMatchObject({
+      ok: true,
+      permissions: [],
     });
     expect(provider.permissionDecisions).toEqual([{ requestId: 'pr_fake_1', decision: 'deny' }]);
     await app.close();
@@ -220,7 +217,17 @@ describe('channel admin routes', () => {
   it('reads and updates daemon settings', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
-    const { app } = createDaemonServer({ db });
+    const configDir = mkdtempSync(`${tmpdir()}/bridge-settings-config-`);
+    const configPath = join(configDir, 'config.json');
+    const { app } = createDaemonServer({
+      db,
+      usersStore: createRuntimeUserStore('bridge-admin-settings-').users,
+      configPath,
+      bridgeDefaults: {
+        defaultProvider: 'claude-code',
+        defaultWorkspace: process.cwd(),
+      },
+    });
 
     const initial = await app.inject({ method: 'GET', url: '/api/settings' });
     expect(initial.statusCode).toBe(200);
@@ -245,6 +252,12 @@ describe('channel admin routes', () => {
       defaultProvider: 'codex',
       defaultWorkspace: '/tmp/project',
     });
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toMatchObject({
+      bridge: {
+        defaultProvider: 'codex',
+        defaultWorkspace: '/tmp/project',
+      },
+    });
     await app.close();
   });
 
@@ -254,13 +267,21 @@ describe('channel admin routes', () => {
     const channel = new MockChannelAdapter();
     const sent: Array<{ chatId: string; kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ chatId: message.chatId, kind: message.kind, text: message.text }));
-    const { app, users } = createDaemonServer({ db, channel });
-    const user = users.createUser({
+    const { app, users } = createDaemonServer({
+      db,
+      channel,
+      usersStore: createRuntimeUserStore('bridge-admin-switch-notify-').users,
+      bridgeDefaults: {
+        defaultProvider: 'claude-code',
+        defaultWorkspace: '/tmp/project',
+      },
+    });
+    const user = users.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/project',
+      provider: 'claude-code',
+      cwd: '/tmp/project',
     });
     new RuntimeSessionRepository(db).createWithId({
       id: 'bs_active_1',
@@ -300,6 +321,7 @@ describe('channel admin routes', () => {
     db.exec(schemaSql);
     const { app } = createDaemonServer({
       db,
+      usersStore: createRuntimeUserStore('bridge-admin-runtime-config-').users,
       wechat: {
         enabled: true,
         baseUrl: 'https://ilinkai.weixin.qq.com',
@@ -327,6 +349,7 @@ describe('channel admin routes', () => {
     const configPath = join(configDir, 'config.json');
     const { app } = createDaemonServer({
       db,
+      usersStore: createRuntimeUserStore('bridge-admin-wechat-disable-').users,
       wechat: { enabled: false },
       configPath,
     });
@@ -365,12 +388,13 @@ describe('channel admin routes', () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     try {
-      const user = new UserRepository(db).createUser({
+      const store = createRuntimeUserStore('bridge-admin-native-repair-');
+      const user = seedRuntimeUserStore(store, {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        defaultProvider: 'claude-code',
-        defaultCwd: '/tmp/project',
+        provider: 'claude-code',
+        cwd: '/tmp/project',
       });
       const projectDir = join(process.env.HOME, '.claude', 'projects', '-tmp-project');
       mkdirSync(projectDir, { recursive: true });
@@ -422,12 +446,13 @@ describe('channel admin routes', () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     try {
-      const user = new UserRepository(db).createUser({
+      const store = createRuntimeUserStore('bridge-admin-batch-repair-');
+      const user = seedRuntimeUserStore(store, {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        defaultProvider: 'claude-code',
-        defaultCwd: '/tmp/project',
+        provider: 'claude-code',
+        cwd: '/tmp/project',
       });
       const runtimeSessions = new RuntimeSessionRepository(db);
       const repairableTitle = '微信 · wx_user_1 · [claude-codex-wechat:batch-attached-1]';
@@ -495,12 +520,12 @@ describe('channel admin routes', () => {
       channel,
       providers: [new FakeProviderAdapter('claude-code'), new FakeProviderAdapter('codex')],
     });
-    users.createUser({
+    users.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/original',
+      provider: 'claude-code',
+      cwd: '/tmp/original',
     });
 
     const update = await app.inject({
@@ -549,12 +574,12 @@ describe('channel admin routes', () => {
     db.exec(schemaSql);
     const provider = new FakeProviderAdapter('claude-code');
     const { app, users } = createDaemonServer({ db, providers: [provider] });
-    users.createUser({
+    users.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/project',
+      provider: 'claude-code',
+      cwd: '/tmp/project',
     });
 
     const recoverable = await app.inject({
@@ -687,12 +712,13 @@ describe('channel admin routes', () => {
 
       const db = new Database(':memory:');
       db.exec(schemaSql);
-      const user = new UserRepository(db).createUser({
+      const store = createRuntimeUserStore('bridge-admin-history-missing-');
+      const user = seedRuntimeUserStore(store, {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        defaultProvider: 'claude-code',
-        defaultCwd: '/tmp/project',
+        provider: 'claude-code',
+        cwd: '/tmp/project',
       });
       new RuntimeSessionRepository(db).createWithId({
         id: 'bs_history_missing',
@@ -862,12 +888,12 @@ describe('channel admin routes', () => {
       db.exec(schemaSql);
       const runner = new CodexCliRunner({ processRunner: async () => ({ code: 0, stdout: '', stderr: '' }) });
       const { app, users } = createDaemonServer({ db, providers: [new CodexProvider({ runner })] });
-      users.createUser({
+      users.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        defaultProvider: 'codex',
-        defaultCwd: '/tmp/codex-project',
+        provider: 'codex',
+        cwd: '/tmp/codex-project',
       });
 
       const attach = await app.inject({
@@ -902,12 +928,12 @@ describe('channel admin routes', () => {
     db.exec(schemaSql);
     const provider = new FakeProviderAdapter('claude-code');
     const { app, users } = createDaemonServer({ db, providers: [provider] });
-    users.createUser({
+    users.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/project',
+      provider: 'claude-code',
+      cwd: '/tmp/project',
     });
 
     await app.inject({
@@ -931,17 +957,17 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
-  it('keeps archived provider sessions recoverable for later re-attach', async () => {
+  it('keeps attached provider sessions hidden from recoverable scans while they remain current bridge sessions', async () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const provider = new FakeProviderAdapter('claude-code');
     const { app, users } = createDaemonServer({ db, providers: [provider] });
-    users.createUser({
+    users.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/project',
+      provider: 'claude-code',
+      cwd: '/tmp/project',
     });
 
     const attach = await app.inject({
@@ -956,24 +982,12 @@ describe('channel admin routes', () => {
     });
     expect(attach.statusCode).toBe(200);
 
-    const attachedSessionId = (attach.json() as { session: { id: string } }).session.id;
-    const archive = await app.inject({
-      method: 'POST',
-      url: `/api/channel/sessions/${attachedSessionId}/archive`,
-    });
-    expect(archive.statusCode).toBe(200);
-
     const recoverable = await app.inject({
       method: 'GET',
       url: '/api/channel/providers/claude-code/recoverable-sessions',
     });
     expect(recoverable.statusCode).toBe(200);
-    expect(recoverable.json()).toEqual([
-      expect.objectContaining({
-        id: 'claude-code_recoverable_1',
-        providerId: 'claude-code',
-      }),
-    ]);
+    expect(recoverable.json()).toEqual([]);
 
     await app.close();
   });
@@ -992,12 +1006,12 @@ describe('channel admin routes', () => {
       db.exec(schemaSql);
       const provider = new FakeProviderAdapter('claude-code');
       const { app, users } = createDaemonServer({ db, providers: [provider] });
-      users.createUser({
+      users.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        defaultProvider: 'claude-code',
-        defaultCwd: '/tmp/project',
+        provider: 'claude-code',
+        cwd: '/tmp/project',
       });
 
       await app.inject({
@@ -1089,12 +1103,12 @@ describe('channel admin routes', () => {
       db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
       const { app, users } = createDaemonServer({ db, providers: [provider] });
-      users.createUser({
+      users.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        defaultProvider: 'claude-code',
-        defaultCwd: '/tmp/project-sidecar',
+        provider: 'claude-code',
+        cwd: '/tmp/project-sidecar',
       });
 
       const attach = await app.inject({
@@ -1117,27 +1131,12 @@ describe('channel admin routes', () => {
       expect(recoverable.statusCode).toBe(200);
       expect(recoverable.json()).toEqual([]);
 
-      await app.inject({
-        method: 'POST',
-        url: `/api/channel/sessions/${(attach.json() as { session: { id: string } }).session.id}/archive`,
-      });
-
-      const recoverableAfterArchive = await app.inject({
+      const recoverableWhileAttached = await app.inject({
         method: 'GET',
         url: '/api/channel/providers/claude-code/recoverable-sessions',
       });
-      expect(recoverableAfterArchive.statusCode).toBe(200);
-      expect(recoverableAfterArchive.json()).toEqual([
-        expect.objectContaining({
-          id: 'claude-sidecar-session',
-          cwd: '/tmp/project-sidecar',
-          bridgeTag: {
-            platform: 'weixin',
-            platformUserId: 'wx_user_1',
-            chatId: 'chat-sidecar',
-          },
-        }),
-      ]);
+      expect(recoverableWhileAttached.statusCode).toBe(200);
+      expect(recoverableWhileAttached.json()).toEqual([]);
 
       await app.close();
     } finally {
@@ -1221,12 +1220,12 @@ describe('channel admin routes', () => {
       db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
       const { app, users } = createDaemonServer({ db, providers: [provider] });
-      users.createUser({
+      users.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        defaultProvider: 'claude-code',
-        defaultCwd: '/tmp/default-project',
+        provider: 'claude-code',
+        cwd: '/tmp/default-project',
       });
 
       const attach = await app.inject({
@@ -1282,12 +1281,12 @@ describe('channel admin routes', () => {
       db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
       const { app, users } = createDaemonServer({ db, providers: [provider] });
-      users.createUser({
+      users.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        defaultProvider: 'claude-code',
-        defaultCwd: '/tmp/project-a',
+        provider: 'claude-code',
+        cwd: '/tmp/project-a',
       });
 
       const attach = await app.inject({
@@ -1359,12 +1358,12 @@ describe('channel admin routes', () => {
       db.exec(schemaSql);
       const provider = new CodexProvider({ runner: new CodexCliRunner() });
       const { app, users } = createDaemonServer({ db, providers: [provider] });
-      users.createUser({
+      users.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        defaultProvider: 'codex',
-        defaultCwd: '/Users/liuyuhua/github/claude-codex-wechat',
+        provider: 'codex',
+        cwd: '/Users/liuyuhua/github/claude-codex-wechat',
       });
 
       const attach = await app.inject({
@@ -1391,12 +1390,12 @@ describe('channel admin routes', () => {
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
     const { app, users } = createDaemonServer({ db, channel, providers: [provider] });
-    users.createUser({
+    users.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/project',
+      provider: 'claude-code',
+      cwd: '/tmp/project',
     });
 
     await channel.emitIncoming({
@@ -1420,9 +1419,7 @@ describe('channel admin routes', () => {
     expect(sync.json()).toEqual({ ok: true });
 
     const after = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
-    expect(after.json()).toEqual([
-      expect.objectContaining({ status: 'closed', archivedAt: expect.any(Number) }),
-    ]);
+    expect(after.json()).toEqual([]);
     await app.close();
   });
 });

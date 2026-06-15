@@ -6,7 +6,7 @@ import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate } from
 import type { BridgeSessionRecord, SessionManager } from './sessionManager';
 import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
 import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
-import type { AuthorizedUserRecord } from '../storage/userRepository';
+import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { buildSessionBridgeName } from './sessionBridgeTag';
 
 export type AutoAttachSelection = {
@@ -23,7 +23,7 @@ export async function listUnattachedRecoverableSessions(input: {
   if (!input.provider.listRecoverableSessions) return [];
   const attachedIds = new Set(
     (input.sessionRepository?.list() ?? [])
-      .filter((session) => session.providerId === input.providerId && !session.archivedAt)
+      .filter((session) => session.providerId === input.providerId)
       .map((session) => session.providerSessionId)
       .filter((value): value is string => typeof value === 'string' && value.length > 0),
   );
@@ -84,7 +84,7 @@ export async function attachProviderSessionToBridge(input: {
   bindingRepository?: ProviderBindingRepository;
   sessionRepository?: RuntimeSessionRepository;
   provider: NativeProviderAdapter;
-  user: AuthorizedUserRecord;
+  user: ActiveWeChatUserRecord;
   providerId: ProviderId;
   providerSessionId: string;
   chatId: string;
@@ -126,7 +126,6 @@ export async function attachProviderSessionToBridge(input: {
     status: updated.status,
     createdAt: updated.createdAt,
     lastActivityAt: updated.lastActivityAt,
-    archivedAt: updated.archivedAt,
   });
   input.bindingRepository?.upsert({
     platform: 'weixin',
@@ -164,7 +163,7 @@ export async function attachProviderSessionToBridge(input: {
 
 export async function autoAttachProviderSessionForMessage(input: {
   message: ChannelIncomingMessage;
-  user: AuthorizedUserRecord;
+  user: ActiveWeChatUserRecord;
   provider: NativeProviderAdapter;
   sessionManager: SessionManager;
   bindingRepository?: ProviderBindingRepository;
@@ -172,8 +171,8 @@ export async function autoAttachProviderSessionForMessage(input: {
 }): Promise<{ session: BridgeSessionRecord; matchedBinding: boolean; bindingSource: BridgeSessionRecord['recoverySource'] } | null> {
   const selection = await selectBestRecoverableSession({
     provider: input.provider,
-    providerId: input.user.defaultProvider,
-    targetCwd: input.user.defaultCwd,
+    providerId: input.user.provider,
+    targetCwd: input.user.cwd,
     targetPlatformUserId: input.user.platformUserId,
     targetChatId: input.message.chatId,
     bindingRepository: input.bindingRepository,
@@ -187,10 +186,10 @@ export async function autoAttachProviderSessionForMessage(input: {
     sessionRepository: input.sessionRepository,
     provider: input.provider,
     user: input.user,
-    providerId: input.user.defaultProvider,
+    providerId: input.user.provider,
     providerSessionId: selection.candidate.id,
     chatId: input.message.chatId,
-    cwd: selection.candidate.cwd ?? input.user.defaultCwd,
+    cwd: selection.candidate.cwd ?? input.user.cwd,
     recoverySource: selection.bindingSource,
     resumeTitle: selection.candidate.resumeTitle,
   });

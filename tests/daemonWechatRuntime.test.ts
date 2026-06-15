@@ -2,18 +2,28 @@ import Fastify from 'fastify';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDaemonServer } from '../src/daemon/server';
+import { PermissionRouter } from '../src/permissions/permissionRouter';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
-import { BridgeEventRepository } from '../src/storage/bridgeEventRepository';
-import { PermissionRequestRepository } from '../src/storage/permissionRequestRepository';
 import { schemaSql } from '../src/storage/schema';
-import { SettingsRepository } from '../src/storage/settingsRepository';
-import { UserRepository } from '../src/storage/userRepository';
 import { WeixinDirectAdapter } from '../src/channels/weixin-direct/adapter';
+import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
 
 function memoryDb() {
   const db = new Database(':memory:');
   db.exec(schemaSql);
   return db;
+}
+
+function seededUsers(platformUserId = 'wx_user_1') {
+  const store = createRuntimeUserStore('bridge-daemon-wechat-users-');
+  seedRuntimeUserStore(store, {
+    platform: 'weixin',
+    platformUserId,
+    role: 'user',
+    provider: 'claude-code',
+    cwd: '/tmp/project',
+  });
+  return store.users;
 }
 
 describe('daemon WeChat runtime channel', () => {
@@ -22,6 +32,7 @@ describe('daemon WeChat runtime channel', () => {
     const { app } = createDaemonServer({
       db,
       wechat: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'secret-token', accountId: 'wx-account-1' },
+      usersStore: createRuntimeUserStore('bridge-daemon-wechat-status-').users,
     });
 
     await app.ready();
@@ -55,6 +66,7 @@ describe('daemon WeChat runtime channel', () => {
     const { app } = createDaemonServer({
       db,
       wechat: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'secret-token', accountId: 'wx-account-1' },
+      usersStore: createRuntimeUserStore('bridge-daemon-wechat-timeout-').users,
     });
 
     await app.ready();
@@ -106,6 +118,7 @@ describe('daemon WeChat runtime channel', () => {
     const { app } = createDaemonServer({
       db,
       wechat: { enabled: false },
+      usersStore: createRuntimeUserStore('bridge-daemon-wechat-login-').users,
     });
 
     const response = await app.inject({
@@ -126,13 +139,7 @@ describe('daemon WeChat runtime channel', () => {
 
   it('can drive provider chat from weixin-direct polling without inbound webhook posts', async () => {
     const db = memoryDb();
-    new UserRepository(db).createUser({
-      platform: 'weixin',
-      platformUserId: 'wx_user_1',
-      role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/project',
-    });
+    const users = seededUsers();
 
     const api = {
       getUpdates: vi.fn()
@@ -156,24 +163,21 @@ describe('daemon WeChat runtime channel', () => {
     };
 
     const channel = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
+    const permissions = new PermissionRouter();
     const { app } = createDaemonServer({
       db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
+      usersStore: users,
+      permissionsRouter: permissions,
     });
 
     void channel.start();
 
     await vi.waitFor(() => {
-      expect(new PermissionRequestRepository(db).listPending()).toHaveLength(1);
+      expect(permissions.getPendingRequests()).toHaveLength(1);
     });
 
-    const logs = new BridgeEventRepository(db).listForSession(
-      new PermissionRequestRepository(db).listPending()[0]!.bridgeSessionId,
-    );
-    expect(logs).toEqual([
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
-    ]);
     expect(api.sendTextMessage).toHaveBeenCalledWith({
       toUserId: 'chat-a',
       text: '收到：run tests',
@@ -210,14 +214,9 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
-    new UserRepository(db).createUser({
-      platform: 'weixin',
-      platformUserId: 'wx_user_1',
-      role: 'user',
-      defaultProvider: 'claude-code',
-      defaultCwd: '/tmp/project',
-    });
+    const users = seededUsers();
 
+    const permissions = new PermissionRouter();
     const { app } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],
@@ -227,19 +226,15 @@ describe('daemon WeChat runtime channel', () => {
         token: 'wx-bot-token',
         accountId: 'wx-account-1',
       },
+      usersStore: users,
+      permissionsRouter: permissions,
     });
 
     await app.ready();
 
     await vi.waitFor(() => {
-      expect(new PermissionRequestRepository(db).listPending()).toHaveLength(1);
+      expect(permissions.getPendingRequests()).toHaveLength(1);
     });
-
-    const pending = new PermissionRequestRepository(db).listPending();
-    const logs = new BridgeEventRepository(db).listForSession(pending[0]!.bridgeSessionId);
-    expect(logs).toEqual([
-      expect.objectContaining({ direction: 'provider_event', providerEventType: 'permission_request', text: '允许执行 fake command?' }),
-    ]);
 
     const sendCalls = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/ilink/bot/sendmessage'));
     expect(sendCalls).toHaveLength(2);
@@ -275,6 +270,7 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
+    const usersStore = createRuntimeUserStore('bridge-daemon-wechat-auto-auth-').users;
     const { app, users } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],
@@ -284,17 +280,18 @@ describe('daemon WeChat runtime channel', () => {
         token: 'wx-bot-token',
         accountId: 'wx-account-1',
       },
+      usersStore,
     });
 
     await app.ready();
 
     await vi.waitFor(() => {
-      expect(users.listUsers()).toHaveLength(1);
+      expect(users.getActiveUser()).not.toBeNull();
     });
 
-    expect(users.listUsers()[0]).toMatchObject({
+    expect(users.getActiveUser()).toMatchObject({
       platformUserId: 'wx_user_unauthorized',
-      defaultProvider: 'claude-code',
+      provider: 'claude-code',
     });
 
     await app.close();
@@ -327,10 +324,12 @@ describe('daemon WeChat runtime channel', () => {
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
     const db = memoryDb();
+    const usersStore = createRuntimeUserStore('bridge-daemon-wechat-late-enable-').users;
     const { app, users } = createDaemonServer({
       db,
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: { enabled: false },
+      usersStore,
     });
 
     await app.ready();
@@ -353,12 +352,12 @@ describe('daemon WeChat runtime channel', () => {
     expect(enable.statusCode).toBe(200);
 
     await vi.waitFor(() => {
-      expect(users.listUsers()).toHaveLength(1);
+      expect(users.getActiveUser()).not.toBeNull();
     });
 
-    expect(users.listUsers()[0]).toMatchObject({
+    expect(users.getActiveUser()).toMatchObject({
       platformUserId: 'wx_user_late_enable',
-      defaultProvider: 'claude-code',
+      provider: 'claude-code',
     });
 
     await app.close();

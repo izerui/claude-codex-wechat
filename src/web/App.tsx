@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  archiveSession,
   decidePermission,
   fetchProviderStatus,
-  fetchSessionEvents,
   fetchSessions,
   fetchSettings,
   fetchStatus,
   stopSession,
   updateSettings,
-  type BridgeEventView,
   type BridgeSessionView,
   type BridgeSettingsView,
   type PermissionRequestView,
@@ -50,7 +47,7 @@ export function App() {
   }, [refresh]);
 
   const permissions = status?.permissions ?? [];
-  const activeSessions = useMemo(() => sessions.filter((session) => !session.archivedAt), [sessions]);
+  const activeSessions = useMemo(() => sessions.filter((session) => session.status !== 'closed'), [sessions]);
 
   return (
     <main style={styles.page}>
@@ -131,25 +128,6 @@ function formatProviderStatus(value: unknown): string {
   return '未知';
 }
 
-function formatBindingSource(
-  value: BridgeSessionView['bindingSource'],
-  bindingMatched: boolean | undefined,
-): string {
-  if (value === 'sidecar') return 'Sidecar 命中';
-  if (value === 'binding_table' || bindingMatched) return '历史绑定命中';
-  if (value === 'manual_attach') return '手动接入';
-  if (value === 'heuristic') return '普通恢复';
-  return '运行时新建';
-}
-
-function formatProviderResumeState(session: BridgeSessionView): string {
-  if (session.providerId !== 'claude-code') return '-';
-  if (session.providerResumeTitleSynced === true) return '已同步';
-  if (session.providerResumeRepairable === true) return '待修复';
-  if (session.providerSessionId && session.resumeTitle) return '不可修复';
-  return '-';
-}
-
 function Metric(input: { label: string; value: string; detail?: string }) {
   return (
     <div style={styles.metric}>
@@ -164,18 +142,9 @@ function SessionsPanel(input: {
   sessions: BridgeSessionView[];
   onRefresh: () => Promise<void>;
 }) {
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [events, setEvents] = useState<BridgeEventView[]>([]);
-
-  const runAction = async (action: 'stop' | 'archive', sessionId: string) => {
-    if (action === 'stop') await stopSession(sessionId);
-    else await archiveSession(sessionId);
+  const runAction = async (sessionId: string) => {
+    await stopSession(sessionId);
     await input.onRefresh();
-  };
-
-  const showEvents = async (sessionId: string) => {
-    setSelectedSessionId(sessionId);
-    setEvents(await fetchSessionEvents(sessionId));
   };
 
   return (
@@ -188,19 +157,9 @@ function SessionsPanel(input: {
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={styles.th}>对话</th>
-                <th style={styles.th}>桥接会话</th>
+                <th style={styles.th}>微信用户</th>
                 <th style={styles.th}>提供方</th>
-                <th style={styles.th}>提供方会话</th>
                 <th style={styles.th}>原生标题</th>
-                <th style={styles.th}>恢复模式</th>
-                <th style={styles.th}>推荐恢复</th>
-                <th style={styles.th}>按 ID 恢复</th>
-                <th style={styles.th}>按标题恢复</th>
-                <th style={styles.th}>原生恢复状态</th>
-                <th style={styles.th}>绑定状态</th>
-                <th style={styles.th}>绑定详情</th>
-                <th style={styles.th}>原生状态</th>
                 <th style={styles.th}>工作目录</th>
                 <th style={styles.th}>状态</th>
                 <th style={styles.th}>操作</th>
@@ -210,34 +169,14 @@ function SessionsPanel(input: {
               {input.sessions.map((session) => (
                 <tr key={session.id}>
                   <td style={styles.td}>{session.chatId}</td>
-                  <td style={styles.td}>{session.id}</td>
                   <td style={styles.td}>{session.providerId}</td>
-                  <td style={styles.td}>{session.providerSessionId ?? '-'}</td>
                   <td style={styles.td}>{session.resumeTitle ?? '-'}</td>
-                  <td style={styles.td}>{session.preferredResumeMode === 'title' ? '标题恢复' : 'ID恢复'}</td>
-                  <td style={styles.td}>{session.preferredResumeCommand ?? '-'}</td>
-                  <td style={styles.td}>{session.providerResumeCommand ?? '-'}</td>
-                  <td style={styles.td}>{session.providerResumeByTitleCommand ?? '-'}</td>
-                  <td style={styles.td}>{formatProviderResumeState(session)}</td>
-                  <td style={styles.td}>{formatBindingSource(session.bindingSource, session.bindingMatched)}</td>
-                  <td style={styles.td}>
-                    {session.bindingPlatformUserId
-                      ? `${session.bindingPlatformUserId} · ${session.bindingProviderSessionId ?? '-'}`
-                      : '-'}
-                  </td>
-                  <td style={styles.td}>
-                    {session.providerNativeReachable ? `可达${session.providerNativePath ? ` · ${session.providerNativePath}` : ''}` : '不可达'}
-                  </td>
                   <td style={styles.td}>{session.cwd}</td>
                   <td style={styles.td}>{session.status}</td>
                   <td style={styles.td}>
                     <div style={styles.actions}>
-                      <button type="button" style={styles.button} onClick={() => void showEvents(session.id)}>事件</button>
-                      {!session.archivedAt && session.status !== 'closed' && (
-                        <button type="button" style={styles.button} onClick={() => void runAction('stop', session.id)}>停止</button>
-                      )}
-                      {!session.archivedAt && (
-                        <button type="button" style={styles.dangerButton} onClick={() => void runAction('archive', session.id)}>归档</button>
+                      {session.status !== 'closed' && (
+                        <button type="button" style={styles.button} onClick={() => void runAction(session.id)}>停止</button>
                       )}
                     </div>
                   </td>
@@ -247,24 +186,6 @@ function SessionsPanel(input: {
           </table>
         </div>
       )}
-      {selectedSessionId ? (
-        <div style={{ marginTop: 16 }}>
-          <h3 style={styles.sectionTitle}>桥接事件 · {selectedSessionId}</h3>
-          {events.length === 0 ? <p style={styles.empty}>桥接器默认不归档正文历史；如需完整对话，请到 Claude/Codex 原生会话查看。</p> : (
-            <ul style={styles.list}>
-              {events.map((event) => (
-                <li key={event.id} style={styles.listItem}>
-                  <div>
-                    <strong>{event.direction}</strong>
-                    {event.providerEventType ? ` · ${event.providerEventType}` : ''}
-                  </div>
-                  <div style={styles.muted}>{event.text ?? ''}</div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ) : null}
     </section>
   );
 }

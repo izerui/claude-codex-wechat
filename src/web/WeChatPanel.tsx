@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  type AuthorizedUserEventView,
+  type ActiveWeChatUserEventView,
   disableWeixinPlugin,
   enableWeixinPlugin,
   type BridgeWsEvent,
   fetchChannelPlugins,
   fetchWeixinRuntimeConfig,
-  fetchAuthorizedUsers,
+  fetchActiveUser,
   fetchRecoverableProviderSessions,
   fetchSettings,
   attachProviderSession,
@@ -15,7 +15,7 @@ import {
   type RecoverableProviderSessionView,
   syncWeixinChannelSettings,
   updateSettings,
-  type AuthorizedUserView,
+  type ActiveWeChatUserView,
   type BridgeSettingsView,
   type ChannelPluginView,
   type WeixinRuntimeConfigView,
@@ -54,13 +54,12 @@ function formatPluginHint(plugin: ChannelPluginView | null): string | null {
 }
 
 export function WeChatPanel() {
-  const [users, setUsers] = useState<AuthorizedUserView[]>([]);
+  const [activeUser, setActiveUser] = useState<ActiveWeChatUserView | null>(null);
   const [plugin, setPlugin] = useState<ChannelPluginView | null>(null);
   const [runtimeConfig, setRuntimeConfig] = useState<WeixinRuntimeConfigView | null>(null);
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
   const [recoverableSessions, setRecoverableSessions] = useState<RecoverableProviderSessionView[]>([]);
   const [activeSessionTab, setActiveSessionTab] = useState<SessionTab>('bridge');
-  const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [loginState, setLoginState] = useState<LoginState>('idle');
   const [qrcodeData, setQrcodeData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,13 +70,13 @@ export function WeChatPanel() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [nextUsers, nextPlugins, nextSettings] = await Promise.all([
-        fetchAuthorizedUsers(),
+      const [nextUser, nextPlugins, nextSettings] = await Promise.all([
+        fetchActiveUser(),
         fetchChannelPlugins(),
         fetchSettings(),
       ]);
       const nextRuntimeConfig = await fetchWeixinRuntimeConfig().catch(() => null);
-      setUsers(nextUsers);
+      setActiveUser(nextUser);
       setSettings(nextSettings);
       setRuntimeConfig(nextRuntimeConfig);
       const weixin = nextPlugins.find((candidate) => candidate.type === 'weixin') ?? null;
@@ -98,16 +97,6 @@ export function WeChatPanel() {
   }, [refresh]);
 
   useEffect(() => {
-    if (users.length === 0) {
-      setSelectedUserId('');
-      return;
-    }
-    if (!users.some((user) => user.id === selectedUserId)) {
-      setSelectedUserId(users[0]!.id);
-    }
-  }, [selectedUserId, users]);
-
-  useEffect(() => () => {
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
   }, []);
@@ -119,7 +108,7 @@ export function WeChatPanel() {
     socket.addEventListener('message', (event) => {
       const payload = JSON.parse(event.data) as BridgeWsEvent;
       if (payload.type === 'channel.user-authorized') {
-        setUsers((current) => prependAuthorizedUser(current, payload.user));
+        setActiveUser(toActiveWeChatUserView(payload.user));
         return;
       }
       if (payload.type === 'channel.plugin-status-changed') {
@@ -171,18 +160,17 @@ export function WeChatPanel() {
   };
 
   const attachRecoverableSession = async (session: RecoverableProviderSessionView) => {
-    const user = users.find((candidate) => candidate.id === selectedUserId);
-    if (!user) {
-      setError('no_authorized_user_selected');
+    if (!activeUser) {
+      setError('no_active_wechat_user');
       return;
     }
     try {
       await attachProviderSession({
         providerId: session.providerId,
         providerSessionId: session.id,
-        platformUserId: user.platformUserId,
-        chatId: user.platformUserId,
-        cwd: session.cwd ?? user.defaultCwd,
+        platformUserId: activeUser.platformUserId,
+        chatId: activeUser.platformUserId,
+        cwd: session.cwd ?? activeUser.cwd,
       });
       await refresh();
     } catch (err) {
@@ -320,20 +308,17 @@ export function WeChatPanel() {
         </select>
       </div>
 
-      <h3 style={styles.inlineTitle}>通过这个 Bot 对话的微信用户</h3>
-      <div style={styles.panelSubtle}>这些用户会通过上面的 Bot 账号和桥交互。</div>
-      {users.length === 0 ? <p>暂时还没有用户通过这个 Bot 发来消息。</p> : (
-        <ul>
-          {users.map((user) => (
-            <li key={user.id} style={{ marginBottom: 12 }}>
-              <strong>{user.displayName ?? user.platformUserId}</strong> · {user.defaultProvider} · {user.defaultCwd}
-            </li>
-          ))}
-        </ul>
+      <h3 style={styles.inlineTitle}>当前活跃微信用户</h3>
+      <div style={styles.panelSubtle}>当前通过这个 Bot 与桥交互的唯一有效微信用户。</div>
+      {!activeUser ? <p>当前还没有活跃微信用户。</p> : (
+        <div style={styles.activeUserCard}>
+          <strong>{activeUser.displayName ?? activeUser.platformUserId}</strong>
+          <div>{activeUser.provider} · {activeUser.cwd}</div>
+        </div>
       )}
 
       <h3 style={styles.inlineTitle}>会话</h3>
-      {users.length === 0 ? <p>请先让用户给上面的 Bot 发一条消息。</p> : (
+      {!activeUser ? <p>请先让当前微信用户给上面的 Bot 发一条消息。</p> : (
         <div>
           <div style={styles.tabRow}>
             <button
@@ -370,13 +355,9 @@ export function WeChatPanel() {
           ) : (
             <>
               <div style={styles.sectionRow}>
-                <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)} style={styles.select}>
-                  {users.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.displayName ?? user.platformUserId}
-                    </option>
-                  ))}
-                </select>
+                <div style={styles.panelSubtle}>
+                  当前用户：{activeUser.displayName ?? activeUser.platformUserId}
+                </div>
                 <div style={styles.panelSubtle}>
                   {activeSessionTab === 'claude-native' ? '本机可接入的 Claude 原生会话。' : '本机可接入的 Codex 原生会话。'}
                 </div>
@@ -410,25 +391,25 @@ export function WeChatPanel() {
   );
 }
 
-function prependAuthorizedUser(current: AuthorizedUserView[], user: AuthorizedUserEventView): AuthorizedUserView[] {
-  if (current.some((item) => item.id === user.id)) return current;
-  return [{
+function toActiveWeChatUserView(user: ActiveWeChatUserEventView): ActiveWeChatUserView {
+  return {
     id: user.id,
     platform: 'weixin',
     platformUserId: user.platformUserId,
     displayName: user.display_name,
     role: 'user',
-    defaultProvider: user.defaultProvider,
-    defaultCwd: user.defaultCwd,
+    provider: user.provider,
+    cwd: user.cwd,
     createdAt: user.authorizedAt,
-    lastActiveAt: user.lastActive,
-  }, ...current];
+    updatedAt: user.lastActive,
+  };
 }
 
 const styles: Record<string, React.CSSProperties> = {
   panelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 16 },
   panelTitle: { margin: 0, fontSize: 22 },
   panelSubtle: { color: '#6b7280', fontSize: 13, marginTop: 4 },
+  activeUserCard: { padding: 12, border: '1px solid #d1d5db', borderRadius: 8, marginBottom: 16 },
   headerActions: { display: 'flex', gap: 8, alignItems: 'center' },
   button: { border: '1px solid #aeb6bf', background: '#fff', borderRadius: 6, padding: '7px 10px', cursor: 'pointer' },
   dangerButton: { border: '1px solid #f0b4ad', color: '#d94841', background: '#fff1f0', borderRadius: 6, padding: '7px 10px', cursor: 'pointer' },

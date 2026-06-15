@@ -18,15 +18,15 @@ describe('App dashboard provider status', () => {
           codex: { detected: false, reason: 'missing_binary', command: '/opt/bin/codex', checkedAt: 1234567890 },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-      if (url.endsWith('/api/channel/users')) {
-        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      if (url.endsWith('/api/channel/active-user')) {
+        return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       if (url.endsWith('/api/channel/sessions')) {
         return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
     if (url.endsWith('/api/settings')) {
       return new Response(JSON.stringify({
-        defaultProvider: 'claude-code',
+        provider: 'claude-code',
         defaultWorkspace: '/tmp/project',
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }

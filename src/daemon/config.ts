@@ -13,9 +13,15 @@ export type ProviderCommandConfig = {
   command?: string;
 };
 
+export type BridgeDefaultsConfig = {
+  defaultProvider?: 'claude-code' | 'codex';
+  defaultWorkspace?: string;
+};
+
 export type BridgeConfig = {
   databasePath?: string;
   wechat?: WeixinConfig;
+  bridge?: BridgeDefaultsConfig;
   providers?: {
     claude?: ProviderCommandConfig;
     codex?: ProviderCommandConfig;
@@ -47,6 +53,7 @@ function normalizeBridgeConfig(raw: unknown, env: NodeJS.ProcessEnv, path: strin
       ? record.databasePath
       : defaultDatabasePathForConfig(path),
     wechat: normalizeWechatConfig(record.wechat, env),
+    bridge: normalizeBridgeDefaultsConfig(record.bridge),
     providers: normalizeProvidersConfig(record.providers, env),
   };
 }
@@ -63,6 +70,19 @@ function normalizeProvidersConfig(raw: unknown, env: NodeJS.ProcessEnv): BridgeC
   return {
     ...(claude ? { claude } : {}),
     ...(codex ? { codex } : {}),
+  };
+}
+
+function normalizeBridgeDefaultsConfig(raw: unknown): BridgeDefaultsConfig | undefined {
+  const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const defaultProvider = record.defaultProvider === 'codex' ? 'codex' : record.defaultProvider === 'claude-code' ? 'claude-code' : undefined;
+  const defaultWorkspace = typeof record.defaultWorkspace === 'string' && record.defaultWorkspace.trim()
+    ? record.defaultWorkspace
+    : undefined;
+  if (!defaultProvider && !defaultWorkspace) return undefined;
+  return {
+    ...(defaultProvider ? { defaultProvider } : {}),
+    ...(defaultWorkspace ? { defaultWorkspace } : {}),
   };
 }
 
