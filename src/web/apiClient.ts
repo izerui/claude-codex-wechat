@@ -240,19 +240,6 @@ export async function attachProviderSession(input: {
   });
 }
 
-export async function autoAttachProviderSession(input: {
-  providerId: 'claude-code' | 'codex';
-  platformUserId: string;
-  chatId?: string;
-  cwd?: string;
-}): Promise<void> {
-  await requestJson('/api/channel/sessions/auto-attach', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-}
-
 export async function repairRecoverableProviderSessionNativeResume(input: {
   providerId: 'claude-code' | 'codex';
   providerSessionId: string;
@@ -280,14 +267,6 @@ export async function stopSession(id: string): Promise<void> {
 
 export async function archiveSession(id: string): Promise<void> {
   await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/archive`, { method: 'POST' });
-}
-
-export async function repairSessionNativeResume(id: string): Promise<{ ok: true; repaired: boolean }> {
-  return await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/repair-native-resume`, { method: 'POST' });
-}
-
-export async function repairAllSessionNativeResume(): Promise<{ ok: true; repairedCount: number; checkedCount: number }> {
-  return await requestJson('/api/channel/sessions/repair-native-resume', { method: 'POST' });
 }
 
 export async function decidePermission(input: {

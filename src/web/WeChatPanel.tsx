@@ -11,9 +11,6 @@ import {
   fetchRecoverableProviderSessions,
   fetchSettings,
   attachProviderSession,
-  autoAttachProviderSession,
-  repairAllRecoverableProviderSessionsNativeResume,
-  repairRecoverableProviderSessionNativeResume,
   resolveApiUrl,
   type RecoverableProviderSessionView,
   syncWeixinChannelSettings,
@@ -25,6 +22,7 @@ import {
 } from './apiClient';
 
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
+type SessionTab = 'bridge' | 'claude-native' | 'codex-native';
 
 function formatRecoverableResumeState(session: RecoverableProviderSessionView): string {
   if (session.providerId !== 'claude-code') return '-';
@@ -61,6 +59,7 @@ export function WeChatPanel() {
   const [runtimeConfig, setRuntimeConfig] = useState<WeixinRuntimeConfigView | null>(null);
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
   const [recoverableSessions, setRecoverableSessions] = useState<RecoverableProviderSessionView[]>([]);
+  const [activeSessionTab, setActiveSessionTab] = useState<SessionTab>('bridge');
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [loginState, setLoginState] = useState<LoginState>('idle');
   const [qrcodeData, setQrcodeData] = useState<string | null>(null);
@@ -164,6 +163,7 @@ export function WeChatPanel() {
 
   const scanRecoverableSessions = async (providerId: 'claude-code' | 'codex') => {
     try {
+      setActiveSessionTab(providerId === 'claude-code' ? 'claude-native' : 'codex-native');
       setRecoverableSessions(await fetchRecoverableProviderSessions(providerId));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -185,50 +185,6 @@ export function WeChatPanel() {
         cwd: session.cwd ?? user.defaultCwd,
       });
       await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const repairRecoverableSession = async (session: RecoverableProviderSessionView) => {
-    try {
-      await repairRecoverableProviderSessionNativeResume({
-        providerId: session.providerId,
-        providerSessionId: session.id,
-      });
-      await scanRecoverableSessions(session.providerId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const autoAttachSession = async (providerId: 'claude-code' | 'codex') => {
-    const user = users.find((candidate) => candidate.id === selectedUserId);
-    if (!user) {
-      setError('no_authorized_user_selected');
-      return;
-    }
-    try {
-      await autoAttachProviderSession({
-        providerId,
-        platformUserId: user.platformUserId,
-        chatId: user.platformUserId,
-        cwd: user.defaultCwd,
-      });
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  const hasRepairableClaudeRecoverableSessions = recoverableSessions.some((session) => (
-    session.providerId === 'claude-code' && session.providerResumeRepairable === true
-  ));
-
-  const repairAllRecoverableSessions = async (providerId: 'claude-code' | 'codex') => {
-    try {
-      await repairAllRecoverableProviderSessionsNativeResume({ providerId });
-      await scanRecoverableSessions(providerId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -376,49 +332,77 @@ export function WeChatPanel() {
         </ul>
       )}
 
-      <h3 style={styles.inlineTitle}>可恢复原生会话</h3>
+      <h3 style={styles.inlineTitle}>会话</h3>
       {users.length === 0 ? <p>请先让用户给上面的 Bot 发一条消息。</p> : (
         <div>
-          <div style={styles.sectionRow}>
-            <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)} style={styles.select}>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.displayName ?? user.platformUserId}
-                </option>
-              ))}
-            </select>
-            <div style={styles.headerActions}>
-              <button type="button" style={styles.button} onClick={() => void autoAttachSession('claude-code')}>自动接入 Claude 会话</button>
-              <button type="button" style={styles.button} onClick={() => void autoAttachSession('codex')}>自动接入 Codex 会话</button>
-              {hasRepairableClaudeRecoverableSessions ? (
-                <button type="button" style={styles.button} onClick={() => void repairAllRecoverableSessions('claude-code')}>批量修复 Claude 恢复</button>
-              ) : null}
-              <button type="button" style={styles.button} onClick={() => void scanRecoverableSessions('claude-code')}>扫描 Claude 原生会话</button>
-              <button type="button" style={styles.button} onClick={() => void scanRecoverableSessions('codex')}>扫描 Codex 原生会话</button>
-            </div>
+          <div style={styles.tabRow}>
+            <button
+              type="button"
+              style={activeSessionTab === 'bridge' ? styles.activeTabButton : styles.tabButton}
+              aria-pressed={activeSessionTab === 'bridge'}
+              onClick={() => setActiveSessionTab('bridge')}
+            >
+              桥接会话
+            </button>
+            <button
+              type="button"
+              style={activeSessionTab === 'claude-native' ? styles.activeTabButton : styles.tabButton}
+              aria-pressed={activeSessionTab === 'claude-native'}
+              onClick={() => void scanRecoverableSessions('claude-code')}
+            >
+              Claude 原生会话
+            </button>
+            <button
+              type="button"
+              style={activeSessionTab === 'codex-native' ? styles.activeTabButton : styles.tabButton}
+              aria-pressed={activeSessionTab === 'codex-native'}
+              onClick={() => void scanRecoverableSessions('codex')}
+            >
+              Codex 原生会话
+            </button>
           </div>
-          {recoverableSessions.length === 0 ? <p>暂无可恢复原生会话。</p> : (
-            <ul>
-              {recoverableSessions.map((session) => (
-                <li key={`${session.providerId}:${session.id}`} style={{ marginBottom: 12 }}>
-                  <strong>{session.providerId}</strong> · {session.title ?? session.id}
-                  <div>原生会话 ID：{session.id}</div>
-                  {session.resumeTitle ? <div>原生标题：{session.resumeTitle}</div> : null}
-                  <div>原生恢复状态：{formatRecoverableResumeState(session)}</div>
-                  {session.preferredResumeCommand ? <div>推荐恢复：{session.preferredResumeCommand}</div> : null}
-                  {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
-                  {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
-                  {session.cwd ? <div>工作目录：{session.cwd}</div> : null}
-                  <button type="button" onClick={() => void attachRecoverableSession(session)}>接入会话</button>
-                  {session.providerId === 'claude-code' && session.providerResumeRepairable ? (
-                    <>
-                      {' '}
-                      <button type="button" onClick={() => void repairRecoverableSession(session)}>修复原生恢复</button>
-                    </>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+
+          {activeSessionTab === 'bridge' ? (
+            <>
+              <div style={styles.panelSubtle}>桥当前正在管理的会话记录。</div>
+              <p style={styles.panelSubtle}>桥接会话列表见下方“桥接会话”表。</p>
+            </>
+          ) : (
+            <>
+              <div style={styles.sectionRow}>
+                <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)} style={styles.select}>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.displayName ?? user.platformUserId}
+                    </option>
+                  ))}
+                </select>
+                <div style={styles.panelSubtle}>
+                  {activeSessionTab === 'claude-native' ? '本机可接入的 Claude 原生会话。' : '本机可接入的 Codex 原生会话。'}
+                </div>
+              </div>
+              {recoverableSessions.filter((session) => (
+                activeSessionTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
+              )).length === 0 ? <p>暂无可恢复原生会话。</p> : (
+                <ul>
+                  {recoverableSessions.filter((session) => (
+                    activeSessionTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
+                  )).map((session) => (
+                    <li key={`${session.providerId}:${session.id}`} style={{ marginBottom: 12 }}>
+                      <strong>{session.providerId}</strong> · {session.title ?? session.id}
+                      <div>原生会话 ID：{session.id}</div>
+                      {session.resumeTitle ? <div>原生标题：{session.resumeTitle}</div> : null}
+                      <div>原生恢复状态：{formatRecoverableResumeState(session)}</div>
+                      {session.preferredResumeCommand ? <div>推荐恢复：{session.preferredResumeCommand}</div> : null}
+                      {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
+                      {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
+                      {session.cwd ? <div>工作目录：{session.cwd}</div> : null}
+                      <button type="button" onClick={() => void attachRecoverableSession(session)}>接入会话</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
         </div>
       )}
@@ -458,6 +442,9 @@ const styles: Record<string, React.CSSProperties> = {
   qrCard: { marginBottom: 16, border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, background: '#fff' },
   qrValue: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 12, border: '1px solid #d5d8dc', borderRadius: 6, background: '#fbfcfc' },
   sectionRow: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 20, marginBottom: 16 },
+  tabRow: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 20, marginBottom: 16 },
   inlineTitle: { margin: '0 0 8px', fontSize: 18 },
   select: { minWidth: 180, border: '1px solid #d1d5db', borderRadius: 8, padding: '10px 12px', background: '#fff' },
+  tabButton: { border: '1px solid #d1d5db', background: '#fff', borderRadius: 999, padding: '8px 14px', cursor: 'pointer' },
+  activeTabButton: { border: '1px solid #111827', background: '#111827', color: '#fff', borderRadius: 999, padding: '8px 14px', cursor: 'pointer' },
 };

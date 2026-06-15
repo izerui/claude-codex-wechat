@@ -159,45 +159,6 @@ export function registerChannelAdminRoutes(input: {
     })));
   });
 
-  input.app.post<{ Params: { providerId: string; providerSessionId: string } }>('/api/channel/providers/:providerId/recoverable-sessions/:providerSessionId/repair-native-resume', async (request, reply) => {
-    if (request.params.providerId !== 'claude-code') {
-      return reply.code(400).send({ ok: false, error: 'native_resume_repair_not_supported' });
-    }
-    const recoverable = await getClaudeRecoverableSessionById(request.params.providerSessionId);
-    if (!recoverable) {
-      return reply.code(404).send({ ok: false, error: 'recoverable_provider_session_not_found' });
-    }
-    if (!recoverable.resumeTitle) {
-      return reply.code(400).send({ ok: false, error: 'native_resume_repair_missing_metadata' });
-    }
-    const repaired = await ensureClaudeSessionBridgeMetadata({
-      sessionId: recoverable.id,
-      resumeTitle: recoverable.resumeTitle,
-    });
-    return { ok: true, repaired };
-  });
-
-  input.app.post<{ Params: { providerId: string } }>('/api/channel/providers/:providerId/recoverable-sessions/repair-native-resume', async (request, reply) => {
-    if (request.params.providerId !== 'claude-code') {
-      return reply.code(400).send({ ok: false, error: 'native_resume_repair_not_supported' });
-    }
-    const recoverable = await listRecoverableClaudeSessions();
-    const candidates = recoverable.filter((session) => Boolean(session.resumeTitle));
-    let repairedCount = 0;
-    for (const session of candidates) {
-      const repaired = await ensureClaudeSessionBridgeMetadata({
-        sessionId: session.id,
-        resumeTitle: session.resumeTitle!,
-      });
-      if (repaired) repairedCount += 1;
-    }
-    return {
-      ok: true,
-      repairedCount,
-      checkedCount: candidates.length,
-    };
-  });
-
   input.app.post<{ Body: {
     providerId: string;
     providerSessionId: string;
@@ -365,41 +326,6 @@ export function registerChannelAdminRoutes(input: {
     return { ok: true };
   });
 
-  input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/repair-native-resume', async (request, reply) => {
-    const runtimeSession = input.sessions?.findById(request.params.id);
-    if (!runtimeSession) return reply.code(404).send({ ok: false, error: 'session_not_found' });
-    if (runtimeSession.providerId !== 'claude-code') {
-      return reply.code(400).send({ ok: false, error: 'native_resume_repair_not_supported' });
-    }
-    if (!runtimeSession.providerSessionId || !runtimeSession.resumeTitle) {
-      return reply.code(400).send({ ok: false, error: 'native_resume_repair_missing_metadata' });
-    }
-    const repaired = await ensureClaudeSessionBridgeMetadata({
-      sessionId: runtimeSession.providerSessionId,
-      resumeTitle: runtimeSession.resumeTitle,
-    });
-    return { ok: true, repaired };
-  });
-
-  input.app.post('/api/channel/sessions/repair-native-resume', async () => {
-    const sessions = (input.sessions?.list() ?? []).filter((session) => (
-      session.providerId === 'claude-code' &&
-      Boolean(session.providerSessionId && session.resumeTitle)
-    ));
-    let repairedCount = 0;
-    for (const session of sessions) {
-      const repaired = await ensureClaudeSessionBridgeMetadata({
-        sessionId: session.providerSessionId!,
-        resumeTitle: session.resumeTitle!,
-      });
-      if (repaired) repairedCount += 1;
-    }
-    return {
-      ok: true,
-      repairedCount,
-      checkedCount: sessions.length,
-    };
-  });
 }
 
 function toWechatPluginStatus(wechat: WeixinConfig | undefined, users: UserRepository, channel?: ChannelAdapter) {

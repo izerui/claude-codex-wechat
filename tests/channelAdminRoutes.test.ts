@@ -359,7 +359,7 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
-  it('repairs legacy Claude native resume title metadata for a bridge session', async () => {
+  it('does not expose bridge-session native resume repair routes', async () => {
     const previousHome = process.env.HOME;
     process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-admin-home-`);
     const db = new Database(':memory:');
@@ -400,16 +400,12 @@ describe('channel admin routes', () => {
         providers: [new ClaudeCodeProvider({ runner: new FakeClaudeRunner() })],
       }).app;
       const repair = await app.inject({ method: 'POST', url: '/api/channel/sessions/bs_legacy/repair-native-resume' });
-      expect(repair.statusCode).toBe(200);
-      expect(repair.json()).toEqual({ ok: true, repaired: true });
-      const content = readFileSync(sessionPath, 'utf8');
-      expect(content).toContain('"type":"custom-title"');
-      expect(content).toContain('"type":"agent-name"');
+      expect(repair.statusCode).toBe(404);
       const listed = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
       expect(listed.json()).toEqual([
         expect.objectContaining({
           id: 'bs_legacy',
-          providerResumeTitleSynced: true,
+          providerResumeTitleSynced: false,
           providerResumeRepairable: true,
         }),
       ]);
@@ -420,7 +416,7 @@ describe('channel admin routes', () => {
     }
   });
 
-  it('repairs all repairable attached Claude bridge sessions in one batch request', async () => {
+  it('does not expose batch bridge-session native resume repair routes', async () => {
     const previousHome = process.env.HOME;
     process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-admin-home-`);
     const db = new Database(':memory:');
@@ -482,19 +478,7 @@ describe('channel admin routes', () => {
       }).app;
 
       const repair = await app.inject({ method: 'POST', url: '/api/channel/sessions/repair-native-resume' });
-      expect(repair.statusCode).toBe(200);
-      expect(repair.json()).toEqual(expect.objectContaining({
-        ok: true,
-        checkedCount: 2,
-      }));
-      expect([0, 1]).toContain(repair.json().repairedCount);
-
-      const repairedContent = readFileSync(join(projectDir, 'attached-batch-1.jsonl'), 'utf8');
-      expect(repairedContent).toContain('"type":"custom-title"');
-      expect(repairedContent).toContain(repairableTitle);
-
-      const syncedContent = readFileSync(join(projectDir, 'attached-batch-2.jsonl'), 'utf8');
-      expect((syncedContent.match(/"type":"custom-title"/g) ?? []).length).toBe(1);
+      expect(repair.statusCode).toBe(404);
 
       await app.close();
     } finally {
@@ -621,7 +605,7 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
-  it('repairs recoverable Claude native resume metadata before attaching', async () => {
+  it('does not expose recoverable Claude native resume repair before attaching', async () => {
     const previousHome = process.env.HOME;
     const home = mkdtempSync(join(tmpdir(), 'bridge-claude-home-'));
     process.env.HOME = home;
@@ -654,13 +638,7 @@ describe('channel admin routes', () => {
         method: 'POST',
         url: '/api/channel/providers/claude-code/recoverable-sessions/claude-repairable-session/repair-native-resume',
       });
-      expect(repair.statusCode).toBe(200);
-      expect(repair.json()).toEqual({ ok: true, repaired: true });
-
-      const content = readFileSync(join(projectDir, 'claude-repairable-session.jsonl'), 'utf8');
-      expect(content).toContain('"type":"custom-title"');
-      expect(content).toContain('"type":"agent-name"');
-      expect(content).toContain(resumeTitle);
+      expect(repair.statusCode).toBe(404);
 
       const recoverable = await app.inject({
         method: 'GET',
@@ -670,7 +648,7 @@ describe('channel admin routes', () => {
       expect(recoverable.json()).toEqual([
         expect.objectContaining({
           id: 'claude-repairable-session',
-          providerResumeTitleSynced: true,
+          providerResumeTitleSynced: false,
           providerResumeHistorySynced: true,
           providerResumeRepairable: true,
         }),
@@ -753,7 +731,7 @@ describe('channel admin routes', () => {
     }
   });
 
-  it('repairs all repairable recoverable Claude sessions in one batch request', async () => {
+  it('does not expose batch recoverable Claude native resume repair routes', async () => {
     const previousHome = process.env.HOME;
     const home = mkdtempSync(join(tmpdir(), 'bridge-claude-home-'));
     process.env.HOME = home;
@@ -803,21 +781,7 @@ describe('channel admin routes', () => {
         method: 'POST',
         url: '/api/channel/providers/claude-code/recoverable-sessions/repair-native-resume',
       });
-      expect(repair.statusCode).toBe(200);
-      expect(repair.json()).toEqual(expect.objectContaining({
-        ok: true,
-        checkedCount: 2,
-      }));
-      expect([0, 1]).toContain(repair.json().repairedCount);
-
-      const repairedContent = readFileSync(join(projectDir, 'claude-batch-repair-1.jsonl'), 'utf8');
-      expect(repairedContent).toContain('"type":"custom-title"');
-      expect(repairedContent).toContain('"type":"agent-name"');
-      expect(repairedContent).toContain(repairableTitle);
-
-      const syncedContent = readFileSync(join(projectDir, 'claude-batch-repair-2.jsonl'), 'utf8');
-      expect((syncedContent.match(/"type":"custom-title"/g) ?? []).length).toBe(1);
-      expect((syncedContent.match(/"type":"agent-name"/g) ?? []).length).toBe(1);
+      expect(repair.statusCode).toBe(404);
 
       await app.close();
     } finally {

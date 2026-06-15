@@ -1,9 +1,12 @@
 import Database from 'better-sqlite3';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { createDaemonServer } from '../src/daemon/server';
+import { ClaudeCodeProvider } from '../src/providers/claude-code/claudeProvider';
+import { FakeClaudeRunner } from '../src/providers/claude-code/fakeClaudeRunner';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { CodexInteractiveRunner } from '../src/providers/codex/codexInteractiveRunner';
 import { CodexProvider } from '../src/providers/codex/codexProvider';
@@ -374,6 +377,60 @@ describe('channel message flow', () => {
     ]);
 
     await app.close();
+  });
+
+  it('creates first-run WeChat Claude sessions with native resume metadata already synced', async () => {
+    const previousHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-wechat-claude-home-`);
+    const db = memoryDb();
+    try {
+      const sessionId = 'claude-native-wechat-1';
+      const projectDir = join(process.env.HOME, '.claude', 'projects', '-tmp-project');
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(join(projectDir, `${sessionId}.jsonl`), [
+        JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } }),
+        JSON.stringify({ type: 'result', session_id: sessionId }),
+      ].join('\n'));
+
+      const channel = new MockChannelAdapter();
+      const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
+      const originalStartSession = provider.startSession.bind(provider);
+      vi.spyOn(provider, 'startSession').mockImplementation(async (input) => {
+        const started = await originalStartSession(input);
+        return {
+          ...started,
+          providerSessionId: sessionId,
+        };
+      });
+
+      const { app } = createDaemonServer({
+        db,
+        channel,
+        providers: [provider],
+      });
+
+      await channel.emitIncoming({
+        id: 'm1',
+        platform: PRIMARY_WEIXIN_PLATFORM,
+        chatId: 'chat-native',
+        user: { id: 'wx_user_native', displayName: 'Native User' },
+        content: { type: 'text', text: '帮我恢复微信凭据并继续验证' },
+        timestamp: 1,
+      });
+
+      const content = readFileSync(join(projectDir, `${sessionId}.jsonl`), 'utf8');
+      expect(content).toContain('"type":"custom-title"');
+      expect(content).toContain('"type":"agent-name"');
+      expect(content).toContain('微信 · wx_user_native');
+
+      const history = readFileSync(join(process.env.HOME, '.claude', 'history.jsonl'), 'utf8');
+      expect(history).toContain('"display":"帮我恢复微信凭据并继续验证 · 微信 · wx_user_native"');
+      expect(history).toContain(`"project":"${process.cwd()}"`);
+
+      await app.close();
+    } finally {
+      process.env.HOME = previousHome;
+    }
   });
 
   it('starts a fresh provider session on the first authorized message when no binding exists', async () => {

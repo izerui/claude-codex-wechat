@@ -7,8 +7,6 @@ import {
   fetchSessions,
   fetchSettings,
   fetchStatus,
-  repairAllSessionNativeResume,
-  repairSessionNativeResume,
   stopSession,
   updateSettings,
   type BridgeEventView,
@@ -168,9 +166,6 @@ function SessionsPanel(input: {
 }) {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [events, setEvents] = useState<BridgeEventView[]>([]);
-  const hasRepairableClaudeBridgeSessions = input.sessions.some((session) => (
-    session.providerId === 'claude-code' && session.providerResumeRepairable === true
-  ));
 
   const runAction = async (action: 'stop' | 'archive', sessionId: string) => {
     if (action === 'stop') await stopSession(sessionId);
@@ -183,23 +178,10 @@ function SessionsPanel(input: {
     setEvents(await fetchSessionEvents(sessionId));
   };
 
-  const repairNativeResume = async (session: BridgeSessionView) => {
-    await repairSessionNativeResume(session.id);
-    await input.onRefresh();
-  };
-
-  const repairAllNativeResume = async () => {
-    await repairAllSessionNativeResume();
-    await input.onRefresh();
-  };
-
   return (
     <section style={styles.section}>
       <div style={styles.panelHeader}>
-        <h2 style={styles.sectionTitle}>会话</h2>
-        {hasRepairableClaudeBridgeSessions ? (
-          <button type="button" style={styles.button} onClick={() => void repairAllNativeResume()}>批量修复 Claude 恢复</button>
-        ) : null}
+        <h2 style={styles.sectionTitle}>桥接会话</h2>
       </div>
       {input.sessions.length === 0 ? <p style={styles.empty}>暂无桥接会话。</p> : (
         <div style={styles.tableWrap}>
@@ -257,9 +239,6 @@ function SessionsPanel(input: {
                       {!session.archivedAt && (
                         <button type="button" style={styles.dangerButton} onClick={() => void runAction('archive', session.id)}>归档</button>
                       )}
-                      {session.providerId === 'claude-code' && session.providerResumeRepairable === true ? (
-                        <button type="button" style={styles.button} onClick={() => void repairNativeResume(session)}>修复原生恢复</button>
-                      ) : null}
                     </div>
                   </td>
                 </tr>

@@ -256,7 +256,37 @@ describe('App admin interactions', () => {
     expect(fetchImpl.mock.calls.some(([input]) => String(input).endsWith('/api/channel/pairings'))).toBe(false);
   });
 
-  it('repairs native Claude resume metadata from the sessions panel', async () => {
+  it('defaults to the bridge sessions tab and switches to Claude and Codex native session tabs', async () => {
+    const { fetchImpl, calls } = createFetchStub();
+    vi.stubGlobal('fetch', fetchImpl as typeof fetch);
+    vi.stubGlobal('WebSocket', class {
+      addEventListener() {}
+      close() {}
+      constructor(_url: string) {}
+    } as unknown as typeof WebSocket);
+
+    render(<App />);
+
+    const bridgeTab = (await screen.findAllByRole('button', { name: '桥接会话' })).at(-1)!;
+    expect(bridgeTab.getAttribute('aria-pressed')).toBe('true');
+    expect((await screen.findAllByText('chat-a')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('claude-session-1.jsonl')).toBeNull();
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Claude 原生会话' })).at(-1)!);
+    await waitFor(() => {
+      expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions') && call.method === 'GET')).toBe(true);
+    });
+    expect(await screen.findByText('原生会话 ID：claude-session-1')).toBeTruthy();
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Codex 原生会话' })).at(-1)!);
+    await waitFor(() => {
+      expect(calls.some((call) => call.url.endsWith('/api/channel/providers/codex/recoverable-sessions') && call.method === 'GET')).toBe(true);
+    });
+    expect(await screen.findByText('原生会话 ID：codex-session-1')).toBeTruthy();
+    expect(screen.queryByText('原生会话 ID：claude-session-1')).toBeNull();
+  });
+
+  it('does not render bridge-session native resume repair controls', async () => {
     const { fetchImpl, calls } = createFetchStub();
     const repairableBridgeFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -307,15 +337,11 @@ describe('App admin interactions', () => {
     render(<App />);
 
     await screen.findAllByText('claude-session-1');
-    const repairButtons = await screen.findAllByRole('button', { name: '修复原生恢复' });
-    fireEvent.click(repairButtons[0]!);
-
-    await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/repair-native-resume') && call.method === 'POST')).toBe(true);
-    });
+    expect(screen.queryByRole('button', { name: '修复原生恢复' })).toBeNull();
+    expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/repair-native-resume'))).toBe(false);
   });
 
-  it('repairs all attached Claude bridge sessions from the sessions panel', async () => {
+  it('does not render batch native resume repair controls in the sessions panel', async () => {
     const { fetchImpl, calls } = createFetchStub();
     const repairableBridgeFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -369,12 +395,8 @@ describe('App admin interactions', () => {
     const sessionsHeaders = await screen.findAllByText('会话');
     const sessionsSection = sessionsHeaders.at(-1)?.closest('section');
     if (!sessionsSection) throw new Error('sessions_section_not_found');
-    const batchButton = within(sessionsSection).getByRole('button', { name: '批量修复 Claude 恢复' });
-    fireEvent.click(batchButton);
-
-    await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/repair-native-resume') && call.method === 'POST')).toBe(true);
-    });
+    expect(within(sessionsSection).queryByRole('button', { name: '批量修复 Claude 恢复' })).toBeNull();
+    expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/repair-native-resume'))).toBe(false);
   });
 
   it('starts WeChat QR login and enables the channel after a done event', async () => {
@@ -564,8 +586,8 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    const scanButtons = await screen.findAllByText('扫描 Claude 原生会话');
-    fireEvent.click(scanButtons.at(-1)!);
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 原生会话' });
+    fireEvent.click(claudeTabButtons.at(-1)!);
 
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions') && call.method === 'GET')).toBe(true);
@@ -575,12 +597,12 @@ describe('App admin interactions', () => {
     const recoverableItem = syncedStates.at(-1)?.closest('li');
     if (!recoverableItem) throw new Error('recoverable_item_not_found');
     expect(within(recoverableItem).queryByRole('button', { name: '修复原生恢复' })).toBeNull();
-    const panelRoot = scanButtons.at(-1)?.closest('section');
+    const panelRoot = claudeTabButtons.at(-1)?.closest('section');
     if (!panelRoot) throw new Error('wechat_panel_not_found');
     expect(within(panelRoot).queryByText('批量修复 Claude 恢复')).toBeNull();
   });
 
-  it('repairs a recoverable Claude session from the WeChat panel before attach', async () => {
+  it('does not render recoverable-session native resume repair controls in the WeChat panel', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
     vi.stubGlobal('WebSocket', class {
@@ -611,19 +633,15 @@ describe('App admin interactions', () => {
     });
     vi.stubGlobal('fetch', repairableFetch as typeof fetch);
 
-    const scanButtons = await screen.findAllByText('扫描 Claude 原生会话');
-    fireEvent.click(scanButtons.at(-1)!);
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 原生会话' });
+    fireEvent.click(claudeTabButtons.at(-1)!);
 
     await screen.findByText('原生恢复状态：待修复');
-    const repairButtons = await screen.findAllByRole('button', { name: '修复原生恢复' });
-    fireEvent.click(repairButtons.at(-1)!);
-
-    await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions/claude-session-1/repair-native-resume') && call.method === 'POST')).toBe(true);
-    });
+    expect(screen.queryByRole('button', { name: '修复原生恢复' })).toBeNull();
+    expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions/claude-session-1/repair-native-resume'))).toBe(false);
   });
 
-  it('repairs all recoverable Claude sessions from the WeChat panel', async () => {
+  it('does not render batch recoverable-session native resume repair controls in the WeChat panel', async () => {
     const { fetchImpl, calls } = createFetchStub();
     const repairableFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -652,20 +670,16 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    const scanButtons = await screen.findAllByText('扫描 Claude 原生会话');
-    fireEvent.click(scanButtons.at(-1)!);
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 原生会话' });
+    fireEvent.click(claudeTabButtons.at(-1)!);
     await screen.findByText('原生恢复状态：待修复');
 
-    const batchButtons = await screen.findAllByText('批量修复 Claude 恢复');
-    fireEvent.click(batchButtons.at(-1)!);
-
-    await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions/repair-native-resume') && call.method === 'POST')).toBe(true);
-    });
+    expect(screen.queryByText('批量修复 Claude 恢复')).toBeNull();
+    expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions/repair-native-resume'))).toBe(false);
   });
 
-  it('auto-attaches the matching Claude session for the selected authorized user', async () => {
-    const { fetchImpl, calls } = createFetchStub();
+  it('does not render auto-attach buttons in the WeChat panel', async () => {
+    const { fetchImpl } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
     vi.stubGlobal('WebSocket', class {
       addEventListener() {}
@@ -675,11 +689,8 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    const autoButtons = await screen.findAllByText('自动接入 Claude 会话');
-    fireEvent.click(autoButtons.at(-1)!);
-
-    await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/auto-attach') && call.method === 'POST')).toBe(true);
-    });
+    await screen.findAllByRole('button', { name: 'Claude 原生会话' });
+    expect(screen.queryByText('自动接入 Claude 会话')).toBeNull();
+    expect(screen.queryByText('自动接入 Codex 会话')).toBeNull();
   });
 });
