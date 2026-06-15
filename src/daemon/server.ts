@@ -187,7 +187,14 @@ export function createDaemonServer(options: {
         }
       : undefined,
   });
-  registerSettingsRoutes({ app, settings, defaultWorkspace: process.cwd(), users, ...(channel ? { channel } : {}) });
+  registerSettingsRoutes({
+    app,
+    settings,
+    defaultWorkspace: process.cwd(),
+    users,
+    sessions: runtimeSessions,
+    ...(channel ? { channel } : {}),
+  });
 
   app.get('/api/status', async () => ({
     ok: true,

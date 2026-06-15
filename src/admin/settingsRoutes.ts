@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ChannelAdapter } from '../channels/types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import type { ProviderId } from '../providers/types';
+import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import type { SettingsRepository } from '../storage/settingsRepository';
 import type { UserRepository } from '../storage/userRepository';
 
@@ -16,6 +17,7 @@ export function registerSettingsRoutes(input: {
   defaultWorkspace: string;
   users?: UserRepository;
   channel?: ChannelAdapter;
+  sessions?: RuntimeSessionRepository;
 }): void {
   input.app.get('/api/settings', async () => readSettings(input.settings, input.defaultWorkspace));
 
@@ -34,10 +36,14 @@ export function registerSettingsRoutes(input: {
       const users = input.users?.listUsers().filter((user) => user.platform === PRIMARY_WEIXIN_PLATFORM) ?? [];
       const providerLabel = next.defaultProvider === 'codex' ? 'Codex' : 'Claude Code';
       await Promise.all(users.map(async (user) => {
+        const activeSession = input.sessions?.list().find((session) => (
+          session.ownerUserId === user.id && !session.archivedAt
+        ));
+        const cwd = activeSession?.cwd ?? user.defaultCwd ?? next.defaultWorkspace;
         await input.channel?.sendMessage({
           chatId: user.platformUserId,
           kind: 'status',
-          text: `对话模型已切换为 ${providerLabel}。`,
+          text: `对话模型已切换为 ${providerLabel}，项目目录：${cwd}。`,
         });
       }));
     }

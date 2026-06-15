@@ -267,12 +267,24 @@ describe('channel admin routes', () => {
     const sent: Array<{ chatId: string; kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ chatId: message.chatId, kind: message.kind, text: message.text }));
     const { app, users } = createDaemonServer({ db, channel });
-    users.createUser({
+    const user = users.createUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
       defaultProvider: 'claude-code',
       defaultCwd: '/tmp/project',
+    });
+    new RuntimeSessionRepository(db).createWithId({
+      id: 'bs_active_1',
+      chatId: 'chat-a',
+      ownerUserId: user.id,
+      providerId: 'claude-code',
+      cwd: '/tmp/active-project',
+      recoverySource: 'runtime',
+      resumeTitle: undefined,
+      status: 'idle',
+      createdAt: 10,
+      lastActivityAt: 20,
     });
 
     const update = await app.inject({
@@ -289,7 +301,7 @@ describe('channel admin routes', () => {
       {
         chatId: 'wx_user_1',
         kind: 'status',
-        text: '对话模型已切换为 Codex。',
+        text: '对话模型已切换为 Codex，项目目录：/tmp/active-project。',
       },
     ]);
     await app.close();
