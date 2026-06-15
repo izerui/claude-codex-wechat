@@ -70,7 +70,7 @@ describe('daemon provider session recovery', () => {
         chatId: 'chat-a',
         providerId: 'claude-code',
         providerSessionId: 'claude-session-1',
-        resumeTitle: 'first · 微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hIn0]',
+        resumeTitle: 'first · 微信 · wx_user_1',
       });
 
       await firstServer.app.close();
@@ -112,6 +112,7 @@ describe('daemon provider session recovery', () => {
         'stream-json',
         '--include-partial-messages',
         '--verbose',
+        '--dangerously-skip-permissions',
         '--resume',
         'claude-session-1',
         'second',
@@ -120,7 +121,7 @@ describe('daemon provider session recovery', () => {
       expect(new RuntimeSessionRepository(db).getActiveByChat('chat-a')).toMatchObject({
         id: persistedBeforeRestart[0]!.id,
         providerSessionId: 'claude-session-1',
-        resumeTitle: 'first · 微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hIn0]',
+        resumeTitle: 'first · 微信 · wx_user_1',
       });
 
       await secondServer.app.close();

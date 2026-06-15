@@ -17,6 +17,12 @@ export type ClaudeProcessResult = {
 
 export type ClaudeProcessRunner = (call: ClaudeProcessCall) => Promise<ClaudeProcessResult>;
 
+export type ClaudeStreamChunk =
+  | { type: 'line'; line: string }
+  | { type: 'exit'; code: number | string; stderr: string };
+
+export type ClaudeLineStreamer = (call: ClaudeProcessCall) => AsyncIterable<ClaudeStreamChunk>;
+
 type StoredClaudeSession = ClaudeRunnerSession & {
   claudeSessionId?: string;
   sessionName?: string;
@@ -25,11 +31,13 @@ type StoredClaudeSession = ClaudeRunnerSession & {
 export class ClaudeHeadlessRunner implements ClaudeRunner {
   private readonly sessions = new Map<string, StoredClaudeSession>();
   private readonly command: string;
-  private readonly processRunner: ClaudeProcessRunner;
+  private readonly lineStreamer: ClaudeLineStreamer;
 
-  constructor(input: { command?: string; processRunner?: ClaudeProcessRunner } = {}) {
+  constructor(input: { command?: string; processRunner?: ClaudeProcessRunner; lineStreamer?: ClaudeLineStreamer } = {}) {
     this.command = input.command ?? 'claude';
-    this.processRunner = input.processRunner ?? defaultClaudeProcessRunner;
+    if (input.lineStreamer) this.lineStreamer = input.lineStreamer;
+    else if (input.processRunner) this.lineStreamer = wrapProcessRunner(input.processRunner);
+    else this.lineStreamer = defaultClaudeLineStreamer;
   }
 
   async startSession(input: {
@@ -56,21 +64,26 @@ export class ClaudeHeadlessRunner implements ClaudeRunner {
     if (!session) throw new Error(`claude_session_not_found:${input.bridgeSessionId}`);
 
     const args = buildClaudeArgs(input.text, session.claudeSessionId, session.sessionName);
-    const result = await this.processRunner({ command: this.command, args, cwd: session.cwd, input: '' });
-    if (result.code !== 0) {
-      yield { type: 'error', error: result.stderr || result.stdout || `claude exited with ${result.code}` };
-      return;
-    }
+    const call: ClaudeProcessCall = { command: this.command, args, cwd: session.cwd, input: '' };
 
     let emittedDone = false;
-    for (const event of parseClaudeStream({ bridgeSessionId: input.bridgeSessionId, cwd: session.cwd, stdout: result.stdout })) {
-      if (event.type === 'session_state') {
-        session.providerSessionId = event.state.providerSessionId;
-        session.claudeSessionId = event.state.providerSessionId;
-        session.status = event.state.status;
+    for await (const chunk of this.lineStreamer(call)) {
+      if (chunk.type === 'exit') {
+        if (chunk.code !== 0) {
+          yield { type: 'error', error: chunk.stderr || `claude exited with ${chunk.code}` };
+          return;
+        }
+        break;
       }
-      if (event.type === 'message_done') emittedDone = true;
-      yield event;
+      for (const event of parseClaudeLine({ bridgeSessionId: input.bridgeSessionId, cwd: session.cwd, line: chunk.line })) {
+        if (event.type === 'session_state') {
+          session.providerSessionId = event.state.providerSessionId;
+          session.claudeSessionId = event.state.providerSessionId;
+          session.status = event.state.status;
+        }
+        if (event.type === 'message_done') emittedDone = true;
+        yield event;
+      }
     }
     if (!emittedDone) yield { type: 'message_done' };
   }
@@ -88,59 +101,62 @@ function buildClaudeArgs(prompt: string, claudeSessionId: string | undefined, se
   return args;
 }
 
-function parseClaudeStream(input: { bridgeSessionId: string; cwd: string; stdout: string }): ClaudeRunnerEvent[] {
+function parseClaudeLine(input: { bridgeSessionId: string; cwd: string; line: string }): ClaudeRunnerEvent[] {
   const events: ClaudeRunnerEvent[] = [];
-  for (const line of input.stdout.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    const value = parseJsonLine(line);
-    if (!value) continue;
-    const record = value as Record<string, unknown>;
+  const value = parseJsonLine(input.line);
+  if (!value) return events;
+  const record = value as Record<string, unknown>;
 
-    if (record.type === 'assistant') {
-      for (const text of extractAssistantText(record.message)) {
-        events.push({ type: 'text_delta', text });
-      }
+  if (record.type === 'assistant') {
+    let emittedText = false;
+    for (const text of extractAssistantText(record.message)) {
+      events.push({ type: 'text_delta', text });
+      emittedText = true;
     }
+    // Flush each completed LLM round as its own message so multi-round
+    // agent turns stream out incrementally instead of merging into one.
+    if (emittedText) events.push({ type: 'message_done' });
+  }
 
-    if (record.type === 'permission_request') {
+  if (record.type === 'permission_request') {
+    events.push({
+      type: 'permission_request',
+      request: mapClaudePermissionRequest({
+        bridgeSessionId: input.bridgeSessionId,
+        payload: {
+          id: typeof record.id === 'string' ? record.id : 'claude_permission',
+          toolName: typeof record.tool_name === 'string' ? record.tool_name : 'ClaudePermission',
+          summary: typeof record.summary === 'string' ? record.summary : undefined,
+          command: typeof record.command === 'string' ? record.command : undefined,
+          cwd: typeof record.cwd === 'string' ? record.cwd : undefined,
+          file: typeof record.file === 'string' ? record.file : undefined,
+          details: record,
+        },
+      }),
+    });
+  }
+
+  if (record.type === 'result') {
+    const sessionId = typeof record.session_id === 'string' ? record.session_id : undefined;
+    if (sessionId) {
       events.push({
-        type: 'permission_request',
-        request: mapClaudePermissionRequest({
+        type: 'session_state',
+        state: {
           bridgeSessionId: input.bridgeSessionId,
-          payload: {
-            id: typeof record.id === 'string' ? record.id : 'claude_permission',
-            toolName: typeof record.tool_name === 'string' ? record.tool_name : 'ClaudePermission',
-            summary: typeof record.summary === 'string' ? record.summary : undefined,
-            command: typeof record.command === 'string' ? record.command : undefined,
-            cwd: typeof record.cwd === 'string' ? record.cwd : undefined,
-            file: typeof record.file === 'string' ? record.file : undefined,
-            details: record,
-          },
-        }),
+          providerId: 'claude-code',
+          providerSessionId: sessionId,
+          cwd: input.cwd,
+          status: 'idle',
+        },
       });
     }
-
-    if (record.type === 'result') {
-      const sessionId = typeof record.session_id === 'string' ? record.session_id : undefined;
-      if (sessionId) {
-        events.push({
-          type: 'session_state',
-          state: {
-            bridgeSessionId: input.bridgeSessionId,
-            providerId: 'claude-code',
-            providerSessionId: sessionId,
-            cwd: input.cwd,
-            status: 'idle',
-          },
-        });
-      }
-      events.push({ type: 'message_done' });
-    }
-
-    if (record.type === 'error') {
-      events.push({ type: 'error', error: extractError(record) });
-    }
+    events.push({ type: 'message_done' });
   }
+
+  if (record.type === 'error') {
+    events.push({ type: 'error', error: extractError(record) });
+  }
+
   return events;
 }
 
@@ -172,19 +188,68 @@ function parseJsonLine(line: string): unknown | null {
   }
 }
 
-async function defaultClaudeProcessRunner(call: ClaudeProcessCall): Promise<ClaudeProcessResult> {
-  return await new Promise((resolve) => {
-    const child = spawn(call.command, call.args, { cwd: call.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += String(chunk); });
-    child.stderr.on('data', (chunk) => { stderr += String(chunk); });
-    child.on('error', (error: NodeJS.ErrnoException) => {
-      resolve({ code: error.code ?? 'ERROR', stdout, stderr: stderr || error.message });
-    });
-    child.on('close', (code) => {
-      resolve({ code: code ?? 'SIGNAL', stdout, stderr });
-    });
-    child.stdin.end(call.input);
+function wrapProcessRunner(processRunner: ClaudeProcessRunner): ClaudeLineStreamer {
+  return async function* wrapped(call: ClaudeProcessCall): AsyncIterable<ClaudeStreamChunk> {
+    const result = await processRunner(call);
+    for (const line of result.stdout.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      yield { type: 'line', line };
+    }
+    yield { type: 'exit', code: result.code, stderr: result.stderr || result.stdout };
+  };
+}
+
+async function* defaultClaudeLineStreamer(call: ClaudeProcessCall): AsyncIterable<ClaudeStreamChunk> {
+  const child = spawn(call.command, call.args, { cwd: call.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+  child.stdin.end(call.input);
+
+  let stderr = '';
+  let buffer = '';
+  const lines: string[] = [];
+  let done = false;
+  let exitCode: number | string = 'SIGNAL';
+  let streamError: string | undefined;
+  let notify: (() => void) | null = null;
+  const wake = () => {
+    const current = notify;
+    notify = null;
+    current?.();
+  };
+
+  child.stdout.on('data', (chunk) => {
+    buffer += String(chunk);
+    const parts = buffer.split(/\r?\n/);
+    buffer = parts.pop() ?? '';
+    for (const line of parts) {
+      if (line.trim()) lines.push(line);
+    }
+    wake();
   });
+  child.stderr.on('data', (chunk) => {
+    stderr += String(chunk);
+  });
+  child.on('error', (error: NodeJS.ErrnoException) => {
+    streamError = stderr || error.message;
+    exitCode = error.code ?? 'ERROR';
+    done = true;
+    wake();
+  });
+  child.on('close', (code) => {
+    if (buffer.trim()) lines.push(buffer);
+    exitCode = code ?? 'SIGNAL';
+    done = true;
+    wake();
+  });
+
+  while (!done || lines.length > 0) {
+    if (lines.length === 0) {
+      await new Promise<void>((resolve) => {
+        notify = resolve;
+      });
+      continue;
+    }
+    yield { type: 'line', line: lines.shift()! };
+  }
+
+  yield { type: 'exit', code: exitCode, stderr: streamError ?? stderr };
 }

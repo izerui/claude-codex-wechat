@@ -38,8 +38,8 @@ export async function listRecoverableClaudeSessions(env: NodeJS.ProcessEnv = pro
           title: parsedMeta?.aiTitle ?? parsedMeta?.lastPrompt ?? fileName,
           ...(parsedMeta?.sessionName
             ? { resumeTitle: parsedMeta.sessionName }
-            : historyMeta?.bridgeTag
-              ? { resumeTitle: buildSessionBridgeName({ ...historyMeta.bridgeTag, ...(readableSummary ? { summary: readableSummary } : {}) }) }
+            : historyMeta?.display
+              ? { resumeTitle: historyMeta.display }
               : {}),
           ...(sidecar?.updatedAt
             ? { lastActivityAt: sidecar.updatedAt }
@@ -197,12 +197,14 @@ async function readClaudeSessionMetadata(filePath: string): Promise<{ aiTitle?: 
 async function readClaudeHistoryIndex(env: NodeJS.ProcessEnv): Promise<Map<string, {
   project?: string;
   timestamp?: number;
+  display?: string;
   bridgeTag?: { platform: 'weixin'; platformUserId: string; chatId: string };
 }>> {
   const historyPath = join(resolveClaudeConfigDir(env), 'history.jsonl');
   const index = new Map<string, {
     project?: string;
     timestamp?: number;
+    display?: string;
     bridgeTag?: { platform: 'weixin'; platformUserId: string; chatId: string };
   }>();
   try {
@@ -218,7 +220,7 @@ async function readClaudeHistoryIndex(env: NodeJS.ProcessEnv): Promise<Map<strin
         const project = typeof record.project === 'string' && record.project.trim() ? record.project.trim() : previous?.project;
         const display = typeof record.display === 'string' ? record.display.trim() : '';
         const bridgeTag = parseSessionBridgeName(display) ?? previous?.bridgeTag;
-        index.set(sessionId, { project, timestamp, bridgeTag });
+        index.set(sessionId, { project, timestamp, display: display || previous?.display, bridgeTag });
       } catch {
         // Ignore malformed history lines and continue scanning.
       }

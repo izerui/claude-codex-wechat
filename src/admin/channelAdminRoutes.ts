@@ -499,7 +499,7 @@ function buildProviderResumeCommand(providerId: string, providerSessionId: strin
 
 function buildProviderResumeByTitleCommand(providerId: string, title: string | undefined): string | undefined {
   if (!title) return undefined;
-  if (providerId === 'claude-code' && title.includes('[claude-codex-wechat:')) return `claude -r ${title}`;
+  if (providerId === 'claude-code') return `claude -r ${title}`;
   if (providerId === 'codex') return `codex exec resume --json --last ${title}`;
   return undefined;
 }

@@ -345,7 +345,7 @@ describe('MessageRouter', () => {
     const activeSession = sessions.getActiveSession('chat-a');
     expect(activeSession?.providerSessionId).toMatch(/^claude-code_fake_/);
     expect(activeSession?.resumeTitle).toContain('hello');
-    expect(activeSession?.resumeTitle).toContain('[claude-codex-wechat:');
+    expect(activeSession?.resumeTitle).toBe('hello · 微信 · wx_user_1');
     expect(bindingRepository.findByChat('weixin', 'chat-a', 'claude-code')).toMatchObject({
       platformUserId: 'wx_user_1',
       chatId: 'chat-a',

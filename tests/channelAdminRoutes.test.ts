@@ -617,8 +617,8 @@ describe('channel admin routes', () => {
         providerSessionId: 'claude-code_recoverable_1',
         preferredResumeMode: 'title',
         providerResumeCommand: 'claude --resume claude-code_recoverable_1',
-        providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hdHRhY2hlZCJ9]',
-        resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hdHRhY2hlZCJ9]',
+        providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1',
+        resumeTitle: '微信 · wx_user_1',
       },
     });
 
@@ -937,7 +937,7 @@ describe('channel admin routes', () => {
 
       const index = readFileSync(join(codexHome, 'session_index.jsonl'), 'utf8');
       expect(index).toContain('codex-session-1');
-      expect(index).toContain('微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1jb2RleCJ9]');
+      expect(index).toContain('微信 · wx_user_1');
 
       await app.close();
     } finally {
@@ -1293,7 +1293,7 @@ describe('channel admin routes', () => {
         session: {
           providerSessionId: 'claude-meta-session',
           cwd: '/tmp/recovered-project',
-          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1hdHRhY2hlZCJ9]',
+          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1',
         },
       });
 
@@ -1351,7 +1351,7 @@ describe('channel admin routes', () => {
         ok: true,
         session: {
           cwd: '/tmp/project-a',
-          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoid3hfdXNlcl8xIn0]',
+          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1',
         },
       });
 

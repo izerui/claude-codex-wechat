@@ -56,9 +56,31 @@ describe('ClaudeHeadlessRunner', () => {
     ]);
     expect(events).toEqual([
       { type: 'text_delta', text: 'hello' },
+      { type: 'message_done' },
       { type: 'session_state', state: expect.objectContaining({ providerSessionId: 'claude-session-1', cwd: '/tmp/project' }) },
       { type: 'message_done' },
     ]);
+  });
+
+  it('streams completed assistant rounds incrementally', async () => {
+    const runner = new ClaudeHeadlessRunner({
+      lineStreamer: async function* () {
+        yield { type: 'line', line: JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'round-1' }] } }) };
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        yield { type: 'line', line: JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'round-2' }] } }) };
+        yield { type: 'line', line: JSON.stringify({ type: 'result', session_id: 'claude-session-1' }) };
+        yield { type: 'exit', code: 0, stderr: '' };
+      },
+    });
+    await runner.startSession({ bridgeSessionId: 'bs_1', cwd: '/tmp/project' });
+
+    const seen: Array<string> = [];
+    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_1', text: 'hello' })) {
+      if (event.type === 'text_delta') seen.push(event.text);
+      if (seen.length === 1) break;
+    }
+
+    expect(seen).toEqual(['round-1']);
   });
 
   it('maps raw permission events into unified permission requests', async () => {

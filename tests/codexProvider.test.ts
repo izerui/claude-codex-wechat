@@ -30,7 +30,7 @@ describe('CodexProvider', () => {
       events.push(event);
     }
 
-    expect(events.map((event) => event.type)).toEqual(['text_delta', 'session_state', 'message_done']);
+    expect(events.map((event) => event.type)).toEqual(['text_delta', 'message_done', 'session_state', 'message_done']);
   });
 
   it('forwards permission decisions to the runner', async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { CodexCliRunner, type CodexProcessRunner } from '../src/providers/codex/codexCliRunner';
 
 describe('CodexCliRunner', () => {
@@ -54,6 +54,7 @@ describe('CodexCliRunner', () => {
     ]);
     expect(events).toEqual([
       { type: 'text_delta', text: 'codex-hi' },
+      { type: 'message_done' },
       { type: 'session_state', state: expect.objectContaining({ providerSessionId: 'codex-session-1', cwd: '/tmp/project' }) },
       { type: 'message_done' },
     ]);
@@ -113,6 +114,27 @@ describe('CodexCliRunner', () => {
       'codex-session-1',
       'after restart',
     ]);
+  });
+
+  it('streams completed assistant rounds incrementally', async () => {
+    const runner = new CodexCliRunner({
+      lineStreamer: async function* () {
+        yield { type: 'line', line: JSON.stringify({ type: 'agent_message', message: { content: [{ type: 'output_text', text: 'round-1' }] } }) };
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        yield { type: 'line', line: JSON.stringify({ type: 'agent_message', message: { content: [{ type: 'output_text', text: 'round-2' }] } }) };
+        yield { type: 'line', line: JSON.stringify({ type: 'exec_complete', session_id: 'codex-session-1' }) };
+        yield { type: 'exit', code: 0, stderr: '' };
+      },
+    });
+    await runner.startSession({ bridgeSessionId: 'bs_1', cwd: '/tmp/project' });
+
+    const seen: Array<string> = [];
+    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_1', text: 'hello' })) {
+      if (event.type === 'text_delta') seen.push(event.text);
+      if (seen.length === 1) break;
+    }
+
+    expect(seen).toEqual(['round-1']);
   });
 
   it('maps approval requests into unified permission requests', async () => {

@@ -8,10 +8,9 @@ export type SessionBridgeTag = {
 const PREFIX = 'claude-codex-wechat' as const;
 
 export function buildSessionBridgeName(input: SessionBridgeTag): string {
-  const { summary, ...tag } = input;
-  const payload = Buffer.from(JSON.stringify(tag), 'utf8').toString('base64url');
+  const { summary } = input;
   const summaryPrefix = typeof summary === 'string' && summary.trim() ? `${summary.trim()} · ` : '';
-  return `${summaryPrefix}微信 · ${input.platformUserId} · [${PREFIX}:${payload}]`;
+  return `${summaryPrefix}微信 · ${input.platformUserId}`;
 }
 
 export function parseSessionBridgeName(value: string | undefined): SessionBridgeTag | null {

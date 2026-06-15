@@ -298,7 +298,7 @@ describe('channel message flow', () => {
       });
       const index = readFileSync(`${codexHome}/session_index.jsonl`, 'utf8');
       expect(index).toContain('codex-session-1');
-      expect(index).toContain('微信 · wx_user_1 · [claude-codex-wechat:eyJwbGF0Zm9ybSI6IndlaXhpbiIsInBsYXRmb3JtVXNlcklkIjoid3hfdXNlcl8xIiwiY2hhdElkIjoiY2hhdC1jb2RleC1saXZlIn0]');
+      expect(index).toContain('微信 · wx_user_1');
 
       await app.close();
     } finally {
