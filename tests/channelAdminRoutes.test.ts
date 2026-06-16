@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -12,15 +11,11 @@ import { CodexProvider } from '../src/providers/codex/codexProvider';
 import { CodexCliRunner } from '../src/providers/codex/codexCliRunner';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { buildSessionBridgeName } from '../src/session/sessionBridgeTag';
-import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
-import { schemaSql } from '../src/storage/schema';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
 
 describe('channel admin routes', () => {
   it('does not expose pairing approval routes', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
-    const { app } = createDaemonServer({ db, activeUserStore: createRuntimeUserStore('bridge-admin-pairings-').activeUserStore });
+    const { app } = createDaemonServer({ activeUserStore: createRuntimeUserStore('bridge-admin-pairings-').activeUserStore });
 
     const list = await app.inject({ method: 'GET', url: '/api/channel/pairings' });
     expect(list.statusCode).toBe(404);
@@ -34,9 +29,7 @@ describe('channel admin routes', () => {
   });
 
   it('returns the active user without exposing revoke route', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
-    const { app, activeUserStore } = createDaemonServer({ db, activeUserStore: createRuntimeUserStore('bridge-admin-active-wechat-user-').activeUserStore });
+    const { app, activeUserStore } = createDaemonServer({ activeUserStore: createRuntimeUserStore('bridge-admin-active-wechat-user-').activeUserStore });
     const created = activeUserStore.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user' });
 
     const response = await app.inject({ method: 'GET', url: '/api/channel/active-user' });
@@ -53,11 +46,9 @@ describe('channel admin routes', () => {
   });
 
   it('lists and stops runtime sessions without retaining historical bridge rows', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, activeUserStore, sessions } = createDaemonServer({ db, channel, providers: [provider], activeUserStore: createRuntimeUserStore('bridge-admin-stop-').activeUserStore });
+    const { app, activeUserStore, sessions } = createDaemonServer({ channel, providers: [provider], activeUserStore: createRuntimeUserStore('bridge-admin-stop-').activeUserStore });
     activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
@@ -121,11 +112,9 @@ describe('channel admin routes', () => {
   });
 
   it('does not expose bridge event history routes', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, activeUserStore, sessions } = createDaemonServer({ db, channel, providers: [provider], activeUserStore: createRuntimeUserStore('bridge-admin-no-events-').activeUserStore });
+    const { app, activeUserStore, sessions } = createDaemonServer({ channel, providers: [provider], activeUserStore: createRuntimeUserStore('bridge-admin-no-events-').activeUserStore });
     activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
@@ -150,11 +139,9 @@ describe('channel admin routes', () => {
   });
 
   it('exposes persisted sessions and permission decisions for admin UI', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, activeUserStore } = createDaemonServer({ db, channel, providers: [provider], activeUserStore: createRuntimeUserStore('bridge-admin-status-').activeUserStore });
+    const { app, activeUserStore } = createDaemonServer({ channel, providers: [provider], activeUserStore: createRuntimeUserStore('bridge-admin-status-').activeUserStore });
     activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
@@ -209,12 +196,9 @@ describe('channel admin routes', () => {
   });
 
   it('reads and updates daemon settings', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const configDir = mkdtempSync(`${tmpdir()}/bridge-settings-config-`);
     const configPath = join(configDir, 'config.json');
     const { app } = createDaemonServer({
-      db,
       activeUserStore: createRuntimeUserStore('bridge-admin-settings-').activeUserStore,
       configPath,
       bridgeDefaults: {
@@ -256,15 +240,14 @@ describe('channel admin routes', () => {
   });
 
   it('notifies the active weixin user after switching the provider from the wechat panel setting', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const sent: Array<{ chatId: string; kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ chatId: message.chatId, kind: message.kind, text: message.text }));
+    const store = createRuntimeUserStore('bridge-admin-switch-notify-');
     const { app, activeUserStore } = createDaemonServer({
-      db,
       channel,
-      activeUserStore: createRuntimeUserStore('bridge-admin-switch-notify-').activeUserStore,
+      activeUserStore: store.activeUserStore,
+      configPath: store.configPath,
       bridgeDefaults: {
         defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
@@ -275,18 +258,24 @@ describe('channel admin routes', () => {
       platformUserId: 'wx_user_1',
       role: 'user',
     });
-    new RuntimeSessionRepository(db).createWithId({
-      id: 'bs_active_1',
-      chatId: 'chat-a',
-      ownerUserId: user.id,
-      providerId: 'claude-code',
-      cwd: '/tmp/active-project',
-      recoverySource: 'runtime',
-      resumeTitle: undefined,
-      status: 'idle',
-      createdAt: 10,
-      lastActivityAt: 20,
-    });
+    writeFileSync(store.configPath, JSON.stringify({
+      bridge: {
+        activeWeChatUser: {
+          ...user,
+          currentConversation: {
+            id: 'bs_active_1',
+            chatId: 'chat-a',
+            ownerUserId: user.id,
+            providerId: 'claude-code',
+            cwd: '/tmp/active-project',
+            recoverySource: 'runtime',
+            status: 'idle',
+            createdAt: 10,
+            lastActivityAt: 20,
+          },
+        },
+      },
+    }, null, 2));
 
     const update = await app.inject({
       method: 'POST',
@@ -309,10 +298,7 @@ describe('channel admin routes', () => {
   });
 
   it('exports the effective WeChat runtime config for handoff to a new daemon', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const { app } = createDaemonServer({
-      db,
       activeUserStore: createRuntimeUserStore('bridge-admin-runtime-config-').activeUserStore,
       wechat: {
         enabled: true,
@@ -335,12 +321,9 @@ describe('channel admin routes', () => {
   });
 
   it('persists formal wechat config when enabling the plugin from the admin API', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const configDir = mkdtempSync(`${tmpdir()}/bridge-config-`);
     const configPath = join(configDir, 'config.json');
     const { app } = createDaemonServer({
-      db,
       activeUserStore: createRuntimeUserStore('bridge-admin-wechat-disable-').activeUserStore,
       wechat: { enabled: false },
       configPath,
@@ -377,8 +360,6 @@ describe('channel admin routes', () => {
   it('does not expose bridge-session native resume repair routes', async () => {
     const previousHome = process.env.HOME;
     process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-admin-home-`);
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     try {
       const store = createRuntimeUserStore('bridge-admin-native-repair-');
       const user = seedRuntimeUserStore(store, {
@@ -394,24 +375,32 @@ describe('channel admin routes', () => {
         JSON.stringify({ type: 'result', session_id: 'legacy-session-1' }),
       ].join('\n'));
 
-      new RuntimeSessionRepository(db).createWithId({
-        id: 'bs_legacy',
-        chatId: 'chat-legacy',
-        ownerUserId: user.id,
-        providerId: 'claude-code',
-        providerSessionId: 'legacy-session-1',
-        recoverySource: 'runtime',
-        resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:legacyprobe]',
-        cwd: '/tmp/project',
-        status: 'idle',
-        createdAt: 1,
-        lastActivityAt: 1,
-      });
+      writeFileSync(store.configPath, JSON.stringify({
+        bridge: {
+          activeWeChatUser: {
+            ...user,
+            currentConversation: {
+              id: 'bs_legacy',
+              chatId: 'chat-legacy',
+              ownerUserId: user.id,
+              providerId: 'claude-code',
+              providerSessionId: 'legacy-session-1',
+              recoverySource: 'runtime',
+              resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:legacyprobe]',
+              cwd: '/tmp/project',
+              status: 'idle',
+              createdAt: 1,
+              lastActivityAt: 1,
+            },
+          },
+        },
+      }, null, 2));
 
       const app = createDaemonServer({
-        db,
         channel: new MockChannelAdapter(),
         providers: [new ClaudeCodeProvider({ runner: new FakeClaudeRunner() })],
+        activeUserStore: store.activeUserStore,
+        configPath: store.configPath,
       }).app;
       const repair = await app.inject({ method: 'POST', url: '/api/channel/sessions/bs_legacy/repair-native-resume' });
       expect(repair.statusCode).toBe(404);
@@ -433,8 +422,6 @@ describe('channel admin routes', () => {
   it('does not expose batch bridge-session native resume repair routes', async () => {
     const previousHome = process.env.HOME;
     process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-admin-home-`);
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     try {
       const store = createRuntimeUserStore('bridge-admin-batch-repair-');
       const user = seedRuntimeUserStore(store, {
@@ -442,7 +429,6 @@ describe('channel admin routes', () => {
         platformUserId: 'wx_user_1',
         role: 'user',
       });
-      const runtimeSessions = new RuntimeSessionRepository(db);
       const repairableTitle = '微信 · wx_user_1 · [claude-codex-wechat:batch-attached-1]';
       const syncedTitle = '微信 · wx_user_1 · [claude-codex-wechat:batch-attached-2]';
 
@@ -457,37 +443,32 @@ describe('channel admin routes', () => {
         JSON.stringify({ type: 'agent-name', agentName: syncedTitle, sessionId: 'attached-batch-2' }),
       ].join('\n'), 'utf8');
 
-      runtimeSessions.createWithId({
-        id: 'bs_batch_1',
-        chatId: 'chat-batch-1',
-        ownerUserId: user.id,
-        providerId: 'claude-code',
-        providerSessionId: 'attached-batch-1',
-        recoverySource: 'runtime',
-        resumeTitle: repairableTitle,
-        cwd: '/tmp/project',
-        status: 'idle',
-        createdAt: 1,
-        lastActivityAt: 1,
-      });
-      runtimeSessions.createWithId({
-        id: 'bs_batch_2',
-        chatId: 'chat-batch-2',
-        ownerUserId: user.id,
-        providerId: 'claude-code',
-        providerSessionId: 'attached-batch-2',
-        recoverySource: 'runtime',
-        resumeTitle: syncedTitle,
-        cwd: '/tmp/project',
-        status: 'idle',
-        createdAt: 2,
-        lastActivityAt: 2,
-      });
+      writeFileSync(store.configPath, JSON.stringify({
+        bridge: {
+          activeWeChatUser: {
+            ...user,
+            currentConversation: {
+              id: 'bs_batch_2',
+              chatId: 'chat-batch-2',
+              ownerUserId: user.id,
+              providerId: 'claude-code',
+              providerSessionId: 'attached-batch-2',
+              recoverySource: 'runtime',
+              resumeTitle: syncedTitle,
+              cwd: '/tmp/project',
+              status: 'idle',
+              createdAt: 2,
+              lastActivityAt: 2,
+            },
+          },
+        },
+      }, null, 2));
 
       const app = createDaemonServer({
-        db,
         channel: new MockChannelAdapter(),
         providers: [new ClaudeCodeProvider({ runner: new FakeClaudeRunner() })],
+        activeUserStore: store.activeUserStore,
+        configPath: store.configPath,
       }).app;
 
       const repair = await app.inject({ method: 'POST', url: '/api/channel/sessions/repair-native-resume' });
@@ -500,13 +481,13 @@ describe('channel admin routes', () => {
   });
 
   it('applies updated default provider and workspace to new WeChat sessions', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const channel = new MockChannelAdapter();
+    const store = createRuntimeUserStore('bridge-admin-default-provider-switch-');
     const { app, activeUserStore, sessions } = createDaemonServer({
-      db,
       channel,
       providers: [new FakeProviderAdapter('claude-code'), new FakeProviderAdapter('codex')],
+      activeUserStore: store.activeUserStore,
+      configPath: store.configPath,
     });
     activeUserStore.setActiveUser({
       platform: 'weixin',
@@ -540,9 +521,7 @@ describe('channel admin routes', () => {
   });
 
   it('reports both Claude and Codex provider status', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
-    const { app } = createDaemonServer({ db });
+    const { app } = createDaemonServer();
 
     const response = await app.inject({ method: 'GET', url: '/api/providers/status' });
 
@@ -555,10 +534,8 @@ describe('channel admin routes', () => {
   });
 
   it('lists recoverable native provider sessions and attaches one into the bridge', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+    const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
     activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
@@ -637,10 +614,8 @@ describe('channel admin routes', () => {
         }),
       ].join('\n'), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app } = createDaemonServer({ db, providers: [provider] });
+      const { app } = createDaemonServer({ providers: [provider] });
 
       const repair = await app.inject({
         method: 'POST',
@@ -693,30 +668,39 @@ describe('channel admin routes', () => {
         }),
       ].join('\n'), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const store = createRuntimeUserStore('bridge-admin-history-missing-');
       const user = seedRuntimeUserStore(store, {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
       });
-      new RuntimeSessionRepository(db).createWithId({
-        id: 'bs_history_missing',
-        chatId: 'chat-history-missing',
-        ownerUserId: user.id,
-        providerId: 'claude-code',
-        providerSessionId: 'claude-history-missing',
-        recoverySource: 'runtime',
-        resumeTitle,
-        cwd: '/tmp/project',
-        status: 'idle',
-        createdAt: 1,
-        lastActivityAt: 1,
-      });
+      writeFileSync(store.configPath, JSON.stringify({
+        bridge: {
+          activeWeChatUser: {
+            ...user,
+            currentConversation: {
+              id: 'bs_history_missing',
+              chatId: 'chat-history-missing',
+              ownerUserId: user.id,
+              providerId: 'claude-code',
+              providerSessionId: 'claude-history-missing',
+              recoverySource: 'runtime',
+              resumeTitle,
+              cwd: '/tmp/project',
+              status: 'idle',
+              createdAt: 1,
+              lastActivityAt: 1,
+            },
+          },
+        },
+      }, null, 2));
 
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app } = createDaemonServer({ db, providers: [provider] });
+      const { app } = createDaemonServer({
+        providers: [provider],
+        activeUserStore: store.activeUserStore,
+        configPath: store.configPath,
+      });
 
       const sessions = await app.inject({
         method: 'GET',
@@ -779,10 +763,8 @@ describe('channel admin routes', () => {
         }),
       ].join('\n'), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app } = createDaemonServer({ db, providers: [provider] });
+      const { app } = createDaemonServer({ providers: [provider] });
 
       const repair = await app.inject({
         method: 'POST',
@@ -819,10 +801,8 @@ describe('channel admin routes', () => {
         }),
       ].join('\n'), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const runner = new CodexCliRunner({ processRunner: async () => ({ code: 0, stdout: '', stderr: '' }) });
-      const { app } = createDaemonServer({ db, providers: [new CodexProvider({ runner })] });
+      const { app } = createDaemonServer({ providers: [new CodexProvider({ runner })] });
 
       const recoverable = await app.inject({
         method: 'GET',
@@ -863,10 +843,8 @@ describe('channel admin routes', () => {
         }),
       ].join('\n'), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const runner = new CodexCliRunner({ processRunner: async () => ({ code: 0, stdout: '', stderr: '' }) });
-      const { app, activeUserStore } = createDaemonServer({ db, providers: [new CodexProvider({ runner })] });
+      const { app, activeUserStore } = createDaemonServer({ providers: [new CodexProvider({ runner })] });
       activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
@@ -901,10 +879,8 @@ describe('channel admin routes', () => {
   });
 
   it('filters already attached native sessions out of recoverable results', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+    const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
     activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
@@ -933,10 +909,8 @@ describe('channel admin routes', () => {
   });
 
   it('keeps attached provider sessions hidden from recoverable scans while they remain current bridge sessions', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+    const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
     activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
@@ -975,10 +949,8 @@ describe('channel admin routes', () => {
       mkdirSync(projectDir, { recursive: true });
       writeFileSync(join(projectDir, `${claudeSessionId}.jsonl`), '[]\n', 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const provider = new FakeProviderAdapter('claude-code');
-      const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+      const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
       activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
@@ -1043,10 +1015,8 @@ describe('channel admin routes', () => {
         }),
       ].join('\n'), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app } = createDaemonServer({ db, providers: [provider] });
+      const { app } = createDaemonServer({ providers: [provider] });
 
       const recoverable = await app.inject({
         method: 'GET',
@@ -1080,10 +1050,8 @@ describe('channel admin routes', () => {
         sessionId: 'claude-sidecar-session',
       }), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+      const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
       activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
@@ -1142,10 +1110,8 @@ describe('channel admin routes', () => {
         }),
       ].join('\n'), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app } = createDaemonServer({ db, providers: [provider] });
+      const { app } = createDaemonServer({ providers: [provider] });
 
       const recoverable = await app.inject({
         method: 'GET',
@@ -1194,10 +1160,8 @@ describe('channel admin routes', () => {
         }),
       ].join('\n'), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+      const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
       activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
@@ -1252,10 +1216,8 @@ describe('channel admin routes', () => {
         JSON.stringify({ sessionId: 'claude-other', project: '/tmp/project-b', timestamp: 300 }),
       ].join('\n'), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
-      const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+      const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
       activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
@@ -1325,10 +1287,8 @@ describe('channel admin routes', () => {
         updated_at: '2026-06-14T02:00:00.000Z',
       }), 'utf8');
 
-      const db = new Database(':memory:');
-      db.exec(schemaSql);
       const provider = new CodexProvider({ runner: new CodexCliRunner() });
-      const { app, activeUserStore } = createDaemonServer({ db, providers: [provider] });
+      const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
       activeUserStore.setActiveUser({
         platform: 'weixin',
         platformUserId: 'wx_user_1',
@@ -1354,11 +1314,9 @@ describe('channel admin routes', () => {
   });
 
   it('syncs channel settings by clearing active runtime sessions', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, activeUserStore } = createDaemonServer({ db, channel, providers: [provider] });
+    const { app, activeUserStore } = createDaemonServer({ channel, providers: [provider] });
     activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',

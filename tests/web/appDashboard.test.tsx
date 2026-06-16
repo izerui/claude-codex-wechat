@@ -14,8 +14,8 @@ describe('App dashboard provider status', () => {
       }
       if (url.endsWith('/api/providers/status')) {
         return new Response(JSON.stringify({
-          claude: { detected: true, version: '2.0.1', command: '/opt/bin/claude', checkedAt: 1234567890 },
-          codex: { detected: false, reason: 'missing_binary', command: '/opt/bin/codex', checkedAt: 1234567890 },
+          claude: { detected: true, version: '2.0.1', command: '/opt/bin/claude', checkedAt: 1234567890000 },
+          codex: { detected: false, reason: 'missing_binary', command: '/opt/bin/codex', checkedAt: 1234567890000 },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       if (url.endsWith('/api/channel/active-user')) {
@@ -40,7 +40,8 @@ describe('App dashboard provider status', () => {
 
     expect(await screen.findByText('已检测 · 2.0.1')).toBeTruthy();
     expect(await screen.findByText('未找到可执行文件')).toBeTruthy();
-    expect(await screen.findByText('/opt/bin/claude · 检查于 1234567890')).toBeTruthy();
-    expect(await screen.findByText('/opt/bin/codex · 检查于 1234567890')).toBeTruthy();
+    expect(await screen.findByText('/opt/bin/claude · 检查于 2009/2/14 07:31:30')).toBeTruthy();
+    expect(await screen.findByText('/opt/bin/codex · 检查于 2009/2/14 07:31:30')).toBeTruthy();
+    expect(screen.queryByText('/opt/bin/claude · 检查于 1234567890000')).toBeNull();
   });
 });

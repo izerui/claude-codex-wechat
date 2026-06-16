@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { ProviderId } from '../providers/types';
-import type { CurrentConversationBinding } from '../session/currentConversationStore';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
+import type { BridgeConfig } from './config';
 
 export async function persistWechatCredentialsToConfigFile(input: {
   configPath: string;
@@ -62,17 +62,15 @@ export async function persistActiveWeChatUserToConfigFile(input: {
   await writeFile(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
 }
 
-export async function persistCurrentConversationBindingToConfigFile(input: {
+export async function persistProviderCommandsToConfigFile(input: {
   configPath: string;
-  currentConversationBinding?: CurrentConversationBinding;
+  providers?: BridgeConfig['providers'];
 }): Promise<void> {
   const currentConfig = await readConfigFile(input.configPath);
+  const normalizedProviders = normalizeProvidersForPersistence(input.providers);
   const nextConfig = {
     ...currentConfig,
-    bridge: {
-      ...(isRecord(currentConfig.bridge) ? currentConfig.bridge : {}),
-      currentConversationBinding: input.currentConversationBinding,
-    },
+    providers: normalizedProviders,
   };
 
   await mkdir(dirname(input.configPath), { recursive: true });
@@ -99,4 +97,16 @@ function isMissingFileError(error: unknown): boolean {
     && error !== null
     && 'code' in error
     && error.code === 'ENOENT';
+}
+
+function normalizeProvidersForPersistence(
+  providers: BridgeConfig['providers'] | undefined,
+): BridgeConfig['providers'] | undefined {
+  const claude = providers?.claude?.command ? { command: providers.claude.command } : undefined;
+  const codex = providers?.codex?.command ? { command: providers.codex.command } : undefined;
+  if (!claude && !codex) return undefined;
+  return {
+    ...(claude ? { claude } : {}),
+    ...(codex ? { codex } : {}),
+  };
 }

@@ -1,15 +1,15 @@
-import Database from 'better-sqlite3';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { PermissionRouter } from '../src/permissions/permissionRouter';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
+import { CurrentConversationStore } from '../src/session/currentConversationStore';
 import { SessionManager } from '../src/session/sessionManager';
 import { MessageRouter } from '../src/session/messageRouter';
-import { ProviderBindingRepository } from '../src/storage/providerBindingRepository';
-import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
-import { schemaSql } from '../src/storage/schema';
+import { LastProviderSessionStore } from '../src/storage/lastProviderSessionStore';
 import type { ActiveWeChatUserRecord } from '../src/storage/userStore';
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../src/providers/types';
+import { createRuntimeUserStore } from './helpers/runtimeUserStore';
 
 const authorizedUser: ActiveWeChatUserRecord = {
   id: 'user_a',
@@ -382,10 +382,12 @@ describe('MessageRouter', () => {
   });
 
   it('persists bridge binding metadata when a new WeChat Claude session is created', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
-    const sessionRepository = new RuntimeSessionRepository(db);
-    const bindingRepository = new ProviderBindingRepository(db);
+    const store = createRuntimeUserStore('message-router-last-provider-');
+    const bindingRepository = new LastProviderSessionStore(store.configPath);
+    const conversation = new CurrentConversationStore(store.configPath, {
+      defaultCwd: '/tmp/project',
+      defaultProviderId: 'claude-code',
+    });
     const channel = new MockChannelAdapter();
     const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
@@ -393,10 +395,10 @@ describe('MessageRouter', () => {
       channel,
       permissions,
       providers: [new FakeProviderAdapter('claude-code')],
+      conversation,
       sessions,
       resolveUser: () => authorizedUser,
-      sessionRepository,
-      bindingRepository,
+      lastProviderSessions: bindingRepository,
     });
 
     await router.handleMessage({
@@ -408,19 +410,24 @@ describe('MessageRouter', () => {
       timestamp: 1,
     });
 
-    const activeSession = sessions.getActiveSession('chat-a');
+    const activeSession = conversation.getCurrent();
     expect(activeSession?.providerSessionId).toMatch(/^claude-code_fake_/);
     expect(activeSession?.resumeTitle).toContain('hello');
     expect(activeSession?.resumeTitle).toBe('hello · 微信 · wx_user_1');
-    expect(bindingRepository.findByChat('weixin', 'chat-a', 'claude-code')).toMatchObject({
-      platformUserId: 'wx_user_1',
-      chatId: 'chat-a',
-      providerId: 'claude-code',
+    expect(bindingRepository.get('claude-code')).toMatchObject({
       providerSessionId: activeSession?.providerSessionId,
+      cwd: '/tmp/project',
     });
-    expect(sessionRepository.getActiveByChat('chat-a')).toMatchObject({
-      providerSessionId: activeSession?.providerSessionId,
-      resumeTitle: activeSession?.resumeTitle,
+    expect(JSON.parse(readFileSync(store.configPath, 'utf8'))).toMatchObject({
+      bridge: {
+        activeWeChatUser: {
+          currentConversation: {
+            providerSessionId: activeSession?.providerSessionId,
+            resumeTitle: activeSession?.resumeTitle,
+            chatId: 'chat-a',
+          },
+        },
+      },
     });
   });
 

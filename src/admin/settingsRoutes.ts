@@ -4,7 +4,6 @@ import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { persistBridgeDefaultsToConfigFile } from '../daemon/configPersistence';
 import type { ProviderId } from '../providers/types';
 import type { CurrentConversationStore } from '../session/currentConversationStore';
-import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import type { ActiveWeChatUserStore } from '../storage/userStore';
 
 export type BridgeSettings = {
@@ -19,7 +18,6 @@ export function registerSettingsRoutes(input: {
   users?: ActiveWeChatUserStore;
   channel?: ChannelAdapter;
   conversation?: CurrentConversationStore;
-  sessions?: RuntimeSessionRepository;
 }): void {
   input.app.get('/api/settings', async () => input.defaults);
 
@@ -42,8 +40,7 @@ export function registerSettingsRoutes(input: {
       const targetUsers = activeUser && activeUser.platform === PRIMARY_WEIXIN_PLATFORM ? [activeUser] : [];
       const providerLabel = next.defaultProvider === 'codex' ? 'Codex' : 'Claude Code';
       await Promise.all(targetUsers.map(async (activeUserRecord) => {
-        const persistedConversation = input.sessions?.list()[0] ?? null;
-        const cwd = currentConversation?.cwd ?? persistedConversation?.cwd ?? next.defaultWorkspace;
+        const cwd = currentConversation?.cwd ?? next.defaultWorkspace;
         await input.channel?.sendMessage({
           chatId: activeUserRecord.platformUserId,
           kind: 'status',

@@ -96,8 +96,21 @@ function readProviderCheckedAt(value: unknown): number | null {
   return typeof record.checkedAt === 'number' ? record.checkedAt : null;
 }
 
+function formatCheckedAt(value: number): string {
+  const timestampMs = value >= 1e12 ? value : value * 1000;
+  const date = new Date(timestampMs);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const yyyy = date.getFullYear();
+  const mm = date.getMonth() + 1;
+  const dd = date.getDate();
+  const hh = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${yyyy}/${mm}/${dd} ${hh}:${min}:${ss}`;
+}
+
 function joinProviderDetail(command: string | null, checkedAt: number | null): string | undefined {
-  const parts = [command, checkedAt !== null ? `检查于 ${checkedAt}` : null].filter(Boolean);
+  const parts = [command, checkedAt !== null ? `检查于 ${formatCheckedAt(checkedAt)}` : null].filter(Boolean);
   return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 

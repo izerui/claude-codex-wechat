@@ -591,7 +591,7 @@ describe('App admin interactions', () => {
 
     const selectors = await screen.findAllByDisplayValue('Claude Code');
     fireEvent.change(selectors[0]!, { target: { value: 'codex' } });
-    fireEvent.click((await screen.findAllByText('保存设置')).at(-1)!);
+    fireEvent.click((await screen.findAllByText('保存配置')).at(-1)!);
 
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/settings') && call.method === 'POST')).toBe(true);

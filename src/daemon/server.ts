@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import websocket from '@fastify/websocket';
 import Fastify from 'fastify';
-import Database from 'better-sqlite3';
 import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
 import { registerSettingsRoutes } from '../admin/settingsRoutes';
 import type { ChannelAdapter } from '../channels/types';
@@ -17,17 +16,14 @@ import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nati
 import { MessageRouter } from '../session/messageRouter';
 import { autoAttachProviderSessionForMessage } from '../session/providerAutoAttach';
 import { CurrentConversationStore } from '../session/currentConversationStore';
-import type { BridgeDatabase } from '../storage/db';
-import { ProviderBindingRepository } from '../storage/providerBindingRepository';
-import { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
-import { schemaSql } from '../storage/schema';
+import { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 import { RuntimeUserStore } from '../storage/runtimeUserStore';
 import type { ActiveWeChatUserStore } from '../storage/userStore';
 import { defaultConfigPath, type WeixinConfig, type BridgeConfig } from './config';
 import { BridgeEventHub } from './events';
 
 export function createDaemonServer(options: {
-  db?: BridgeDatabase;
+  db?: unknown;
   channel?: ChannelAdapter;
   providers?: NativeProviderAdapter[];
   activeUserStore?: ActiveWeChatUserStore;
@@ -39,8 +35,6 @@ export function createDaemonServer(options: {
 } = {}) {
   const app = Fastify({ logger: true });
   const events = new BridgeEventHub();
-  const db = options.db ?? new Database(':memory:');
-  db.exec(schemaSql);
   const bridgeDefaults = {
     defaultProvider: options.bridgeDefaults?.defaultProvider ?? 'claude-code',
     defaultWorkspace: options.bridgeDefaults?.defaultWorkspace ?? process.cwd(),
@@ -60,20 +54,13 @@ export function createDaemonServer(options: {
   });
   const activeUserStore = options.activeUserStore
     ?? new RuntimeUserStore(configPath);
-  const providerBindings = new ProviderBindingRepository(db);
-  const runtimeSessions = new RuntimeSessionRepository(db);
+  const lastProviderSessions = new LastProviderSessionStore(configPath);
   const sessionBindingMatch = new Map<string, boolean>();
   const providerAdapters = options.providers ?? createDefaultProviders({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
   });
   let currentConversation = conversation.getCurrent();
-  if (!currentConversation) {
-    const persistedCurrent = runtimeSessions.list()[0] ?? null;
-    if (persistedCurrent) {
-      currentConversation = conversation.setCurrent(persistedCurrent);
-    }
-  }
   if (currentConversation) {
     if (
       currentConversation.providerId === 'claude-code' &&
@@ -134,7 +121,7 @@ export function createDaemonServer(options: {
             user,
             provider,
             conversationStore: conversation,
-            bindingRepository: providerBindings,
+            lastProviderSessions,
             defaultProviderId: bridgeDefaults.defaultProvider,
             defaultCwd: bridgeDefaults.defaultWorkspace,
           });
@@ -144,8 +131,7 @@ export function createDaemonServer(options: {
           }
           return null;
         },
-        sessionRepository: runtimeSessions,
-        bindingRepository: providerBindings,
+        lastProviderSessions,
         events,
         defaults: bridgeDefaults,
       })
@@ -161,7 +147,7 @@ export function createDaemonServer(options: {
     app,
     users: activeUserStore,
     ...(channel ? { channel } : {}),
-    providerBindings,
+    lastProviderSessions,
     conversation,
     defaults: bridgeDefaults,
     providers: providerAdapters,
@@ -181,7 +167,6 @@ export function createDaemonServer(options: {
     configPath,
     users: activeUserStore,
     conversation,
-    sessions: runtimeSessions,
     ...(channel ? { channel } : {}),
   });
 

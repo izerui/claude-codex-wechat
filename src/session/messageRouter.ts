@@ -11,8 +11,7 @@ import { buildSessionBridgeName } from './sessionBridgeTag';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
 import { writeProviderSessionSidecar } from '../providers/sidecarMetadata';
 import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
-import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
-import { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
+import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 
 export class MessageRouter {
   private static readonly TYPING_KEEPALIVE_MS = 5_000;
@@ -28,8 +27,7 @@ export class MessageRouter {
       resolveUser(message: ChannelIncomingMessage): ActiveWeChatUserRecord | null;
       autoAuthorizeUser?(message: ChannelIncomingMessage): ActiveWeChatUserRecord | null;
       autoAttachSession?(message: ChannelIncomingMessage, user: ActiveWeChatUserRecord): Promise<CurrentConversationBinding | null>;
-      sessionRepository?: RuntimeSessionRepository;
-      bindingRepository?: ProviderBindingRepository;
+      lastProviderSessions?: LastProviderSessionStore;
       events?: BridgeEventHub;
       defaults?: { defaultProvider: ProviderId; defaultWorkspace: string };
     },
@@ -89,15 +87,10 @@ export class MessageRouter {
       });
     const provider = this.providers.get(session.providerId);
     if (!provider) throw new Error(`provider_not_registered:${session.providerId}`);
-    this.persistSessionIfNeeded(session);
 
     if (!session.providerSessionId) {
       const resumeTitle = session.resumeTitle ?? sessionResumeTitle;
       this.conversation.update({
-        resumeTitle,
-        lastActivityAt: Date.now(),
-      });
-      this.options.sessionRepository?.update(session.id, {
         resumeTitle,
         lastActivityAt: Date.now(),
       });
@@ -114,12 +107,6 @@ export class MessageRouter {
         status: providerSession.status,
         lastActivityAt: Date.now(),
       }) ?? session;
-      this.options.sessionRepository?.update(updated.id, {
-        providerSessionId: updated.providerSessionId,
-        resumeTitle: updated.resumeTitle,
-        status: updated.status,
-        lastActivityAt: updated.lastActivityAt,
-      });
       if (updated.providerId === 'codex' && updated.providerSessionId && updated.resumeTitle) {
         await upsertCodexSessionIndexEntry({
           sessionId: updated.providerSessionId,
@@ -163,11 +150,6 @@ export class MessageRouter {
             status: event.state.status,
             lastActivityAt: Date.now(),
           }) ?? session;
-          this.options.sessionRepository?.update(updated.id, {
-            providerSessionId: updated.providerSessionId,
-            status: updated.status,
-            lastActivityAt: updated.lastActivityAt,
-          });
           if (updated.providerId === 'codex' && updated.providerSessionId && updated.resumeTitle) {
             await upsertCodexSessionIndexEntry({
               sessionId: updated.providerSessionId,
@@ -280,7 +262,6 @@ export class MessageRouter {
       }
       await this.providers.get(session.providerId)?.stopSession(session.id);
       this.conversation.clear();
-      this.options.sessionRepository?.delete(session.id);
       await this.options.channel.sendMessage({
         chatId,
         kind: 'status',
@@ -311,13 +292,6 @@ export class MessageRouter {
         status: reloaded.status,
         lastActivityAt: Date.now(),
       });
-      if (updated) {
-        this.options.sessionRepository?.update(updated.id, {
-          providerSessionId: updated.providerSessionId,
-          status: updated.status,
-          lastActivityAt: updated.lastActivityAt,
-        });
-      }
       await this.options.channel.sendMessage({
         chatId,
         kind: 'status',
@@ -341,31 +315,9 @@ export class MessageRouter {
     return result;
   }
 
-  private persistSessionIfNeeded(session: CurrentConversationBinding): void {
-    const repository = this.options.sessionRepository;
-    if (!repository || repository.findById(session.id)) return;
-    repository.createWithId({
-      id: session.id,
-      chatId: session.chatId,
-      ownerUserId: session.ownerUserId,
-      providerId: session.providerId,
-      providerSessionId: session.providerSessionId,
-      recoverySource: session.recoverySource,
-      resumeTitle: session.resumeTitle,
-      cwd: session.cwd,
-      status: session.status,
-      createdAt: session.createdAt,
-      lastActivityAt: session.lastActivityAt,
-    });
-  }
-
   private async persistBridgeMetadata(session: CurrentConversationBinding, platformUserId: string): Promise<void> {
     if (!session.providerSessionId || !session.resumeTitle) return;
-    this.options.bindingRepository?.upsert({
-      platform: 'weixin',
-      platformUserId,
-      chatId: session.chatId,
-      providerId: session.providerId,
+    this.options.lastProviderSessions?.set(session.providerId, {
       providerSessionId: session.providerSessionId,
       cwd: session.cwd,
     });

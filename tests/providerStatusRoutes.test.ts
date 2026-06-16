@@ -1,13 +1,9 @@
-import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { createDaemonServer } from '../src/daemon/server';
-import { schemaSql } from '../src/storage/schema';
 
 describe('provider status routes', () => {
   it('returns Claude and Codex detection status', async () => {
-    const db = new Database(':memory:');
-    db.exec(schemaSql);
-    const { app } = createDaemonServer({ db });
+    const { app } = createDaemonServer();
 
     const response = await app.inject({ method: 'GET', url: '/api/providers/status' });
 

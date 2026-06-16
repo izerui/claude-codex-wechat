@@ -236,6 +236,48 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
 
   return (
     <section style={{ marginTop: 24 }}>
+      {settings ? (
+        <section style={styles.settingsSection}>
+          <div style={styles.sectionRow}>
+            <div>
+              <h3 style={styles.inlineTitle}>会话配置</h3>
+              <div style={styles.panelSubtle}>保存后，后续微信消息会按这里的提供方和工作目录继续对话。</div>
+            </div>
+          </div>
+          <div style={styles.formGrid}>
+            <label style={styles.field}>
+              <span>提供方</span>
+              <select
+                value={settings.defaultProvider}
+                onChange={(event) => void changeDefaultProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
+                style={styles.select}
+              >
+                <option value="claude-code">Claude Code</option>
+                <option value="codex">Codex CLI</option>
+              </select>
+            </label>
+            <label style={styles.field}>
+              <span>工作目录</span>
+              <input
+                value={settings.defaultWorkspace}
+                onChange={(event) => setSettings((current) => current ? { ...current, defaultWorkspace: event.target.value } : current)}
+                style={styles.input}
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            style={styles.button}
+            onClick={() => void (settings ? updateSettings(settings).then(async () => {
+              await syncWeixinChannelSettings();
+              await refresh();
+            }) : Promise.resolve())}
+          >
+            保存配置
+          </button>
+        </section>
+      ) : null}
+
       <div style={styles.panelHeader}>
         <div>
           <h2 style={styles.panelTitle}>微信</h2>
@@ -289,48 +331,6 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
         <button type="button" onClick={startQrLogin} disabled={loginState === 'loading_qr'}>
           {loginState === 'loading_qr' ? '正在加载二维码...' : plugin?.status === 'session_timeout' ? '重新扫码登录' : '扫码登录'}
         </button>
-      ) : null}
-
-      {settings ? (
-        <section style={styles.settingsSection}>
-          <div style={styles.sectionRow}>
-            <div>
-              <h3 style={styles.inlineTitle}>会话配置</h3>
-              <div style={styles.panelSubtle}>保存后，下一条微信消息将按这里的提供方和工作目录重新建立会话。</div>
-            </div>
-          </div>
-          <div style={styles.formGrid}>
-            <label style={styles.field}>
-              <span>提供方</span>
-              <select
-                value={settings.defaultProvider}
-                onChange={(event) => void changeDefaultProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
-                style={styles.select}
-              >
-                <option value="claude-code">Claude Code</option>
-                <option value="codex">Codex CLI</option>
-              </select>
-            </label>
-            <label style={styles.field}>
-              <span>工作目录</span>
-              <input
-                value={settings.defaultWorkspace}
-                onChange={(event) => setSettings((current) => current ? { ...current, defaultWorkspace: event.target.value } : current)}
-                style={styles.input}
-              />
-            </label>
-          </div>
-          <button
-            type="button"
-            style={styles.button}
-            onClick={() => void (settings ? updateSettings(settings).then(async () => {
-              await syncWeixinChannelSettings();
-              await refresh();
-            }) : Promise.resolve())}
-          >
-            保存配置
-          </button>
-        </section>
       ) : null}
 
       <h3 style={styles.inlineTitle}>当前活跃用户信息</h3>

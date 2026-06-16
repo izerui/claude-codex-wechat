@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { persistWechatCredentialsToConfigFile } from '../src/daemon/configPersistence';
+import { persistProviderCommandsToConfigFile, persistWechatCredentialsToConfigFile } from '../src/daemon/configPersistence';
 
 const tempDirs: string[] = [];
 
@@ -40,7 +40,6 @@ describe('config persistence', () => {
     tempDirs.push(dir);
     const configPath = join(dir, 'config.json');
     await writeFile(configPath, JSON.stringify({
-      databasePath: '/tmp/bridge.sqlite',
       providers: {
         claude: { command: '/opt/bin/claude' },
         codex: { command: '/opt/bin/codex' },
@@ -61,7 +60,6 @@ describe('config persistence', () => {
     });
 
     expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({
-      databasePath: '/tmp/bridge.sqlite',
       providers: {
         claude: { command: '/opt/bin/claude' },
         codex: { command: '/opt/bin/codex' },
@@ -71,6 +69,27 @@ describe('config persistence', () => {
         baseUrl: 'https://ilinkai.weixin.qq.com',
         token: 'wx-token-1',
         accountId: 'wx-account-1',
+      },
+    });
+  });
+
+  it('persists provider command paths into formal config', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'config-persistence-'));
+    tempDirs.push(dir);
+    const configPath = join(dir, 'config.json');
+
+    await persistProviderCommandsToConfigFile({
+      configPath,
+      providers: {
+        claude: { command: '/opt/homebrew/bin/claude' },
+        codex: { command: '/opt/homebrew/bin/codex' },
+      },
+    });
+
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({
+      providers: {
+        claude: { command: '/opt/homebrew/bin/claude' },
+        codex: { command: '/opt/homebrew/bin/codex' },
       },
     });
   });

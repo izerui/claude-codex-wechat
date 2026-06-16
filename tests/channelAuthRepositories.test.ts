@@ -8,15 +8,8 @@ import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { PermissionRouter } from '../src/permissions/permissionRouter';
 import { SessionManager } from '../src/session/sessionManager';
 import { MessageRouter } from '../src/session/messageRouter';
-import { schemaSql } from '../src/storage/schema';
 import { RuntimeUserStore } from '../src/storage/runtimeUserStore';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
-
-function createMemoryDb() {
-  const db = new Database(':memory:');
-  db.exec(schemaSql);
-  return db;
-}
 
 describe('channel auth repositories', () => {
   it('stores the current active wechat user as a single record', () => {
@@ -91,10 +84,8 @@ describe('channel auth repositories', () => {
     process.env.BRIDGE_CONFIG = configPath;
 
     try {
-      const db = createMemoryDb();
       const channel = new MockChannelAdapter();
       const { app } = createDaemonServer({
-        db,
         channel,
         providers: [],
       });

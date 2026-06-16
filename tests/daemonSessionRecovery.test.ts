@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { mkdtempSync } from 'node:fs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,24 +7,16 @@ import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { createDaemonServer } from '../src/daemon/server';
 import { ClaudeHeadlessRunner, type ClaudeProcessRunner } from '../src/providers/claude-code/claudeHeadlessRunner';
 import { ClaudeCodeProvider } from '../src/providers/claude-code/claudeProvider';
-import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
-import { schemaSql } from '../src/storage/schema';
 import { PRIMARY_WEIXIN_PLATFORM } from '../src/channels/platforms';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
-
-function memoryDb() {
-  const db = new Database(':memory:');
-  db.exec(schemaSql);
-  return db;
-}
 
 describe('daemon provider session recovery', () => {
   it('resumes the same persisted Claude session after daemon restart', async () => {
     const previousHome = process.env.HOME;
     process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-daemon-home-`);
-    const db = memoryDb();
     try {
-      const activeUserStore = createRuntimeUserStore('bridge-daemon-recovery-').activeUserStore;
+      const store = createRuntimeUserStore('bridge-daemon-recovery-');
+      const activeUserStore = store.activeUserStore;
       activeUserStore.setActiveUser({
         platform: PRIMARY_WEIXIN_PLATFORM,
         platformUserId: 'wx_user_1',
@@ -49,10 +40,10 @@ describe('daemon provider session recovery', () => {
       });
       const firstChannel = new MockChannelAdapter();
       const firstServer = createDaemonServer({
-        db,
         channel: firstChannel,
         providers: [new ClaudeCodeProvider({ runner: firstRunner })],
         activeUserStore,
+        configPath: store.configPath,
       });
 
       await firstChannel.emitIncoming({
@@ -64,13 +55,19 @@ describe('daemon provider session recovery', () => {
         timestamp: 1,
       });
 
-      const persistedBeforeRestart = new RuntimeSessionRepository(db).list();
-      expect(persistedBeforeRestart).toHaveLength(1);
-      expect(persistedBeforeRestart[0]).toMatchObject({
-        chatId: 'chat-a',
-        providerId: 'claude-code',
-        providerSessionId: 'claude-session-1',
-        resumeTitle: 'first · 微信 · wx_user_1',
+      const persistedBeforeRestart = JSON.parse(readFileSync(store.configPath, 'utf8'));
+      expect(persistedBeforeRestart).toMatchObject({
+        bridge: {
+          activeWeChatUser: {
+            platformUserId: 'wx_user_1',
+            currentConversation: {
+              chatId: 'chat-a',
+              providerId: 'claude-code',
+              providerSessionId: 'claude-session-1',
+              resumeTitle: 'first · 微信 · wx_user_1',
+            },
+          },
+        },
       });
 
       await firstServer.app.close();
@@ -92,10 +89,10 @@ describe('daemon provider session recovery', () => {
       });
       const secondChannel = new MockChannelAdapter();
       const secondServer = createDaemonServer({
-        db,
         channel: secondChannel,
         providers: [new ClaudeCodeProvider({ runner: secondRunner })],
         activeUserStore,
+        configPath: store.configPath,
       });
 
       await secondChannel.emitIncoming({
@@ -118,11 +115,15 @@ describe('daemon provider session recovery', () => {
         'claude-session-1',
         'second',
       ]);
-      expect(new RuntimeSessionRepository(db).list()).toHaveLength(1);
-      expect(new RuntimeSessionRepository(db).getActiveByChat('chat-a')).toMatchObject({
-        id: persistedBeforeRestart[0]!.id,
-        providerSessionId: 'claude-session-1',
-        resumeTitle: 'first · 微信 · wx_user_1',
+      expect(JSON.parse(readFileSync(store.configPath, 'utf8'))).toMatchObject({
+        bridge: {
+          activeWeChatUser: {
+            currentConversation: {
+              providerSessionId: 'claude-session-1',
+              resumeTitle: 'first · 微信 · wx_user_1',
+            },
+          },
+        },
       });
 
       await secondServer.app.close();
@@ -134,7 +135,6 @@ describe('daemon provider session recovery', () => {
   it('heals legacy persisted WeChat Claude sessions with missing native resume title metadata on restart', async () => {
     const previousHome = process.env.HOME;
     process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-daemon-home-`);
-    const db = memoryDb();
     try {
       const store = createRuntimeUserStore('bridge-daemon-legacy-');
       const user = seedRuntimeUserStore(store, {
@@ -142,21 +142,27 @@ describe('daemon provider session recovery', () => {
         platformUserId: 'wx_user_legacy',
         role: 'user',
       });
-      const runtimeSessions = new RuntimeSessionRepository(db);
       const resumeTitle = '微信 · wx_user_legacy · [claude-codex-wechat:legacyprobe]';
-      runtimeSessions.createWithId({
-        id: 'bs_legacy',
-        chatId: 'chat-legacy',
-        ownerUserId: user.id,
-        providerId: 'claude-code',
-        providerSessionId: 'legacy-session-1',
-        recoverySource: 'runtime',
-        resumeTitle,
-        cwd: '/tmp/project',
-        status: 'idle',
-        createdAt: 1,
-        lastActivityAt: 1,
-      });
+      writeFileSync(store.configPath, JSON.stringify({
+        bridge: {
+          activeWeChatUser: {
+            ...user,
+            currentConversation: {
+              id: 'bs_legacy',
+              chatId: 'chat-legacy',
+              ownerUserId: user.id,
+              providerId: 'claude-code',
+              providerSessionId: 'legacy-session-1',
+              recoverySource: 'runtime',
+              resumeTitle,
+              cwd: '/tmp/project',
+              status: 'idle',
+              createdAt: 1,
+              lastActivityAt: 1,
+            },
+          },
+        },
+      }, null, 2));
 
       const projectDir = join(process.env.HOME, '.claude', 'projects', '-tmp-project');
       mkdirSync(projectDir, { recursive: true });
@@ -167,10 +173,10 @@ describe('daemon provider session recovery', () => {
       ].join('\n'));
 
       const server = createDaemonServer({
-        db,
         channel: new MockChannelAdapter(),
         providers: [new ClaudeCodeProvider({ runner: new ClaudeHeadlessRunner() })],
         activeUserStore: store.activeUserStore,
+        configPath: store.configPath,
       });
 
       await server.app.ready();

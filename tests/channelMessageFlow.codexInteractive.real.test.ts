@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -9,20 +8,12 @@ import { createDaemonServer } from '../src/daemon/server';
 import { CodexInteractiveRunner } from '../src/providers/codex/codexInteractiveRunner';
 import { CodexProvider } from '../src/providers/codex/codexProvider';
 import { findRecoverableCodexSessionPath } from '../src/providers/codex/nativeSessions';
-import { schemaSql } from '../src/storage/schema';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
 
 const maybeReal = process.env.BRIDGE_REAL_CODEX === '1' ? describe : describe.skip;
 
-function memoryDb() {
-  const db = new Database(':memory:');
-  db.exec(schemaSql);
-  return db;
-}
-
 maybeReal('channel message flow real Codex interactive', () => {
   it('creates a real resume-visible Codex session from a simulated WeChat message', async () => {
-    const db = memoryDb();
     const store = createRuntimeUserStore('bridge-real-codex-active-wechat-user-');
     const activeUserStore = store.activeUserStore;
     seedRuntimeUserStore(store, {
@@ -34,7 +25,6 @@ maybeReal('channel message flow real Codex interactive', () => {
     const channel = new MockChannelAdapter();
     const provider = new CodexProvider({ runner: new CodexInteractiveRunner() });
     const { app, sessions } = createDaemonServer({
-      db,
       channel,
       providers: [provider],
       activeUserStore: activeUserStore,

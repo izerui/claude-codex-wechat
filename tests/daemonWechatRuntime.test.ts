@@ -1,18 +1,10 @@
 import Fastify from 'fastify';
-import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDaemonServer } from '../src/daemon/server';
 import { PermissionRouter } from '../src/permissions/permissionRouter';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
-import { schemaSql } from '../src/storage/schema';
 import { WeixinDirectAdapter } from '../src/channels/weixin-direct/adapter';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
-
-function memoryDb() {
-  const db = new Database(':memory:');
-  db.exec(schemaSql);
-  return db;
-}
 
 function seededUsers(platformUserId = 'wx_user_1') {
   const store = createRuntimeUserStore('bridge-daemon-active-wechat-user-');
@@ -26,9 +18,7 @@ function seededUsers(platformUserId = 'wx_user_1') {
 
 describe('daemon WeChat runtime channel', () => {
   it('exposes WeChat plugin status for the admin UI', async () => {
-    const db = memoryDb();
     const { app } = createDaemonServer({
-      db,
       wechat: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'secret-token', accountId: 'wx-account-1' },
       activeUserStore: createRuntimeUserStore('bridge-daemon-wechat-status-').activeUserStore,
     });
@@ -60,9 +50,7 @@ describe('daemon WeChat runtime channel', () => {
       }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
-    const db = memoryDb();
     const { app } = createDaemonServer({
-      db,
       wechat: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'secret-token', accountId: 'wx-account-1' },
       activeUserStore: createRuntimeUserStore('bridge-daemon-wechat-timeout-').activeUserStore,
     });
@@ -112,9 +100,7 @@ describe('daemon WeChat runtime channel', () => {
         },
       }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
-    const db = memoryDb();
     const { app } = createDaemonServer({
-      db,
       wechat: { enabled: false },
       activeUserStore: createRuntimeUserStore('bridge-daemon-wechat-login-').activeUserStore,
     });
@@ -136,7 +122,6 @@ describe('daemon WeChat runtime channel', () => {
   });
 
   it('can drive provider chat from weixin-direct polling without inbound webhook posts', async () => {
-    const db = memoryDb();
     const activeUserStore = seededUsers();
 
     const api = {
@@ -163,7 +148,6 @@ describe('daemon WeChat runtime channel', () => {
     const channel = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
     const permissions = new PermissionRouter();
     const { app } = createDaemonServer({
-      db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
       activeUserStore: activeUserStore,
@@ -211,12 +195,10 @@ describe('daemon WeChat runtime channel', () => {
       }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
-    const db = memoryDb();
     const activeUserStore = seededUsers();
 
     const permissions = new PermissionRouter();
     const { app } = createDaemonServer({
-      db,
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: {
         enabled: true,
@@ -267,10 +249,8 @@ describe('daemon WeChat runtime channel', () => {
       }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
-    const db = memoryDb();
     const activeUserStore = createRuntimeUserStore('bridge-daemon-wechat-auto-auth-').activeUserStore;
     const { app } = createDaemonServer({
-      db,
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: {
         enabled: true,
@@ -320,10 +300,8 @@ describe('daemon WeChat runtime channel', () => {
       }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock as typeof fetch);
 
-    const db = memoryDb();
     const activeUserStore = createRuntimeUserStore('bridge-daemon-wechat-late-enable-').activeUserStore;
     const { app } = createDaemonServer({
-      db,
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: { enabled: false },
       activeUserStore,

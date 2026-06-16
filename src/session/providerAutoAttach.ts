@@ -4,8 +4,8 @@ import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
 import { syncCodexThreadForResume } from '../providers/codex/nativeThreads';
 import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate } from '../providers/types';
 import type { CurrentConversationBinding, CurrentConversationStore } from './currentConversationStore';
-import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
+import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 import { buildSessionBridgeName } from './sessionBridgeTag';
 
 export type AutoAttachSelection = {
@@ -35,13 +35,11 @@ export async function selectBestRecoverableSession(input: {
   targetCwd: string;
   targetPlatformUserId?: string;
   targetChatId?: string;
-  bindingRepository?: ProviderBindingRepository;
+  lastProviderSessions?: LastProviderSessionStore;
   currentSession?: CurrentConversationBinding | null;
   allowHeuristicMatch?: boolean;
 }): Promise<AutoAttachSelection | null> {
-  const persistedBinding = input.targetChatId
-    ? input.bindingRepository?.findByChat('weixin', input.targetChatId, input.providerId)
-    : null;
+  const persistedBinding = input.lastProviderSessions?.get(input.providerId) ?? null;
   if (persistedBinding) {
     const candidates = await listUnattachedRecoverableSessions({
       provider: input.provider,
@@ -88,7 +86,7 @@ export async function selectBestRecoverableSession(input: {
 
 export async function attachProviderSessionToBridge(input: {
   conversationStore: CurrentConversationStore;
-  bindingRepository?: ProviderBindingRepository;
+  lastProviderSessions?: LastProviderSessionStore;
   provider: NativeProviderAdapter;
   user: ActiveWeChatUserRecord;
   providerId: ProviderId;
@@ -120,11 +118,7 @@ export async function attachProviderSessionToBridge(input: {
     status: attached?.status ?? session.status,
     lastActivityAt: Date.now(),
   }) ?? session;
-  input.bindingRepository?.upsert({
-    platform: 'weixin',
-    platformUserId: input.user.platformUserId,
-    chatId: input.chatId,
-    providerId: input.providerId,
+  input.lastProviderSessions?.set(input.providerId, {
     providerSessionId: updated.providerSessionId ?? input.providerSessionId,
     cwd: updated.cwd,
   });
@@ -159,7 +153,7 @@ export async function autoAttachProviderSessionForMessage(input: {
   user: ActiveWeChatUserRecord;
   provider: NativeProviderAdapter;
   conversationStore: CurrentConversationStore;
-  bindingRepository?: ProviderBindingRepository;
+  lastProviderSessions?: LastProviderSessionStore;
   defaultProviderId: ProviderId;
   defaultCwd: string;
 }): Promise<{ session: CurrentConversationBinding; matchedBinding: boolean; bindingSource: CurrentConversationBinding['recoverySource'] } | null> {
@@ -169,14 +163,14 @@ export async function autoAttachProviderSessionForMessage(input: {
     targetCwd: input.user.currentConversation?.cwd ?? input.defaultCwd,
     targetPlatformUserId: input.user.platformUserId,
     targetChatId: input.message.chatId,
-    bindingRepository: input.bindingRepository,
+    lastProviderSessions: input.lastProviderSessions,
     currentSession: input.conversationStore.getCurrent(),
     allowHeuristicMatch: false,
   });
   if (!selection) return null;
   const session = await attachProviderSessionToBridge({
     conversationStore: input.conversationStore,
-    bindingRepository: input.bindingRepository,
+    lastProviderSessions: input.lastProviderSessions,
     provider: input.provider,
     user: input.user,
     providerId: input.defaultProviderId,

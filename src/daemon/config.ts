@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 export type WeixinConfig = {
   enabled: boolean;
@@ -16,34 +16,9 @@ export type ProviderCommandConfig = {
 export type BridgeDefaultsConfig = {
   defaultProvider?: 'claude-code' | 'codex';
   defaultWorkspace?: string;
-  activeWeChatUser?: {
-    id?: string;
-    platform?: string;
-    platformUserId?: string;
-    displayName?: string;
-    role?: 'admin' | 'user';
-    provider?: 'claude-code' | 'codex';
-    cwd?: string;
-    createdAt?: number;
-    updatedAt?: number;
-  };
-  currentConversationBinding?: {
-    id?: string;
-    chatId?: string;
-    ownerUserId?: string;
-    providerId?: 'claude-code' | 'codex';
-    providerSessionId?: string;
-    recoverySource?: 'runtime' | 'manual_attach' | 'binding_table' | 'sidecar' | 'heuristic';
-    resumeTitle?: string;
-    cwd?: string;
-    status?: 'starting' | 'idle' | 'running' | 'waiting_permission' | 'errored' | 'closed';
-    createdAt?: number;
-    lastActivityAt?: number;
-  };
 };
 
 export type BridgeConfig = {
-  databasePath?: string;
   wechat?: WeixinConfig;
   bridge?: BridgeDefaultsConfig;
   providers?: {
@@ -73,17 +48,10 @@ export function normalizeBridgeConfigForTest(
 function normalizeBridgeConfig(raw: unknown, env: NodeJS.ProcessEnv, path: string): BridgeConfig {
   const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
   return {
-    databasePath: typeof record.databasePath === 'string' && record.databasePath
-      ? record.databasePath
-      : defaultDatabasePathForConfig(path),
     wechat: normalizeWechatConfig(record.wechat, env),
     bridge: normalizeBridgeDefaultsConfig(record.bridge),
     providers: normalizeProvidersConfig(record.providers, env),
   };
-}
-
-function defaultDatabasePathForConfig(configPath: string): string {
-  return join(dirname(configPath), 'bridge.sqlite');
 }
 
 function normalizeProvidersConfig(raw: unknown, env: NodeJS.ProcessEnv): BridgeConfig['providers'] {

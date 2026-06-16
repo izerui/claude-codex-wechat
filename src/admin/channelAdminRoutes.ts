@@ -6,7 +6,7 @@ import type { WeixinConfig } from '../daemon/config';
 import { defaultConfigPath } from '../daemon/config';
 import { persistWechatCredentialsToConfigFile } from '../daemon/configPersistence';
 import type { BridgeEventHub } from '../daemon/events';
-import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
+import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 import type { ActiveWeChatUserStore } from '../storage/userStore';
 import type { CurrentConversationStore } from '../session/currentConversationStore';
 import type { NativeProviderAdapter } from '../providers/types';
@@ -16,7 +16,7 @@ import { attachProviderSessionToBridge, listUnattachedRecoverableSessions, selec
 
 export function registerChannelAdminRoutes(input: {
   app: FastifyInstance;
-  providerBindings?: ProviderBindingRepository;
+  lastProviderSessions?: LastProviderSessionStore;
   conversation?: CurrentConversationStore;
   defaults?: { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string };
   providers?: NativeProviderAdapter[];
@@ -175,7 +175,7 @@ export function registerChannelAdminRoutes(input: {
       : undefined;
     const attached = await attachProviderSessionToBridge({
       conversationStore: input.conversation,
-      bindingRepository: input.providerBindings,
+      lastProviderSessions: input.lastProviderSessions,
       provider,
       user,
       providerId: request.body.providerId === 'codex' ? 'codex' : 'claude-code',
@@ -234,7 +234,7 @@ export function registerChannelAdminRoutes(input: {
       targetCwd,
       targetPlatformUserId: user.platformUserId,
       targetChatId: request.body.chatId ?? user.platformUserId,
-      bindingRepository: input.providerBindings,
+      lastProviderSessions: input.lastProviderSessions,
       currentSession: input.conversation.getCurrent(),
     });
     if (!selection) {
@@ -242,7 +242,7 @@ export function registerChannelAdminRoutes(input: {
     }
     const attached = await attachProviderSessionToBridge({
       conversationStore: input.conversation,
-      bindingRepository: input.providerBindings,
+      lastProviderSessions: input.lastProviderSessions,
       provider,
       user,
       providerId: request.body.providerId === 'codex' ? 'codex' : 'claude-code',
@@ -272,7 +272,7 @@ export function registerChannelAdminRoutes(input: {
     const providerNativePath = await resolveProviderNativePath(session.providerId, session.providerSessionId);
     const providerResumeTitleSynced = await resolveProviderResumeTitleSynced(session);
     const providerResumeHistorySynced = await resolveProviderResumeHistorySynced(session);
-    const binding = input.providerBindings?.findByChat('weixin', session.chatId, session.providerId);
+    const binding = input.lastProviderSessions?.get(session.providerId);
     return {
       ...session,
       preferredResumeMode: buildPreferredResumeMode(session.providerId, session.resumeTitle),
@@ -282,7 +282,6 @@ export function registerChannelAdminRoutes(input: {
       bindingMatched: input.getSessionBindingMatch?.(session.id) === true,
       bindingSource: session.recoverySource,
       ...(binding ? {
-        bindingPlatformUserId: binding.platformUserId,
         bindingProviderSessionId: binding.providerSessionId,
         bindingUpdatedAt: binding.updatedAt,
       } : {}),

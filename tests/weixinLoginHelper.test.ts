@@ -58,7 +58,6 @@ describe('weixin login helper', () => {
     tempDirs.push(dir);
     const configPath = join(dir, 'config.json');
     await writeFile(configPath, JSON.stringify({
-      databasePath: '/tmp/bridge.sqlite',
       providers: {
         claude: { command: '/opt/bin/claude' },
         codex: { command: '/opt/bin/codex' },
@@ -79,7 +78,6 @@ describe('weixin login helper', () => {
     });
 
     expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({
-      databasePath: '/tmp/bridge.sqlite',
       providers: {
         claude: { command: '/opt/bin/claude' },
         codex: { command: '/opt/bin/codex' },

@@ -21,7 +21,6 @@ export type CurrentConversationBinding = {
 type RuntimeStateFile = {
   bridge?: {
     activeWeChatUser?: ActiveWeChatUserRecord;
-    currentConversationBinding?: CurrentConversationBinding;
   };
 };
 
@@ -32,8 +31,7 @@ export class CurrentConversationStore {
   ) {}
 
   getCurrent(): CurrentConversationBinding | null {
-    const bridge = this.readState().bridge;
-    return bridge?.activeWeChatUser?.currentConversation ?? bridge?.currentConversationBinding ?? null;
+    return this.readState().bridge?.activeWeChatUser?.currentConversation ?? null;
   }
 
   getActiveSession(chatId: string): CurrentConversationBinding | null {
@@ -90,7 +88,6 @@ export class CurrentConversationStore {
     state.bridge = {
       ...(state.bridge ?? {}),
       activeWeChatUser: activeWeChatUser ? { ...activeWeChatUser, currentConversation: undefined } : undefined,
-      currentConversationBinding: undefined,
     };
     this.writeState(state);
   }
@@ -106,8 +103,17 @@ export class CurrentConversationStore {
     const activeWeChatUser = state.bridge?.activeWeChatUser;
     state.bridge = {
       ...(state.bridge ?? {}),
-      activeWeChatUser: activeWeChatUser ? { ...activeWeChatUser, currentConversation: record } : undefined,
-      currentConversationBinding: activeWeChatUser ? undefined : record,
+      activeWeChatUser: activeWeChatUser
+        ? { ...activeWeChatUser, currentConversation: record }
+        : {
+            id: `user_${nanoid(10)}`,
+            platform: 'weixin',
+            platformUserId: record.chatId,
+            role: 'user',
+            createdAt: record.createdAt,
+            updatedAt: record.lastActivityAt,
+            currentConversation: record,
+          },
     };
     this.writeState(state);
   }

@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { tmpdir } from 'node:os';
@@ -11,28 +10,20 @@ import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { CodexInteractiveRunner } from '../src/providers/codex/codexInteractiveRunner';
 import { CodexProvider } from '../src/providers/codex/codexProvider';
 import { CodexAppServerClient } from '../src/providers/codex/codexAppServerClient';
-import { ProviderBindingRepository } from '../src/storage/providerBindingRepository';
-import { RuntimeSessionRepository } from '../src/storage/runtimeSessionRepository';
-import { schemaSql } from '../src/storage/schema';
+import { LastProviderSessionStore } from '../src/storage/lastProviderSessionStore';
 import { PRIMARY_WEIXIN_PLATFORM } from '../src/channels/platforms';
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../src/providers/types';
 import type { ProviderSessionCandidate } from '../src/providers/types';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
 
-function memoryDb() {
-  const db = new Database(':memory:');
-  db.exec(schemaSql);
-  return db;
-}
-
-function seededUsers(platformUserId = 'wx_user_1', input?: { defaultProvider?: 'claude-code' | 'codex'; defaultCwd?: string }) {
+function seededUsers(platformUserId = 'wx_user_1') {
   const store = createRuntimeUserStore('bridge-message-flow-active-wechat-user-');
   seedRuntimeUserStore(store, {
     platform: PRIMARY_WEIXIN_PLATFORM,
     platformUserId,
     role: 'user',
   });
-  return store.activeUserStore;
+  return { activeUserStore: store.activeUserStore, configPath: store.configPath };
 }
 
 class NoScanAutoAttachProvider implements NativeProviderAdapter {
@@ -72,12 +63,10 @@ class NoScanAutoAttachProvider implements NativeProviderAdapter {
 
 describe('channel message flow', () => {
   it('auto-authorizes unauthorized incoming user by default', async () => {
-    const db = memoryDb();
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
     const { app, sessions, activeUserStore } = createDaemonServer({
-      db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
       activeUserStore: createRuntimeUserStore('bridge-message-flow-auto-').activeUserStore,
@@ -104,7 +93,6 @@ describe('channel message flow', () => {
   });
 
   it('accepts subsequent messages from an already active wechat user', async () => {
-    const db = memoryDb();
     const store = createRuntimeUserStore('bridge-message-flow-existing-');
     const activeUserStore = store.activeUserStore;
     seedRuntimeUserStore(store, { platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user' });
@@ -112,10 +100,10 @@ describe('channel message flow', () => {
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
     const { app, permissions, sessions } = createDaemonServer({
-      db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
       activeUserStore: activeUserStore,
+      configPath: store.configPath,
     });
 
     await channel.emitIncoming({
@@ -133,15 +121,19 @@ describe('channel message flow', () => {
       { kind: 'text', text: '收到：run tests' },
       { kind: 'permission_request', text: expect.stringContaining('/approve pr_fake_1') },
     ]);
-    expect(new RuntimeSessionRepository(db).list()).toEqual([
-      expect.objectContaining({
-        chatId: 'chat-a',
-        ownerUserId: expect.any(String),
-        providerId: 'claude-code',
-        providerSessionId: expect.stringContaining('claude-code_fake_'),
-        recoverySource: 'runtime',
-      }),
-    ]);
+    expect(JSON.parse(readFileSync(store.configPath, 'utf8'))).toMatchObject({
+      bridge: {
+        activeWeChatUser: {
+          platformUserId: 'wx_user_1',
+          currentConversation: {
+            chatId: 'chat-a',
+            providerId: 'claude-code',
+            providerSessionId: expect.stringContaining('claude-code_fake_'),
+            recoverySource: 'runtime',
+          },
+        },
+      },
+    });
     expect(permissions.getPendingRequests()).toEqual([
       expect.objectContaining({ id: 'pr_fake_1', bridgeSessionId: sessions.listSessions()[0].id }),
     ]);
@@ -159,7 +151,6 @@ describe('channel message flow', () => {
   });
 
   it('starts a new session after restart when no persisted binding exists', async () => {
-    const db = memoryDb();
     const store = createRuntimeUserStore('bridge-message-flow-restart-');
     const activeUserStore = store.activeUserStore;
     seedRuntimeUserStore(store, {
@@ -171,10 +162,10 @@ describe('channel message flow', () => {
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
     const { app, sessions } = createDaemonServer({
-      db,
       channel,
       providers: [new NoScanAutoAttachProvider()],
       activeUserStore: activeUserStore,
+      configPath: store.configPath,
     });
 
     await channel.emitIncoming({
@@ -191,10 +182,9 @@ describe('channel message flow', () => {
       providerSessionId: expect.stringContaining('claude-code_fresh_'),
       recoverySource: 'runtime',
     });
-    expect(new ProviderBindingRepository(db).findByChat(PRIMARY_WEIXIN_PLATFORM, 'chat-fresh', 'claude-code')).toMatchObject({
-      chatId: 'chat-fresh',
-      providerId: 'claude-code',
+    expect(new LastProviderSessionStore(store.configPath).get('claude-code')).toMatchObject({
       providerSessionId: expect.stringContaining('claude-code_fresh_'),
+      cwd: process.cwd(),
     });
     expect(sent).toEqual([{ kind: 'text', text: '收到：hello after restart' }]);
 
@@ -202,7 +192,6 @@ describe('channel message flow', () => {
   });
 
   it('switches provider and reports status through incoming commands', async () => {
-    const db = memoryDb();
     const store = createRuntimeUserStore('bridge-message-flow-switch-');
     const activeUserStore = store.activeUserStore;
     seedRuntimeUserStore(store, { platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user' });
@@ -210,7 +199,6 @@ describe('channel message flow', () => {
     const sent: string[] = [];
     channel.onSent((message) => sent.push(message.text));
     const { app, sessions } = createDaemonServer({
-      db,
       channel,
       providers: [new FakeProviderAdapter('claude-code'), new FakeProviderAdapter('codex')],
       activeUserStore: activeUserStore,
@@ -241,17 +229,16 @@ describe('channel message flow', () => {
   });
 
   it('reloads the active provider session through an incoming command', async () => {
-    const db = memoryDb();
-    const activeUserStore = seededUsers();
+    const { activeUserStore, configPath } = seededUsers();
     const channel = new MockChannelAdapter();
     const sent: string[] = [];
     channel.onSent((message) => sent.push(message.text));
     const provider = new FakeProviderAdapter('claude-code');
     const { app, sessions } = createDaemonServer({
-      db,
       channel,
       providers: [provider],
       activeUserStore: activeUserStore,
+      configPath,
     });
 
     await channel.emitIncoming({
@@ -286,8 +273,7 @@ describe('channel message flow', () => {
     const codexHome = mkdtempSync(`${tmpdir()}/bridge-codex-home-`);
     process.env.CODEX_HOME = codexHome;
     try {
-      const db = memoryDb();
-      const activeUserStore = seededUsers('wx_user_1', { defaultProvider: 'codex' });
+      const { activeUserStore, configPath } = seededUsers('wx_user_1');
       const channel = new MockChannelAdapter();
       const notificationHandlers = new Map<string, (params: unknown) => void>();
       vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
@@ -317,10 +303,10 @@ describe('channel message flow', () => {
         runner: new CodexInteractiveRunner({ command: 'codex' }),
       });
       const { app, sessions } = createDaemonServer({
-        db,
         channel,
         providers: [provider],
         activeUserStore: activeUserStore,
+        configPath,
         bridgeDefaults: {
           defaultProvider: 'codex',
           defaultWorkspace: '/tmp/project',
@@ -351,13 +337,11 @@ describe('channel message flow', () => {
   });
 
   it('auto-authorizes first-contact weixin users by default', async () => {
-    const db = memoryDb();
     const activeUserStore = createRuntimeUserStore('bridge-message-flow-auto-weixin-').activeUserStore;
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
     const { app, sessions } = createDaemonServer({
-      db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
       activeUserStore,
@@ -387,7 +371,6 @@ describe('channel message flow', () => {
   it('creates first-run WeChat Claude sessions with native resume metadata already synced', async () => {
     const previousHome = process.env.HOME;
     process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-wechat-claude-home-`);
-    const db = memoryDb();
     try {
       const sessionId = 'claude-native-wechat-1';
       const projectDir = join(process.env.HOME, '.claude', 'projects', '-tmp-project');
@@ -409,7 +392,6 @@ describe('channel message flow', () => {
       });
 
       const { app } = createDaemonServer({
-        db,
         channel,
         providers: [provider],
       });
@@ -439,16 +421,15 @@ describe('channel message flow', () => {
   });
 
   it('starts a fresh provider session on the first authorized message when no binding exists', async () => {
-    const db = memoryDb();
-    const activeUserStore = seededUsers();
+    const { activeUserStore, configPath } = seededUsers();
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
     const { app, sessions } = createDaemonServer({
-      db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
       activeUserStore: activeUserStore,
+      configPath,
     });
 
     await channel.emitIncoming({
@@ -473,23 +454,20 @@ describe('channel message flow', () => {
   });
 
   it('prefers the persisted provider binding over generic recoverable matching', async () => {
-    const db = memoryDb();
-    const activeUserStore = seededUsers();
-    new ProviderBindingRepository(db).upsert({
-      platform: PRIMARY_WEIXIN_PLATFORM,
-      platformUserId: 'wx_user_1',
-      chatId: 'chat-bound',
-      providerId: 'claude-code',
+    const store = createRuntimeUserStore('bridge-message-flow-bound-');
+    seedRuntimeUserStore(store, { platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user' });
+    const activeUserStore = store.activeUserStore;
+    new LastProviderSessionStore(store.configPath).set('claude-code', {
       providerSessionId: 'claude-session-bound',
       cwd: '/tmp/project',
     });
 
     const channel = new MockChannelAdapter();
     const { app, sessions } = createDaemonServer({
-      db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
       activeUserStore: activeUserStore,
+      configPath: store.configPath,
     });
 
     await channel.emitIncoming({
@@ -504,34 +482,36 @@ describe('channel message flow', () => {
     expect(sessions.getActiveSession('chat-bound')).toMatchObject({
       providerSessionId: 'claude-session-bound',
     });
-    expect(new RuntimeSessionRepository(db).list()).toEqual([
-      expect.objectContaining({
-        chatId: 'chat-bound',
-        providerSessionId: 'claude-session-bound',
-      }),
-    ]);
+    expect(JSON.parse(readFileSync(store.configPath, 'utf8'))).toMatchObject({
+      bridge: {
+        activeWeChatUser: {
+          platformUserId: 'wx_user_1',
+          currentConversation: {
+            chatId: 'chat-bound',
+            providerSessionId: 'claude-session-bound',
+          },
+        },
+      },
+    });
 
     await app.close();
   });
 
   it('re-attaches the persisted provider binding on the first authorized message after restart', async () => {
-    const db = memoryDb();
-    const activeUserStore = seededUsers();
-    new ProviderBindingRepository(db).upsert({
-      platform: PRIMARY_WEIXIN_PLATFORM,
-      platformUserId: 'wx_user_1',
-      chatId: 'chat-restart-bound',
-      providerId: 'claude-code',
+    const store = createRuntimeUserStore('bridge-message-flow-restart-bound-');
+    seedRuntimeUserStore(store, { platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user' });
+    const activeUserStore = store.activeUserStore;
+    new LastProviderSessionStore(store.configPath).set('claude-code', {
       providerSessionId: 'claude-session-bound',
       cwd: '/tmp/project',
     });
 
     const channel = new MockChannelAdapter();
     const { app, sessions } = createDaemonServer({
-      db,
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
       activeUserStore: activeUserStore,
+      configPath: store.configPath,
     });
 
     await channel.emitIncoming({
