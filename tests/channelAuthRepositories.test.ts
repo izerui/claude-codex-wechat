@@ -26,14 +26,11 @@ describe('channel auth repositories', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project',
     });
 
     expect(activeUserStore.isActiveUser('weixin', 'wx_user_1')).toMatchObject({
       id: created.id,
       platformUserId: 'wx_user_1',
-      provider: 'claude-code',
     });
     expect(activeUserStore.getActiveUser()).toMatchObject({ platformUserId: 'wx_user_1' });
   });
@@ -59,8 +56,6 @@ describe('channel auth repositories', () => {
           platformUserId: message.user.id,
           displayName: message.user.displayName,
           role: 'user',
-          provider: 'claude-code',
-          cwd: '/tmp/project',
         });
       },
     });
@@ -85,8 +80,6 @@ describe('channel auth repositories', () => {
     expect(config.bridge?.activeWeChatUser).toEqual(
       expect.objectContaining({
         platformUserId: 'wx_user_1',
-        provider: 'claude-code',
-        cwd: '/tmp/project',
       }),
     );
   });
@@ -117,14 +110,12 @@ describe('channel auth repositories', () => {
 
       const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
         bridge?: {
-          activeWeChatUser?: { platformUserId: string; provider: string; cwd: string };
+          activeWeChatUser?: { platformUserId: string };
         };
       };
       expect(config.bridge?.activeWeChatUser).toEqual(
         expect.objectContaining({
           platformUserId: 'wx_user_1',
-          provider: 'claude-code',
-          cwd: process.cwd(),
         }),
       );
       await app.close();
@@ -140,22 +131,17 @@ describe('channel auth repositories', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project-a',
     });
 
     const replaced = seedRuntimeUserStore(store, {
       platform: 'weixin',
       platformUserId: 'wx_user_2',
       role: 'user',
-      provider: 'codex',
-      cwd: '/tmp/project-b',
     });
 
     expect(store.activeUserStore.isActiveUser('weixin', 'wx_user_1')).toBeNull();
     expect(store.activeUserStore.isActiveUser('weixin', 'wx_user_2')).toMatchObject({
       id: replaced.id,
-      provider: 'codex',
     });
     expect(store.activeUserStore.getActiveUser()).toMatchObject({ platformUserId: 'wx_user_2' });
   });

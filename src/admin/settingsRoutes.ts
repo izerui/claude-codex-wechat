@@ -3,6 +3,7 @@ import type { ChannelAdapter } from '../channels/types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { persistBridgeDefaultsToConfigFile } from '../daemon/configPersistence';
 import type { ProviderId } from '../providers/types';
+import type { CurrentConversationStore } from '../session/currentConversationStore';
 import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import type { ActiveWeChatUserStore } from '../storage/userStore';
 
@@ -17,6 +18,7 @@ export function registerSettingsRoutes(input: {
   configPath: string;
   users?: ActiveWeChatUserStore;
   channel?: ChannelAdapter;
+  conversation?: CurrentConversationStore;
   sessions?: RuntimeSessionRepository;
 }): void {
   input.app.get('/api/settings', async () => input.defaults);
@@ -27,6 +29,7 @@ export function registerSettingsRoutes(input: {
       ...current,
       ...request.body,
     }, current.defaultWorkspace);
+    const currentConversation = input.conversation?.getCurrent();
     input.defaults.defaultProvider = next.defaultProvider;
     input.defaults.defaultWorkspace = next.defaultWorkspace;
     await persistBridgeDefaultsToConfigFile({
@@ -34,19 +37,13 @@ export function registerSettingsRoutes(input: {
       defaultProvider: next.defaultProvider,
       defaultWorkspace: next.defaultWorkspace,
     });
-    input.users?.updateActiveUser(PRIMARY_WEIXIN_PLATFORM, {
-      provider: next.defaultProvider,
-      cwd: next.defaultWorkspace,
-    });
     if (input.channel && current.defaultProvider !== next.defaultProvider) {
       const activeUser = input.users?.getActiveUser();
       const targetUsers = activeUser && activeUser.platform === PRIMARY_WEIXIN_PLATFORM ? [activeUser] : [];
       const providerLabel = next.defaultProvider === 'codex' ? 'Codex' : 'Claude Code';
       await Promise.all(targetUsers.map(async (activeUserRecord) => {
-        const activeSession = input.sessions?.list().find((session) => (
-          session.ownerUserId === activeUserRecord.id
-        ));
-        const cwd = activeSession?.cwd ?? activeUserRecord.cwd ?? next.defaultWorkspace;
+        const persistedConversation = input.sessions?.list()[0] ?? null;
+        const cwd = currentConversation?.cwd ?? persistedConversation?.cwd ?? next.defaultWorkspace;
         await input.channel?.sendMessage({
           chatId: activeUserRecord.platformUserId,
           kind: 'status',

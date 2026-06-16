@@ -1,40 +1,46 @@
-import { nanoid } from 'nanoid';
-import type { ProviderId, ProviderSessionStatus } from '../providers/types';
+import type { CurrentConversationBinding } from '../session/currentConversationStore';
 import type { BridgeDatabase } from './db';
 
-export type RuntimeSessionRecord = {
-  id: string;
-  chatId: string;
-  ownerUserId: string;
-  providerId: ProviderId;
-  providerSessionId?: string;
-  recoverySource: 'runtime' | 'manual_attach' | 'binding_table' | 'sidecar' | 'heuristic';
-  resumeTitle?: string;
-  cwd: string;
-  status: ProviderSessionStatus;
-  createdAt: number;
-  lastActivityAt: number;
-};
+export type RuntimeSessionRecord = CurrentConversationBinding;
+
+function ensureTable(db: BridgeDatabase): void {
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS bridge_sessions (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      owner_user_id TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      provider_session_id TEXT,
+      recovery_source TEXT NOT NULL,
+      resume_title TEXT,
+      cwd TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      last_activity_at INTEGER NOT NULL
+    )
+  `).run();
+}
 
 export class RuntimeSessionRepository {
-  constructor(private readonly db: BridgeDatabase) {}
+  constructor(private readonly db: BridgeDatabase) {
+    ensureTable(db);
+  }
 
   create(input: {
     chatId: string;
     ownerUserId: string;
-    providerId: ProviderId;
+    providerId: RuntimeSessionRecord['providerId'];
     cwd: string;
-    status: ProviderSessionStatus;
+    status: RuntimeSessionRecord['status'];
   }): RuntimeSessionRecord {
     const now = Date.now();
     return this.createWithId({
-      id: `bs_${nanoid(10)}`,
+      id: `bs_compat_${now}`,
       chatId: input.chatId,
       ownerUserId: input.ownerUserId,
       providerId: input.providerId,
       cwd: input.cwd,
       recoverySource: 'runtime',
-      resumeTitle: undefined,
       status: input.status,
       createdAt: now,
       lastActivityAt: now,
@@ -42,30 +48,24 @@ export class RuntimeSessionRepository {
   }
 
   createWithId(record: RuntimeSessionRecord): RuntimeSessionRecord {
-    this.db.prepare(`
-      DELETE FROM bridge_sessions WHERE chat_id = @chatId
-    `).run({ chatId: record.chatId });
+    this.db.prepare(`DELETE FROM bridge_sessions`).run();
     this.db.prepare(`
       INSERT INTO bridge_sessions (
-        id, chat_id, owner_user_id, provider_id, provider_session_id, recovery_source, resume_title, cwd, status, created_at, last_activity_at, archived_at
+        id, chat_id, owner_user_id, provider_id, provider_session_id, recovery_source, resume_title, cwd, status, created_at, last_activity_at
       ) VALUES (
-        @id, @chatId, @ownerUserId, @providerId, @providerSessionId, @recoverySource, @resumeTitle, @cwd, @status, @createdAt, @lastActivityAt, @archivedAt
+        @id, @chatId, @ownerUserId, @providerId, @providerSessionId, @recoverySource, @resumeTitle, @cwd, @status, @createdAt, @lastActivityAt
       )
     `).run({
       ...record,
       providerSessionId: record.providerSessionId ?? null,
       resumeTitle: record.resumeTitle ?? null,
-      archivedAt: null,
     });
     return record;
   }
 
-  update(
-    id: string,
-    patch: Partial<Pick<RuntimeSessionRecord, 'providerSessionId' | 'resumeTitle' | 'status' | 'lastActivityAt'>>,
-  ): RuntimeSessionRecord {
-    const existing = this.findById(id);
-    if (!existing) throw new Error(`Unknown bridge session: ${id}`);
+  update(_id: string, patch: Partial<Pick<RuntimeSessionRecord, 'providerSessionId' | 'resumeTitle' | 'status' | 'lastActivityAt'>>): RuntimeSessionRecord {
+    const existing = this.findById(_id);
+    if (!existing) throw new Error(`Unknown bridge session: ${_id}`);
     const next = { ...existing, ...patch };
     this.db.prepare(`
       UPDATE bridge_sessions
@@ -75,7 +75,7 @@ export class RuntimeSessionRepository {
           last_activity_at = @lastActivityAt
       WHERE id = @id
     `).run({
-      id,
+      id: _id,
       providerSessionId: next.providerSessionId ?? null,
       resumeTitle: next.resumeTitle ?? null,
       status: next.status,
@@ -85,73 +85,47 @@ export class RuntimeSessionRepository {
   }
 
   delete(id: string): void {
-    this.db.prepare(`
-      DELETE FROM bridge_sessions WHERE id = ?
-    `).run(id);
+    this.db.prepare(`DELETE FROM bridge_sessions WHERE id = ?`).run(id);
   }
 
   findById(id: string): RuntimeSessionRecord | null {
-    const row = this.db.prepare(`
-      SELECT * FROM bridge_sessions WHERE id = ?
-    `).get(id) as Record<string, unknown> | undefined;
-    return row ? mapSessionRow(row) : null;
+    const row = this.db.prepare(`SELECT * FROM bridge_sessions WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+    return row ? mapRow(row) : null;
   }
 
   getActiveByChat(chatId: string): RuntimeSessionRecord | null {
-    const row = this.db.prepare(`
-      SELECT * FROM bridge_sessions
-      WHERE chat_id = ?
-      ORDER BY last_activity_at DESC
-      LIMIT 1
-    `).get(chatId) as Record<string, unknown> | undefined;
-    return row ? mapSessionRow(row) : null;
+    const row = this.db.prepare(`SELECT * FROM bridge_sessions WHERE chat_id = ? LIMIT 1`).get(chatId) as Record<string, unknown> | undefined;
+    return row ? mapRow(row) : null;
   }
 
   list(): RuntimeSessionRecord[] {
-    const rows = this.db.prepare(`
-      SELECT * FROM bridge_sessions ORDER BY last_activity_at DESC
-    `).all() as Record<string, unknown>[];
-    return rows.map(mapSessionRow);
+    const rows = this.db.prepare(`SELECT * FROM bridge_sessions ORDER BY last_activity_at DESC`).all() as Record<string, unknown>[];
+    return rows.map(mapRow);
   }
 }
 
-function mapSessionRow(row: Record<string, unknown>): RuntimeSessionRecord {
+function mapRow(row: Record<string, unknown>): RuntimeSessionRecord {
   return {
     id: String(row.id),
     chatId: String(row.chat_id),
     ownerUserId: String(row.owner_user_id),
     providerId: row.provider_id === 'codex' ? 'codex' : 'claude-code',
     providerSessionId: row.provider_session_id ? String(row.provider_session_id) : undefined,
-    recoverySource: mapRecoverySource(row.recovery_source),
+    recoverySource: row.recovery_source === 'manual_attach'
+      ? 'manual_attach'
+      : row.recovery_source === 'binding_table'
+        ? 'binding_table'
+        : row.recovery_source === 'sidecar'
+          ? 'sidecar'
+          : row.recovery_source === 'heuristic'
+            ? 'heuristic'
+            : 'runtime',
     resumeTitle: row.resume_title ? String(row.resume_title) : undefined,
     cwd: String(row.cwd),
-    status: mapStatus(row.status),
+    status: row.status === 'starting' || row.status === 'idle' || row.status === 'running' || row.status === 'waiting_permission' || row.status === 'errored' || row.status === 'closed'
+      ? row.status
+      : 'errored',
     createdAt: Number(row.created_at),
     lastActivityAt: Number(row.last_activity_at),
   };
-}
-
-function mapStatus(value: unknown): ProviderSessionStatus {
-  if (
-    value === 'starting' ||
-    value === 'idle' ||
-    value === 'running' ||
-    value === 'waiting_permission' ||
-    value === 'errored' ||
-    value === 'closed'
-  ) {
-    return value;
-  }
-  return 'errored';
-}
-
-function mapRecoverySource(value: unknown): RuntimeSessionRecord['recoverySource'] {
-  if (
-    value === 'runtime' ||
-    value === 'manual_attach' ||
-    value === 'binding_table' ||
-    value === 'sidecar' ||
-    value === 'heuristic'
-  ) return value;
-  return 'runtime';
 }

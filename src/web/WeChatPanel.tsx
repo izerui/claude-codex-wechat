@@ -5,6 +5,7 @@ import {
   disableWeixinPlugin,
   enableWeixinPlugin,
   type BridgeWsEvent,
+  type CurrentSessionView,
   fetchChannelPlugins,
   fetchWeixinRuntimeConfig,
   fetchActiveUser,
@@ -22,7 +23,7 @@ import {
 } from './apiClient';
 
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
-type SessionTab = 'bridge' | 'claude-native' | 'codex-native';
+type SessionTab = 'claude-native' | 'codex-native';
 
 function formatRecoverableResumeState(session: RecoverableProviderSessionView): string {
   if (session.providerId !== 'claude-code') return '-';
@@ -53,13 +54,13 @@ function formatPluginHint(plugin: ChannelPluginView | null): string | null {
   return null;
 }
 
-export function WeChatPanel() {
+export function WeChatPanel(input: { currentSession: CurrentSessionView | null; onStopCurrentSession(): Promise<void> }) {
   const [activeUser, setActiveUser] = useState<ActiveWeChatUserView | null>(null);
   const [plugin, setPlugin] = useState<ChannelPluginView | null>(null);
   const [runtimeConfig, setRuntimeConfig] = useState<WeixinRuntimeConfigView | null>(null);
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
   const [recoverableSessions, setRecoverableSessions] = useState<RecoverableProviderSessionView[]>([]);
-  const [activeSessionTab, setActiveSessionTab] = useState<SessionTab>('bridge');
+  const [activeSessionTab, setActiveSessionTab] = useState<SessionTab>('claude-native');
   const [loginState, setLoginState] = useState<LoginState>('idle');
   const [qrcodeData, setQrcodeData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +96,12 @@ export function WeChatPanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!activeUser) return;
+    void scanRecoverableSessions(activeSessionTab === 'codex-native' ? 'codex' : 'claude-code');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeUser, activeSessionTab]);
 
   useEffect(() => {
     eventSourceRef.current?.close();
@@ -137,17 +144,8 @@ export function WeChatPanel() {
     }
   };
 
-  const changeDefaultProvider = async (provider: 'claude-code' | 'codex') => {
-    if (!settings) return;
-    const next = { ...settings, defaultProvider: provider };
-    setSettings(next);
-    try {
-      await updateSettings(next);
-      await syncWeixinChannelSettings();
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+  const changeDefaultProvider = (provider: 'claude-code' | 'codex') => {
+    setSettings((current) => current ? { ...current, defaultProvider: provider } : current);
   };
 
   const scanRecoverableSessions = async (providerId: 'claude-code' | 'codex') => {
@@ -170,7 +168,7 @@ export function WeChatPanel() {
         providerSessionId: session.id,
         platformUserId: activeUser.platformUserId,
         chatId: activeUser.platformUserId,
-        cwd: session.cwd ?? activeUser.cwd,
+        cwd: session.cwd,
       });
       await refresh();
     } catch (err) {
@@ -293,42 +291,77 @@ export function WeChatPanel() {
         </button>
       ) : null}
 
-      <div style={styles.sectionRow}>
-        <div>
-          <h3 style={styles.inlineTitle}>对话模型</h3>
-          <div style={styles.panelSubtle}>选择微信新会话默认使用的本地提供方。</div>
-        </div>
-        <select
-          value={settings?.defaultProvider ?? 'claude-code'}
-          onChange={(event) => void changeDefaultProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
-          style={styles.select}
-        >
-          <option value="claude-code">Claude Code</option>
-          <option value="codex">Codex CLI</option>
-        </select>
-      </div>
+      {settings ? (
+        <section style={styles.settingsSection}>
+          <div style={styles.sectionRow}>
+            <div>
+              <h3 style={styles.inlineTitle}>会话配置</h3>
+              <div style={styles.panelSubtle}>保存后，下一条微信消息将按这里的提供方和工作目录重新建立会话。</div>
+            </div>
+          </div>
+          <div style={styles.formGrid}>
+            <label style={styles.field}>
+              <span>提供方</span>
+              <select
+                value={settings.defaultProvider}
+                onChange={(event) => void changeDefaultProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
+                style={styles.select}
+              >
+                <option value="claude-code">Claude Code</option>
+                <option value="codex">Codex CLI</option>
+              </select>
+            </label>
+            <label style={styles.field}>
+              <span>工作目录</span>
+              <input
+                value={settings.defaultWorkspace}
+                onChange={(event) => setSettings((current) => current ? { ...current, defaultWorkspace: event.target.value } : current)}
+                style={styles.input}
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            style={styles.button}
+            onClick={() => void (settings ? updateSettings(settings).then(async () => {
+              await syncWeixinChannelSettings();
+              await refresh();
+            }) : Promise.resolve())}
+          >
+            保存配置
+          </button>
+        </section>
+      ) : null}
 
-      <h3 style={styles.inlineTitle}>当前活跃微信用户</h3>
-      <div style={styles.panelSubtle}>当前通过这个 Bot 与桥交互的唯一有效微信用户。</div>
-      {!activeUser ? <p>当前还没有活跃微信用户。</p> : (
+      <h3 style={styles.inlineTitle}>当前活跃用户信息</h3>
+      <div style={styles.panelSubtle}>展示当前唯一活跃微信用户及其当前有效会话。</div>
+      {!activeUser && !input.currentSession ? <p>当前还没有活跃微信用户。</p> : (
         <div style={styles.activeUserCard}>
-          <strong>{activeUser.displayName ?? activeUser.platformUserId}</strong>
-          <div>{activeUser.provider} · {activeUser.cwd}</div>
+          <strong>{activeUser?.displayName ?? activeUser?.platformUserId ?? input.currentSession?.chatId}</strong>
+          <div style={styles.statusMeta}>平台 ID：{activeUser?.platformUserId ?? input.currentSession?.chatId}</div>
+          <div style={styles.statusMeta}>角色：{activeUser?.role ?? 'user'}</div>
+          {input.currentSession ? (
+            <div style={styles.conversationBlock}>
+              <div style={styles.conversationTitle}>当前会话</div>
+              <div style={styles.statusMeta}>提供方：{input.currentSession.providerId}</div>
+              <div style={styles.statusMeta}>工作目录：{input.currentSession.cwd}</div>
+              <div style={styles.statusMeta}>状态：{input.currentSession.status}</div>
+              {input.currentSession.resumeTitle ? <div style={styles.statusMeta}>原生标题：{input.currentSession.resumeTitle}</div> : null}
+              {input.currentSession.status !== 'closed' ? (
+                <div style={{ marginTop: 10 }}>
+                  <button type="button" style={styles.button} onClick={() => void input.onStopCurrentSession()}>停止</button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div style={styles.statusMeta}>当前没有有效会话。</div>
+          )}
         </div>
       )}
 
-      <h3 style={styles.inlineTitle}>会话</h3>
-      {!activeUser ? <p>请先让当前微信用户给上面的 Bot 发一条消息。</p> : (
+      {!activeUser && !input.currentSession ? <p>请先让当前微信用户给上面的 Bot 发一条消息。</p> : (
         <div>
           <div style={styles.tabRow}>
-            <button
-              type="button"
-              style={activeSessionTab === 'bridge' ? styles.activeTabButton : styles.tabButton}
-              aria-pressed={activeSessionTab === 'bridge'}
-              onClick={() => setActiveSessionTab('bridge')}
-            >
-              桥接会话
-            </button>
             <button
               type="button"
               style={activeSessionTab === 'claude-native' ? styles.activeTabButton : styles.tabButton}
@@ -347,43 +380,34 @@ export function WeChatPanel() {
             </button>
           </div>
 
-          {activeSessionTab === 'bridge' ? (
-            <>
-              <div style={styles.panelSubtle}>桥当前正在管理的会话记录。</div>
-              <p style={styles.panelSubtle}>桥接会话列表见下方“桥接会话”表。</p>
-            </>
-          ) : (
-            <>
-              <div style={styles.sectionRow}>
-                <div style={styles.panelSubtle}>
-                  当前用户：{activeUser.displayName ?? activeUser.platformUserId}
-                </div>
-                <div style={styles.panelSubtle}>
-                  {activeSessionTab === 'claude-native' ? '本机可接入的 Claude 原生会话。' : '本机可接入的 Codex 原生会话。'}
-                </div>
-              </div>
+          <div style={styles.sectionRow}>
+            <div style={styles.panelSubtle}>
+              当前用户：{activeUser?.displayName ?? activeUser?.platformUserId ?? input.currentSession?.chatId}
+            </div>
+            <div style={styles.panelSubtle}>
+              {activeSessionTab === 'claude-native' ? '本机可接入的 Claude 原生会话。' : '本机可接入的 Codex 原生会话。'}
+            </div>
+          </div>
+          {recoverableSessions.filter((session) => (
+            activeSessionTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
+          )).length === 0 ? <p>暂无可恢复原生会话。</p> : (
+            <ul>
               {recoverableSessions.filter((session) => (
                 activeSessionTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
-              )).length === 0 ? <p>暂无可恢复原生会话。</p> : (
-                <ul>
-                  {recoverableSessions.filter((session) => (
-                    activeSessionTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
-                  )).map((session) => (
-                    <li key={`${session.providerId}:${session.id}`} style={{ marginBottom: 12 }}>
-                      <strong>{session.providerId}</strong> · {session.title ?? session.id}
-                      <div>原生会话 ID：{session.id}</div>
-                      {session.resumeTitle ? <div>原生标题：{session.resumeTitle}</div> : null}
-                      <div>原生恢复状态：{formatRecoverableResumeState(session)}</div>
-                      {session.preferredResumeCommand ? <div>推荐恢复：{session.preferredResumeCommand}</div> : null}
-                      {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
-                      {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
-                      {session.cwd ? <div>工作目录：{session.cwd}</div> : null}
-                      <button type="button" onClick={() => void attachRecoverableSession(session)}>接入会话</button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
+              )).map((session) => (
+                <li key={`${session.providerId}:${session.id}`} style={{ marginBottom: 12 }}>
+                  <strong>{session.providerId}</strong> · {session.title ?? session.id}
+                  <div>原生会话 ID：{session.id}</div>
+                  {session.resumeTitle ? <div>原生标题：{session.resumeTitle}</div> : null}
+                  <div>原生恢复状态：{formatRecoverableResumeState(session)}</div>
+                  {session.preferredResumeCommand ? <div>推荐恢复：{session.preferredResumeCommand}</div> : null}
+                  {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
+                  {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
+                  {session.cwd ? <div>工作目录：{session.cwd}</div> : null}
+                  <button type="button" onClick={() => void attachRecoverableSession(session)}>接入会话</button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}
@@ -398,8 +422,6 @@ function toActiveWeChatUserView(user: ActiveWeChatUserEventView): ActiveWeChatUs
     platformUserId: user.platformUserId,
     displayName: user.display_name,
     role: 'user',
-    provider: user.provider,
-    cwd: user.cwd,
     createdAt: user.authorizedAt,
     updatedAt: user.lastActive,
   };
@@ -410,6 +432,8 @@ const styles: Record<string, React.CSSProperties> = {
   panelTitle: { margin: 0, fontSize: 22 },
   panelSubtle: { color: '#6b7280', fontSize: 13, marginTop: 4 },
   activeUserCard: { padding: 12, border: '1px solid #d1d5db', borderRadius: 8, marginBottom: 16 },
+  conversationBlock: { marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb' },
+  conversationTitle: { fontSize: 15, fontWeight: 600, marginBottom: 6 },
   headerActions: { display: 'flex', gap: 8, alignItems: 'center' },
   button: { border: '1px solid #aeb6bf', background: '#fff', borderRadius: 6, padding: '7px 10px', cursor: 'pointer' },
   dangerButton: { border: '1px solid #f0b4ad', color: '#d94841', background: '#fff1f0', borderRadius: 6, padding: '7px 10px', cursor: 'pointer' },
@@ -422,10 +446,14 @@ const styles: Record<string, React.CSSProperties> = {
   disconnectedBadge: { background: '#f5f5f5', color: '#6b7280', borderRadius: 999, padding: '6px 12px', fontSize: 13 },
   qrCard: { marginBottom: 16, border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, background: '#fff' },
   qrValue: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 12, border: '1px solid #d5d8dc', borderRadius: 6, background: '#fbfcfc' },
+  settingsSection: { marginTop: 20, marginBottom: 16 },
   sectionRow: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 20, marginBottom: 16 },
   tabRow: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 20, marginBottom: 16 },
   inlineTitle: { margin: '0 0 8px', fontSize: 18 },
   select: { minWidth: 180, border: '1px solid #d1d5db', borderRadius: 8, padding: '10px 12px', background: '#fff' },
+  input: { minWidth: 180, border: '1px solid #d1d5db', borderRadius: 8, padding: '10px 12px', background: '#fff' },
+  formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 14 },
+  field: { display: 'grid', gap: 6, fontSize: 13 },
   tabButton: { border: '1px solid #d1d5db', background: '#fff', borderRadius: 999, padding: '8px 14px', cursor: 'pointer' },
   activeTabButton: { border: '1px solid #111827', background: '#111827', color: '#fff', borderRadius: 999, padding: '8px 14px', cursor: 'pointer' },
 };

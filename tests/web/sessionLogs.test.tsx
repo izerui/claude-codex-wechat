@@ -68,6 +68,9 @@ function createFetchStub() {
         },
       ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
+    if (url.endsWith('/api/channel/current-session')) {
+      return new Response(JSON.stringify(state.sessions[0] ?? null), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     if (url.endsWith('/api/channel/sessions')) {
       return new Response(JSON.stringify(state.sessions), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -90,7 +93,7 @@ describe('App session interactions without bridge event history', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('微信 · wx_user_1 · [claude-codex-wechat:test]')).toBeTruthy();
+    expect(await screen.findByText('原生标题：微信 · wx_user_1 · [claude-codex-wechat:test]')).toBeTruthy();
     expect(screen.queryByText('事件')).toBeNull();
     expect(screen.queryByText('桥接事件 · bs_1')).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/events'))).toBe(false);
@@ -121,6 +124,9 @@ describe('App session interactions without bridge event history', () => {
           permissions: [],
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
+      if (url.endsWith('/api/channel/current-session')) {
+        return new Response(JSON.stringify(sidecarSession), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       if (url.endsWith('/api/channel/sessions')) {
         return new Response(JSON.stringify([sidecarSession]), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -130,7 +136,7 @@ describe('App session interactions without bridge event history', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('/tmp/sidecar')).toBeTruthy();
+    expect(await screen.findByText('工作目录：/tmp/sidecar')).toBeTruthy();
     expect(screen.queryByText('事件')).toBeNull();
   });
 });

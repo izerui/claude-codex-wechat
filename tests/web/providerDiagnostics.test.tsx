@@ -21,6 +21,9 @@ describe('App dashboard provider diagnostics', () => {
       if (url.endsWith('/api/channel/active-user')) {
         return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
+      if (url.endsWith('/api/channel/current-session')) {
+        return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       if (url.endsWith('/api/channel/sessions')) {
         return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }

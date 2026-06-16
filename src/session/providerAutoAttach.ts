@@ -3,9 +3,8 @@ import { writeProviderSessionSidecar } from '../providers/sidecarMetadata';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
 import { syncCodexThreadForResume } from '../providers/codex/nativeThreads';
 import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate } from '../providers/types';
-import type { BridgeSessionRecord, SessionManager } from './sessionManager';
+import type { CurrentConversationBinding, CurrentConversationStore } from './currentConversationStore';
 import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
-import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { buildSessionBridgeName } from './sessionBridgeTag';
 
@@ -18,12 +17,12 @@ export type AutoAttachSelection = {
 export async function listUnattachedRecoverableSessions(input: {
   provider: NativeProviderAdapter;
   providerId: ProviderId;
-  sessionRepository?: RuntimeSessionRepository;
+  currentSession?: CurrentConversationBinding | null;
 }): Promise<ProviderSessionCandidate[]> {
   if (!input.provider.listRecoverableSessions) return [];
   const attachedIds = new Set(
-    (input.sessionRepository?.list() ?? [])
-      .filter((session) => session.providerId === input.providerId)
+    [input.currentSession]
+      .filter((session): session is CurrentConversationBinding => Boolean(session && session.providerId === input.providerId))
       .map((session) => session.providerSessionId)
       .filter((value): value is string => typeof value === 'string' && value.length > 0),
   );
@@ -37,14 +36,18 @@ export async function selectBestRecoverableSession(input: {
   targetPlatformUserId?: string;
   targetChatId?: string;
   bindingRepository?: ProviderBindingRepository;
-  sessionRepository?: RuntimeSessionRepository;
+  currentSession?: CurrentConversationBinding | null;
   allowHeuristicMatch?: boolean;
 }): Promise<AutoAttachSelection | null> {
   const persistedBinding = input.targetChatId
     ? input.bindingRepository?.findByChat('weixin', input.targetChatId, input.providerId)
     : null;
   if (persistedBinding) {
-    const candidates = await listUnattachedRecoverableSessions(input);
+    const candidates = await listUnattachedRecoverableSessions({
+      provider: input.provider,
+      providerId: input.providerId,
+      currentSession: input.currentSession,
+    });
     const exact = candidates.find((candidate) => candidate.id === persistedBinding.providerSessionId);
     if (exact) return { candidate: exact, matchedBinding: true, bindingSource: 'binding_table' };
     return {
@@ -59,7 +62,11 @@ export async function selectBestRecoverableSession(input: {
     };
   }
   if (input.allowHeuristicMatch === false) return null;
-  const candidates = await listUnattachedRecoverableSessions(input);
+  const candidates = await listUnattachedRecoverableSessions({
+    provider: input.provider,
+    providerId: input.providerId,
+    currentSession: input.currentSession,
+  });
   candidates.sort((a, b) => {
     const aTagMatch = a.bridgeTag?.platformUserId === input.targetPlatformUserId && a.bridgeTag?.chatId === input.targetChatId ? 1 : 0;
     const bTagMatch = b.bridgeTag?.platformUserId === input.targetPlatformUserId && b.bridgeTag?.chatId === input.targetChatId ? 1 : 0;
@@ -80,19 +87,18 @@ export async function selectBestRecoverableSession(input: {
 }
 
 export async function attachProviderSessionToBridge(input: {
-  sessionManager: SessionManager;
+  conversationStore: CurrentConversationStore;
   bindingRepository?: ProviderBindingRepository;
-  sessionRepository?: RuntimeSessionRepository;
   provider: NativeProviderAdapter;
   user: ActiveWeChatUserRecord;
   providerId: ProviderId;
   providerSessionId: string;
   chatId: string;
   cwd: string;
-  recoverySource: BridgeSessionRecord['recoverySource'];
+  recoverySource: CurrentConversationBinding['recoverySource'];
   resumeTitle?: string;
-}): Promise<BridgeSessionRecord> {
-  const session = input.sessionManager.createSession({
+}): Promise<CurrentConversationBinding> {
+  const session = input.conversationStore.create({
     chatId: input.chatId,
     ownerUserId: input.user.id,
     providerId: input.providerId,
@@ -109,24 +115,11 @@ export async function attachProviderSessionToBridge(input: {
     bridgeSessionId: session.id,
     cwd: session.cwd,
   });
-  const updated = input.sessionManager.updateSession(session.id, {
+  const updated = input.conversationStore.update({
     providerSessionId: attached?.providerSessionId,
     status: attached?.status ?? session.status,
     lastActivityAt: Date.now(),
-  });
-  input.sessionRepository?.createWithId({
-    id: updated.id,
-    chatId: updated.chatId,
-    ownerUserId: updated.ownerUserId,
-    providerId: updated.providerId,
-    providerSessionId: updated.providerSessionId,
-    recoverySource: updated.recoverySource,
-    resumeTitle: updated.resumeTitle,
-    cwd: updated.cwd,
-    status: updated.status,
-    createdAt: updated.createdAt,
-    lastActivityAt: updated.lastActivityAt,
-  });
+  }) ?? session;
   input.bindingRepository?.upsert({
     platform: 'weixin',
     platformUserId: input.user.platformUserId,
@@ -165,31 +158,31 @@ export async function autoAttachProviderSessionForMessage(input: {
   message: ChannelIncomingMessage;
   user: ActiveWeChatUserRecord;
   provider: NativeProviderAdapter;
-  sessionManager: SessionManager;
+  conversationStore: CurrentConversationStore;
   bindingRepository?: ProviderBindingRepository;
-  sessionRepository?: RuntimeSessionRepository;
-}): Promise<{ session: BridgeSessionRecord; matchedBinding: boolean; bindingSource: BridgeSessionRecord['recoverySource'] } | null> {
+  defaultProviderId: ProviderId;
+  defaultCwd: string;
+}): Promise<{ session: CurrentConversationBinding; matchedBinding: boolean; bindingSource: CurrentConversationBinding['recoverySource'] } | null> {
   const selection = await selectBestRecoverableSession({
     provider: input.provider,
-    providerId: input.user.provider,
-    targetCwd: input.user.cwd,
+    providerId: input.defaultProviderId,
+    targetCwd: input.user.currentConversation?.cwd ?? input.defaultCwd,
     targetPlatformUserId: input.user.platformUserId,
     targetChatId: input.message.chatId,
     bindingRepository: input.bindingRepository,
-    sessionRepository: input.sessionRepository,
+    currentSession: input.conversationStore.getCurrent(),
     allowHeuristicMatch: false,
   });
   if (!selection) return null;
   const session = await attachProviderSessionToBridge({
-    sessionManager: input.sessionManager,
+    conversationStore: input.conversationStore,
     bindingRepository: input.bindingRepository,
-    sessionRepository: input.sessionRepository,
     provider: input.provider,
     user: input.user,
-    providerId: input.user.provider,
+    providerId: input.defaultProviderId,
     providerSessionId: selection.candidate.id,
     chatId: input.message.chatId,
-    cwd: selection.candidate.cwd ?? input.user.cwd,
+    cwd: selection.candidate.cwd ?? input.user.currentConversation?.cwd ?? input.defaultCwd,
     recoverySource: selection.bindingSource,
     resumeTitle: selection.candidate.resumeTitle,
   });

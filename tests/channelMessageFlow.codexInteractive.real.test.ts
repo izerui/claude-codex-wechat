@@ -29,8 +29,6 @@ maybeReal('channel message flow real Codex interactive', () => {
       platform: PRIMARY_WEIXIN_PLATFORM,
       platformUserId: 'wx_user_real_codex',
       role: 'user',
-      provider: 'codex',
-      cwd: process.cwd(),
     });
 
     const channel = new MockChannelAdapter();

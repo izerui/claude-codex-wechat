@@ -1,29 +1,24 @@
-import { nanoid } from 'nanoid';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ProviderId, ProviderSessionStatus } from '../providers/types';
+import { CurrentConversationStore, type CurrentConversationBinding } from './currentConversationStore';
 
-export type BridgeSessionRecord = {
-  id: string;
-  chatId: string;
-  ownerUserId: string;
-  providerId: ProviderId;
-  providerSessionId?: string;
-  recoverySource: 'runtime' | 'manual_attach' | 'binding_table' | 'sidecar' | 'heuristic';
-  resumeTitle?: string;
-  cwd: string;
-  status: ProviderSessionStatus;
-  createdAt: number;
-  lastActivityAt: number;
-};
+export type BridgeSessionRecord = CurrentConversationBinding;
 
 export class SessionManager {
-  private readonly sessions = new Map<string, BridgeSessionRecord>();
-  private readonly activeByChat = new Map<string, string>();
+  readonly store: CurrentConversationStore;
 
-  constructor(private readonly defaults: { defaultCwd: string; defaultProviderId: ProviderId }) {}
+  constructor(defaults: { defaultCwd: string; defaultProviderId: ProviderId; configPath?: string }) {
+    this.store = new CurrentConversationStore(
+      defaults.configPath ?? join(mkdtempSync(join(tmpdir(), 'claude-codex-wechat-session-manager-')), 'config.json'),
+      defaults,
+    );
+  }
 
   getActiveSession(chatId: string): BridgeSessionRecord | null {
-    const id = this.activeByChat.get(chatId);
-    return id ? this.sessions.get(id) ?? null : null;
+    const current = this.store.getCurrent();
+    return current?.chatId === chatId ? current : null;
   }
 
   getOrCreateSession(input: { chatId: string; ownerUserId: string; providerId?: ProviderId; cwd?: string }): BridgeSessionRecord {
@@ -32,8 +27,8 @@ export class SessionManager {
     return this.createSession({
       chatId: input.chatId,
       ownerUserId: input.ownerUserId,
-      providerId: input.providerId ?? this.defaults.defaultProviderId,
-      cwd: input.cwd ?? this.defaults.defaultCwd,
+      providerId: input.providerId ?? 'claude-code',
+      cwd: input.cwd ?? '/tmp/project',
     });
   }
 
@@ -45,62 +40,32 @@ export class SessionManager {
     recoverySource?: BridgeSessionRecord['recoverySource'];
     resumeTitle?: string;
   }): BridgeSessionRecord {
-    const existingId = this.activeByChat.get(input.chatId);
-    if (existingId) this.sessions.delete(existingId);
-    const now = Date.now();
-    const record: BridgeSessionRecord = {
-      id: `bs_${nanoid(10)}`,
-      chatId: input.chatId,
-      ownerUserId: input.ownerUserId,
-      providerId: input.providerId,
-      cwd: input.cwd,
-      recoverySource: input.recoverySource ?? 'runtime',
-      resumeTitle: input.resumeTitle,
-      status: 'starting',
-      createdAt: now,
-      lastActivityAt: now,
-    };
-    this.sessions.set(record.id, record);
-    this.activeByChat.set(record.chatId, record.id);
-    return record;
+    return this.store.create(input);
   }
 
   hydrateSession(record: BridgeSessionRecord): BridgeSessionRecord {
-    this.sessions.set(record.id, record);
-    const current = this.getActiveSession(record.chatId);
-    if (!current || current.lastActivityAt <= record.lastActivityAt) {
-      this.activeByChat.set(record.chatId, record.id);
-    }
-    return record;
+    return this.store.setCurrent(record);
   }
 
-  updateSession(id: string, patch: Partial<Pick<BridgeSessionRecord, 'providerSessionId' | 'resumeTitle' | 'status' | 'lastActivityAt'>>): BridgeSessionRecord {
-    const existing = this.sessions.get(id);
-    if (!existing) throw new Error(`Unknown bridge session: ${id}`);
-    const next = { ...existing, ...patch };
-    this.sessions.set(id, next);
-    return next;
+  updateSession(_id: string, patch: Partial<Pick<BridgeSessionRecord, 'providerSessionId' | 'resumeTitle' | 'status' | 'lastActivityAt'>>): BridgeSessionRecord {
+    const updated = this.store.update(patch);
+    if (!updated) throw new Error('Unknown bridge session');
+    return updated;
   }
 
-  updateActiveSession(chatId: string, patch: Partial<Pick<BridgeSessionRecord, 'cwd' | 'providerId' | 'providerSessionId' | 'resumeTitle' | 'status' | 'lastActivityAt'>>): BridgeSessionRecord | null {
-    const existing = this.getActiveSession(chatId);
-    if (!existing) return null;
-    const next = { ...existing, ...patch };
-    this.sessions.set(existing.id, next);
-    return next;
+  updateActiveSession(_chatId: string, patch: Partial<Pick<BridgeSessionRecord, 'cwd' | 'providerId' | 'providerSessionId' | 'resumeTitle' | 'status' | 'lastActivityAt'>>): BridgeSessionRecord | null {
+    return this.store.update(patch);
   }
 
-  removeSession(id: string): BridgeSessionRecord {
-    const existing = this.sessions.get(id);
-    if (!existing) throw new Error(`Unknown bridge session: ${id}`);
-    this.sessions.delete(id);
-    if (this.activeByChat.get(existing.chatId) === id) {
-      this.activeByChat.delete(existing.chatId);
-    }
-    return existing;
+  removeSession(_id: string): BridgeSessionRecord {
+    const current = this.store.getCurrent();
+    if (!current) throw new Error('Unknown bridge session');
+    this.store.clear();
+    return current;
   }
 
   listSessions(): BridgeSessionRecord[] {
-    return [...this.sessions.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+    const current = this.store.getCurrent();
+    return current ? [current] : [];
   }
 }

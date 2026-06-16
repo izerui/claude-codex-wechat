@@ -37,18 +37,18 @@ describe('channel admin routes', () => {
     const db = new Database(':memory:');
     db.exec(schemaSql);
     const { app, activeUserStore } = createDaemonServer({ db, activeUserStore: createRuntimeUserStore('bridge-admin-active-wechat-user-').activeUserStore });
-    const created = activeUserStore.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user', provider: 'codex', cwd: '/tmp/project' });
+    const created = activeUserStore.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user' });
 
     const response = await app.inject({ method: 'GET', url: '/api/channel/active-user' });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ platformUserId: 'wx_user_1', provider: 'codex' });
+    expect(response.json()).toMatchObject({ platformUserId: 'wx_user_1' });
 
     const revoke = await app.inject({ method: 'POST', url: `/api/channel/active-user/${created.id}/revoke` });
     expect(revoke.statusCode).toBe(404);
 
     const after = await app.inject({ method: 'GET', url: '/api/channel/active-user' });
-    expect(after.json()).toMatchObject({ platformUserId: 'wx_user_1', provider: 'codex' });
+    expect(after.json()).toMatchObject({ platformUserId: 'wx_user_1' });
     await app.close();
   });
 
@@ -62,8 +62,6 @@ describe('channel admin routes', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project',
     });
 
     await channel.emitIncoming({
@@ -132,8 +130,6 @@ describe('channel admin routes', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project',
     });
 
     await channel.emitIncoming({
@@ -163,8 +159,6 @@ describe('channel admin routes', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project',
     });
 
     await channel.emitIncoming({
@@ -280,8 +274,6 @@ describe('channel admin routes', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project',
     });
     new RuntimeSessionRepository(db).createWithId({
       id: 'bs_active_1',
@@ -393,8 +385,6 @@ describe('channel admin routes', () => {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        provider: 'claude-code',
-        cwd: '/tmp/project',
       });
       const projectDir = join(process.env.HOME, '.claude', 'projects', '-tmp-project');
       mkdirSync(projectDir, { recursive: true });
@@ -451,8 +441,6 @@ describe('channel admin routes', () => {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        provider: 'claude-code',
-        cwd: '/tmp/project',
       });
       const runtimeSessions = new RuntimeSessionRepository(db);
       const repairableTitle = '微信 · wx_user_1 · [claude-codex-wechat:batch-attached-1]';
@@ -524,8 +512,6 @@ describe('channel admin routes', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/original',
     });
 
     const update = await app.inject({
@@ -549,7 +535,6 @@ describe('channel admin routes', () => {
 
     expect(sessions.getActiveSession('chat-codex')).toMatchObject({
       providerId: 'codex',
-      cwd: '/tmp/codex-project',
     });
     await app.close();
   });
@@ -578,8 +563,6 @@ describe('channel admin routes', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project',
     });
 
     const recoverable = await app.inject({
@@ -717,8 +700,6 @@ describe('channel admin routes', () => {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        provider: 'claude-code',
-        cwd: '/tmp/project',
       });
       new RuntimeSessionRepository(db).createWithId({
         id: 'bs_history_missing',
@@ -827,7 +808,6 @@ describe('channel admin routes', () => {
           type: 'session_meta',
           payload: {
             id: 'codex-session-1',
-            cwd: '/tmp/codex-project',
           },
         }),
       ].join('\n'), 'utf8');
@@ -879,7 +859,6 @@ describe('channel admin routes', () => {
           type: 'session_meta',
           payload: {
             id: 'codex-session-1',
-            cwd: '/tmp/codex-project',
           },
         }),
       ].join('\n'), 'utf8');
@@ -892,8 +871,6 @@ describe('channel admin routes', () => {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        provider: 'codex',
-        cwd: '/tmp/codex-project',
       });
 
       const attach = await app.inject({
@@ -932,8 +909,6 @@ describe('channel admin routes', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project',
     });
 
     await app.inject({
@@ -966,8 +941,6 @@ describe('channel admin routes', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project',
     });
 
     const attach = await app.inject({
@@ -1010,8 +983,17 @@ describe('channel admin routes', () => {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        provider: 'claude-code',
-        cwd: '/tmp/project',
+        currentConversation: {
+          id: 'bs_active',
+          chatId: 'wx_user_1',
+          ownerUserId: 'user_active',
+          providerId: 'claude-code',
+          cwd: '/tmp/project-a',
+          recoverySource: 'runtime',
+          status: 'idle',
+          createdAt: 1,
+          lastActivityAt: 1,
+        },
       });
 
       await app.inject({
@@ -1075,7 +1057,6 @@ describe('channel admin routes', () => {
         expect.objectContaining({
           id: 'claude-meta-session',
           title: '微信自动接管测试',
-          cwd: '/tmp/real-project',
           providerResumeCommand: 'claude --resume claude-meta-session',
         }),
       ]);
@@ -1107,8 +1088,6 @@ describe('channel admin routes', () => {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        provider: 'claude-code',
-        cwd: '/tmp/project-sidecar',
       });
 
       const attach = await app.inject({
@@ -1119,7 +1098,6 @@ describe('channel admin routes', () => {
           providerSessionId: 'claude-sidecar-session',
           platformUserId: 'wx_user_1',
           chatId: 'chat-sidecar',
-          cwd: '/tmp/project-sidecar',
         },
       });
       expect(attach.statusCode).toBe(200);
@@ -1224,8 +1202,6 @@ describe('channel admin routes', () => {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        provider: 'claude-code',
-        cwd: '/tmp/default-project',
       });
 
       const attach = await app.inject({
@@ -1243,7 +1219,6 @@ describe('channel admin routes', () => {
         ok: true,
         session: {
           providerSessionId: 'claude-meta-session',
-          cwd: '/tmp/recovered-project',
           providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1',
         },
       });
@@ -1285,8 +1260,6 @@ describe('channel admin routes', () => {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        provider: 'claude-code',
-        cwd: '/tmp/project-a',
       });
 
       const attach = await app.inject({
@@ -1295,6 +1268,7 @@ describe('channel admin routes', () => {
         payload: {
           providerId: 'claude-code',
           platformUserId: 'wx_user_1',
+          cwd: '/tmp/project-a',
         },
       });
       expect(attach.statusCode).toBe(200);
@@ -1311,7 +1285,6 @@ describe('channel admin routes', () => {
         expect.objectContaining({
           bindingMatched: false,
           bindingSource: 'heuristic',
-          cwd: '/tmp/project-a',
         }),
       ]);
 
@@ -1333,7 +1306,6 @@ describe('channel admin routes', () => {
         type: 'session_meta',
         payload: {
           id: 'codex-cwd-mismatch',
-          cwd: '/Users/liuyuhua',
         },
       }), 'utf8');
       mkdirSync(join(home, '.claude-codex-wechat', 'provider-sidecar'), { recursive: true });
@@ -1345,7 +1317,6 @@ describe('channel admin routes', () => {
           platformUserId: 'wx_user_1',
           chatId: 'wx_user_1',
         },
-        cwd: '/Users/liuyuhua',
         updatedAt: 200,
       }, null, 2), 'utf8');
       writeFileSync(join(home, '.codex', 'session_index.jsonl'), JSON.stringify({
@@ -1362,8 +1333,6 @@ describe('channel admin routes', () => {
         platform: 'weixin',
         platformUserId: 'wx_user_1',
         role: 'user',
-        provider: 'codex',
-        cwd: '/Users/liuyuhua/github/claude-codex-wechat',
       });
 
       const attach = await app.inject({
@@ -1394,8 +1363,6 @@ describe('channel admin routes', () => {
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project',
     });
 
     await channel.emitIncoming({

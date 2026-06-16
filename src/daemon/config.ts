@@ -16,6 +16,30 @@ export type ProviderCommandConfig = {
 export type BridgeDefaultsConfig = {
   defaultProvider?: 'claude-code' | 'codex';
   defaultWorkspace?: string;
+  activeWeChatUser?: {
+    id?: string;
+    platform?: string;
+    platformUserId?: string;
+    displayName?: string;
+    role?: 'admin' | 'user';
+    provider?: 'claude-code' | 'codex';
+    cwd?: string;
+    createdAt?: number;
+    updatedAt?: number;
+  };
+  currentConversationBinding?: {
+    id?: string;
+    chatId?: string;
+    ownerUserId?: string;
+    providerId?: 'claude-code' | 'codex';
+    providerSessionId?: string;
+    recoverySource?: 'runtime' | 'manual_attach' | 'binding_table' | 'sidecar' | 'heuristic';
+    resumeTitle?: string;
+    cwd?: string;
+    status?: 'starting' | 'idle' | 'running' | 'waiting_permission' | 'errored' | 'closed';
+    createdAt?: number;
+    lastActivityAt?: number;
+  };
 };
 
 export type BridgeConfig = {

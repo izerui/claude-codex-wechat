@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { nanoid } from 'nanoid';
-import type { ProviderId } from '../providers/types';
 import type { ActiveWeChatUserRecord, ActiveWeChatUserStore } from './userStore';
+import type { CurrentConversationBinding } from '../session/currentConversationStore';
 
 type RuntimeStateFile = {
   bridge?: {
@@ -39,7 +39,7 @@ export class RuntimeUserStore implements ActiveWeChatUserStore {
     return this.readState().bridge?.activeWeChatUser ?? null;
   }
 
-  updateActiveUser(platform: string, patch: { provider?: ProviderId; cwd?: string }): void {
+  updateActiveUser(platform: string, patch: { currentConversation?: CurrentConversationBinding }): void {
     const state = this.readState();
     const activeUser = state.bridge?.activeWeChatUser;
     if (!activeUser || activeUser.platform !== platform) return;
@@ -47,8 +47,7 @@ export class RuntimeUserStore implements ActiveWeChatUserStore {
       ...(state.bridge ?? {}),
       activeWeChatUser: {
         ...activeUser,
-        ...(patch.provider ? { provider: patch.provider } : {}),
-        ...(patch.cwd ? { cwd: patch.cwd } : {}),
+        ...(patch.currentConversation !== undefined ? { currentConversation: patch.currentConversation } : {}),
         updatedAt: Date.now(),
       },
     };

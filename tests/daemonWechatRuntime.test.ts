@@ -20,8 +20,6 @@ function seededUsers(platformUserId = 'wx_user_1') {
     platform: 'weixin',
     platformUserId,
     role: 'user',
-    provider: 'claude-code',
-    cwd: '/tmp/project',
   });
   return store.activeUserStore;
 }
@@ -291,7 +289,6 @@ describe('daemon WeChat runtime channel', () => {
 
     expect(activeUserStore.getActiveUser()).toMatchObject({
       platformUserId: 'wx_user_unauthorized',
-      provider: 'claude-code',
     });
 
     await app.close();
@@ -357,7 +354,6 @@ describe('daemon WeChat runtime channel', () => {
 
     expect(activeUserStore.getActiveUser()).toMatchObject({
       platformUserId: 'wx_user_late_enable',
-      provider: 'claude-code',
     });
 
     await app.close();

@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import websocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import Database from 'better-sqlite3';
@@ -13,7 +16,7 @@ import { ProviderRegistry } from '../providers/providerRegistry';
 import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
 import { MessageRouter } from '../session/messageRouter';
 import { autoAttachProviderSessionForMessage } from '../session/providerAutoAttach';
-import { SessionManager } from '../session/sessionManager';
+import { CurrentConversationStore } from '../session/currentConversationStore';
 import type { BridgeDatabase } from '../storage/db';
 import { ProviderBindingRepository } from '../storage/providerBindingRepository';
 import { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
@@ -42,7 +45,11 @@ export function createDaemonServer(options: {
     defaultProvider: options.bridgeDefaults?.defaultProvider ?? 'claude-code',
     defaultWorkspace: options.bridgeDefaults?.defaultWorkspace ?? process.cwd(),
   };
-  const sessions = new SessionManager({
+  const configPath = options.configPath
+    ?? (options.activeUserStore ? join(mkdtempSync(join(tmpdir(), 'claude-codex-wechat-')), 'config.json') : undefined)
+    ?? process.env.BRIDGE_CONFIG
+    ?? defaultConfigPath();
+  const conversation = new CurrentConversationStore(configPath, {
     defaultCwd: bridgeDefaults.defaultWorkspace,
     defaultProviderId: bridgeDefaults.defaultProvider,
   });
@@ -51,7 +58,6 @@ export function createDaemonServer(options: {
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
   });
-  const configPath = options.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath();
   const activeUserStore = options.activeUserStore
     ?? new RuntimeUserStore(configPath);
   const providerBindings = new ProviderBindingRepository(db);
@@ -61,38 +67,29 @@ export function createDaemonServer(options: {
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
   });
-  const persistedSessions = runtimeSessions.list();
-  for (const persistedSession of persistedSessions) {
-    sessions.hydrateSession({
-      id: persistedSession.id,
-      chatId: persistedSession.chatId,
-      ownerUserId: persistedSession.ownerUserId,
-      providerId: persistedSession.providerId,
-      providerSessionId: persistedSession.providerSessionId,
-      recoverySource: persistedSession.recoverySource,
-      resumeTitle: persistedSession.resumeTitle,
-      cwd: persistedSession.cwd,
-      status: persistedSession.status,
-      createdAt: persistedSession.createdAt,
-      lastActivityAt: persistedSession.lastActivityAt,
-    });
+  let currentConversation = conversation.getCurrent();
+  if (!currentConversation) {
+    const persistedCurrent = runtimeSessions.list()[0] ?? null;
+    if (persistedCurrent) {
+      currentConversation = conversation.setCurrent(persistedCurrent);
+    }
   }
-  for (const persistedSession of persistedSessions) {
+  if (currentConversation) {
     if (
-      persistedSession.providerId === 'claude-code' &&
-      persistedSession.providerSessionId &&
-      persistedSession.resumeTitle
+      currentConversation.providerId === 'claude-code' &&
+      currentConversation.providerSessionId &&
+      currentConversation.resumeTitle
     ) {
       void ensureClaudeSessionBridgeMetadata({
-        sessionId: persistedSession.providerSessionId,
-        resumeTitle: persistedSession.resumeTitle,
+        sessionId: currentConversation.providerSessionId,
+        resumeTitle: currentConversation.resumeTitle,
       });
     }
-    const provider = providerAdapters.find((candidate) => candidate.id === persistedSession.providerId);
+    const provider = providerAdapters.find((candidate) => candidate.id === currentConversation.providerId);
     void provider?.startSession({
-      bridgeSessionId: persistedSession.id,
-      cwd: persistedSession.cwd,
-      options: persistedSession.providerSessionId ? { providerSessionId: persistedSession.providerSessionId } : undefined,
+      bridgeSessionId: currentConversation.id,
+      cwd: currentConversation.cwd,
+      options: currentConversation.providerSessionId ? { providerSessionId: currentConversation.providerSessionId } : undefined,
     });
   }
   const managedWechatChannel = options.channel ? null : new ManagedWeixinDirectAdapter(options.wechat);
@@ -102,7 +99,7 @@ export function createDaemonServer(options: {
         channel,
         permissions,
         providers: providerAdapters,
-        sessions,
+        conversation,
         resolveUser: (message) => activeUserStore.isActiveUser(PRIMARY_WEIXIN_PLATFORM, message.user.id),
         autoAuthorizeUser: (message) => {
           const existing = activeUserStore.isActiveUser(PRIMARY_WEIXIN_PLATFORM, message.user.id);
@@ -112,8 +109,6 @@ export function createDaemonServer(options: {
             platformUserId: message.user.id,
             displayName: message.user.displayName,
             role: 'user',
-            provider: bridgeDefaults.defaultProvider,
-            cwd: bridgeDefaults.defaultWorkspace,
           });
           events.emit({
             type: 'channel.user-authorized',
@@ -124,23 +119,24 @@ export function createDaemonServer(options: {
               display_name: created.displayName,
               authorizedAt: created.createdAt,
               lastActive: created.updatedAt,
-              provider: created.provider,
-              cwd: created.cwd,
+              provider: bridgeDefaults.defaultProvider,
+              cwd: bridgeDefaults.defaultWorkspace,
             },
           });
           return created;
         },
         autoAttachSession: async (message, user) => {
-          if (sessions.getActiveSession(message.chatId)) return null;
-          const provider = providerAdapters.find((candidate) => candidate.id === user.provider);
+          if (conversation.getCurrent()) return null;
+          const provider = providerAdapters.find((candidate) => candidate.id === bridgeDefaults.defaultProvider);
           if (!provider?.attachSession || !provider.listRecoverableSessions) return null;
           const attached = await autoAttachProviderSessionForMessage({
             message,
             user,
             provider,
-            sessionManager: sessions,
+            conversationStore: conversation,
             bindingRepository: providerBindings,
-            sessionRepository: runtimeSessions,
+            defaultProviderId: bridgeDefaults.defaultProvider,
+            defaultCwd: bridgeDefaults.defaultWorkspace,
           });
           if (attached) {
             sessionBindingMatch.set(attached.session.id, attached.matchedBinding);
@@ -151,6 +147,7 @@ export function createDaemonServer(options: {
         sessionRepository: runtimeSessions,
         bindingRepository: providerBindings,
         events,
+        defaults: bridgeDefaults,
       })
     : undefined;
   if (channel && messageRouter) {
@@ -165,8 +162,8 @@ export function createDaemonServer(options: {
     users: activeUserStore,
     ...(channel ? { channel } : {}),
     providerBindings,
-    sessions: runtimeSessions,
-    sessionManager: sessions,
+    conversation,
+    defaults: bridgeDefaults,
     providers: providerAdapters,
     getSessionBindingMatch: (sessionId) => sessionBindingMatch.get(sessionId) === true,
     wechat: options.wechat,
@@ -183,13 +180,14 @@ export function createDaemonServer(options: {
     defaults: bridgeDefaults,
     configPath,
     users: activeUserStore,
+    conversation,
     sessions: runtimeSessions,
     ...(channel ? { channel } : {}),
   });
 
   app.get('/api/status', async () => ({
     ok: true,
-    sessions: runtimeSessions.list(),
+    sessions: conversation.getCurrent() ? [conversation.getCurrent()!] : [],
     permissions: permissions.getPendingRequests(),
   }));
 
@@ -217,5 +215,5 @@ export function createDaemonServer(options: {
     await channel?.stop();
   });
 
-  return { app, sessions, permissions, events, activeUserStore };
+  return { app, conversation, sessions: conversation, permissions, events, activeUserStore };
 }

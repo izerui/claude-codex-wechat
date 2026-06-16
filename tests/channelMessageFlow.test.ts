@@ -31,8 +31,6 @@ function seededUsers(platformUserId = 'wx_user_1', input?: { defaultProvider?: '
     platform: PRIMARY_WEIXIN_PLATFORM,
     platformUserId,
     role: 'user',
-    provider: input?.defaultProvider ?? 'claude-code',
-    cwd: input?.defaultCwd ?? '/tmp/project',
   });
   return store.activeUserStore;
 }
@@ -96,7 +94,6 @@ describe('channel message flow', () => {
 
     expect(activeUserStore.isActiveUser(PRIMARY_WEIXIN_PLATFORM, 'wx_user_1')).toMatchObject({
       platformUserId: 'wx_user_1',
-      provider: 'claude-code',
     });
     expect(sessions.listSessions()).toHaveLength(1);
     expect(sent).toEqual([
@@ -110,7 +107,7 @@ describe('channel message flow', () => {
     const db = memoryDb();
     const store = createRuntimeUserStore('bridge-message-flow-existing-');
     const activeUserStore = store.activeUserStore;
-    seedRuntimeUserStore(store, { platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user', provider: 'claude-code', cwd: '/tmp/project' });
+    seedRuntimeUserStore(store, { platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user' });
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
@@ -169,8 +166,6 @@ describe('channel message flow', () => {
       platform: PRIMARY_WEIXIN_PLATFORM,
       platformUserId: 'wx_user_1',
       role: 'user',
-      provider: 'claude-code',
-      cwd: '/tmp/project',
     });
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
@@ -200,7 +195,6 @@ describe('channel message flow', () => {
       chatId: 'chat-fresh',
       providerId: 'claude-code',
       providerSessionId: expect.stringContaining('claude-code_fresh_'),
-      cwd: '/tmp/project',
     });
     expect(sent).toEqual([{ kind: 'text', text: '收到：hello after restart' }]);
 
@@ -211,7 +205,7 @@ describe('channel message flow', () => {
     const db = memoryDb();
     const store = createRuntimeUserStore('bridge-message-flow-switch-');
     const activeUserStore = store.activeUserStore;
-    seedRuntimeUserStore(store, { platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user', provider: 'claude-code', cwd: '/tmp/project' });
+    seedRuntimeUserStore(store, { platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user' });
     const channel = new MockChannelAdapter();
     const sent: string[] = [];
     channel.onSent((message) => sent.push(message.text));
@@ -327,6 +321,10 @@ describe('channel message flow', () => {
         channel,
         providers: [provider],
         activeUserStore: activeUserStore,
+        bridgeDefaults: {
+          defaultProvider: 'codex',
+          defaultWorkspace: '/tmp/project',
+        },
       });
 
       await channel.emitIncoming({
@@ -376,7 +374,6 @@ describe('channel message flow', () => {
 
     expect(activeUserStore.isActiveUser(PRIMARY_WEIXIN_PLATFORM, 'wx_user_auto')).toMatchObject({
       platformUserId: 'wx_user_auto',
-      provider: 'claude-code',
     });
     expect(sessions.listSessions()).toHaveLength(1);
     expect(sent).toEqual([
@@ -465,7 +462,6 @@ describe('channel message flow', () => {
 
     expect(sessions.getActiveSession('chat-a')).toMatchObject({
       providerSessionId: expect.stringContaining('claude-code_fake_'),
-      cwd: '/tmp/project',
       recoverySource: 'runtime',
     });
     expect(sent).toEqual([
@@ -550,7 +546,6 @@ describe('channel message flow', () => {
     expect(sessions.getActiveSession('chat-restart-bound')).toMatchObject({
       providerSessionId: 'claude-session-bound',
       recoverySource: 'binding_table',
-      cwd: '/tmp/project',
     });
 
     await app.close();

@@ -16,8 +16,6 @@ const authorizedUser: ActiveWeChatUserRecord = {
   platform: 'weixin',
   platformUserId: 'wx_user_1',
   role: 'user',
-  provider: 'claude-code',
-  cwd: '/tmp/project',
   createdAt: 1,
 };
 
@@ -419,7 +417,6 @@ describe('MessageRouter', () => {
       chatId: 'chat-a',
       providerId: 'claude-code',
       providerSessionId: activeSession?.providerSessionId,
-      cwd: '/tmp/project',
     });
     expect(sessionRepository.getActiveByChat('chat-a')).toMatchObject({
       providerSessionId: activeSession?.providerSessionId,
@@ -479,7 +476,8 @@ describe('MessageRouter', () => {
       permissions,
       providers: [new FakeProviderAdapter('codex')],
       sessions,
-      resolveUser: () => ({ ...authorizedUser, provider: 'codex' }),
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'codex', defaultWorkspace: '/tmp/project' },
     });
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
@@ -508,7 +506,8 @@ describe('MessageRouter', () => {
       permissions,
       providers: [new ErrorProviderAdapter()],
       sessions,
-      resolveUser: () => ({ ...authorizedUser, provider: 'codex' }),
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'codex', defaultWorkspace: '/tmp/project' },
     });
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
@@ -536,7 +535,8 @@ describe('MessageRouter', () => {
       permissions,
       providers: [new PartialThenErrorProviderAdapter()],
       sessions,
-      resolveUser: () => ({ ...authorizedUser, provider: 'codex' }),
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'codex', defaultWorkspace: '/tmp/project' },
     });
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));

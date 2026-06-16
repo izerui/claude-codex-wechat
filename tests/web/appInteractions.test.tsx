@@ -64,8 +64,6 @@ function createFetchStub() {
         id: 'user_1',
         platform: 'weixin',
         platformUserId: 'wx_user_1',
-        provider: 'claude-code',
-        cwd: '/tmp/project',
         role: 'user',
         createdAt: 1,
       },
@@ -109,6 +107,9 @@ function createFetchStub() {
     }
     if (url.endsWith('/api/channel/weixin/login')) {
       return new Response(null, { status: 200 });
+    }
+    if (url.endsWith('/api/channel/current-session')) {
+      return new Response(JSON.stringify(state.sessions[0] ?? null), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/sessions')) {
       return new Response(JSON.stringify(state.sessions), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -204,8 +205,12 @@ function createFetchStub() {
         },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
+    if (url.endsWith('/api/channel/current-session/stop') && method === 'POST') {
+      state.sessions = [];
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     if (url.endsWith('/api/channel/sessions/bs_1/stop') && method === 'POST') {
-      state.sessions = [{ ...state.sessions[0], status: 'closed', archivedAt: Date.now() }];
+      state.sessions = [];
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/sessions/bs_1/repair-native-resume') && method === 'POST') {
@@ -239,7 +244,7 @@ describe('App admin interactions', () => {
     fireEvent.click(stopButton);
 
     await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/stop') && call.method === 'POST')).toBe(true);
+    expect(calls.some((call) => call.url.endsWith('/api/channel/current-session/stop') && call.method === 'POST')).toBe(true);
     });
     expect(screen.queryByText('撤销授权')).toBeNull();
     expect(screen.queryByText('归档')).toBeNull();
@@ -251,12 +256,12 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findAllByText('当前活跃微信用户');
+    await screen.findAllByText('当前活跃用户信息');
     expect(screen.queryByText('待审批配对')).toBeNull();
     expect(fetchImpl.mock.calls.some(([input]) => String(input).endsWith('/api/channel/pairings'))).toBe(false);
   });
 
-  it('defaults to the bridge sessions tab and switches to Claude and Codex native session tabs', async () => {
+  it('defaults to the Claude native session tab and switches to Codex native session tab', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
     vi.stubGlobal('WebSocket', class {
@@ -267,23 +272,19 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    const bridgeTab = (await screen.findAllByRole('button', { name: '桥接会话' })).at(-1)!;
-    expect(bridgeTab.getAttribute('aria-pressed')).toBe('true');
-    expect((await screen.findAllByText('chat-a')).length).toBeGreaterThan(0);
-    expect(screen.queryByText('claude-session-1.jsonl')).toBeNull();
-
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Claude 原生会话' })).at(-1)!);
+    const claudeTab = (await screen.findAllByRole('button', { name: 'Claude 原生会话' })).at(-1)!;
+    expect(claudeTab.getAttribute('aria-pressed')).toBe('true');
+    expect((await screen.findAllByText('平台 ID：wx_user_1')).length).toBeGreaterThan(0);
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions') && call.method === 'GET')).toBe(true);
     });
-    expect(await screen.findByText('原生会话 ID：claude-session-1')).toBeTruthy();
+    expect((await screen.findAllByText('原生会话 ID：claude-session-1')).length).toBeGreaterThan(0);
 
     fireEvent.click((await screen.findAllByRole('button', { name: 'Codex 原生会话' })).at(-1)!);
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/providers/codex/recoverable-sessions') && call.method === 'GET')).toBe(true);
     });
-    expect(await screen.findByText('原生会话 ID：codex-session-1')).toBeTruthy();
-    expect(screen.queryByText('原生会话 ID：claude-session-1')).toBeNull();
+    expect((await screen.findAllByText('原生会话 ID：codex-session-1')).length).toBeGreaterThan(0);
   });
 
   it('renders a simplified bridge sessions table without duplicate recovery columns', async () => {
@@ -292,15 +293,12 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findAllByRole('button', { name: '桥接会话' });
-    expect((await screen.findAllByText('微信用户')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('提供方')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('原生标题')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('工作目录')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('状态')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('操作')).length).toBeGreaterThan(0);
-
-    expect((await screen.findAllByText('桥接会话')).length).toBeGreaterThan(0);
+    await screen.findAllByText('当前活跃用户信息');
+    expect((await screen.findAllByText('当前活跃用户信息')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('当前会话')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('提供方：claude-code')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('工作目录：/tmp/project')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('状态：idle')).length).toBeGreaterThan(0);
     expect(screen.queryByText('提供方会话')).toBeNull();
     expect(screen.queryByText('恢复模式')).toBeNull();
     expect(screen.queryByText('推荐恢复')).toBeNull();
@@ -361,7 +359,7 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    expect((await screen.findAllByText('微信 · wx_user_1 · [claude-codex-wechat:test]')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('原生标题：微信 · wx_user_1 · [claude-codex-wechat:test]')).length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: '修复原生恢复' })).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/repair-native-resume'))).toBe(false);
   });
@@ -416,8 +414,8 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findAllByText('微信 · wx_user_1 · [claude-codex-wechat:test]');
-    const sessionsHeaders = await screen.findAllByText('桥接会话');
+    await screen.findAllByText('原生标题：微信 · wx_user_1 · [claude-codex-wechat:test]');
+    const sessionsHeaders = await screen.findAllByText('当前活跃用户信息');
     const sessionsSection = sessionsHeaders.at(-1)?.closest('section');
     if (!sessionsSection) throw new Error('sessions_section_not_found');
     expect(within(sessionsSection).queryByRole('button', { name: '批量修复 Claude 恢复' })).toBeNull();
@@ -593,6 +591,7 @@ describe('App admin interactions', () => {
 
     const selectors = await screen.findAllByDisplayValue('Claude Code');
     fireEvent.change(selectors[0]!, { target: { value: 'codex' } });
+    fireEvent.click((await screen.findAllByText('保存设置')).at(-1)!);
 
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/settings') && call.method === 'POST')).toBe(true);
@@ -661,7 +660,7 @@ describe('App admin interactions', () => {
     const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 原生会话' });
     fireEvent.click(claudeTabButtons.at(-1)!);
 
-    await screen.findByText('原生恢复状态：待修复');
+    expect((await screen.findAllByText('原生恢复状态：待修复')).length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: '修复原生恢复' })).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions/claude-session-1/repair-native-resume'))).toBe(false);
   });
@@ -697,7 +696,7 @@ describe('App admin interactions', () => {
 
     const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 原生会话' });
     fireEvent.click(claudeTabButtons.at(-1)!);
-    await screen.findByText('原生恢复状态：待修复');
+    expect((await screen.findAllByText('原生恢复状态：待修复')).length).toBeGreaterThan(0);
 
     expect(screen.queryByText('批量修复 Claude 恢复')).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions/repair-native-resume'))).toBe(false);

@@ -7,8 +7,6 @@ export type ActiveWeChatUserView = {
   platformUserId: string;
   displayName?: string;
   role: string;
-  provider: string;
-  cwd: string;
   createdAt: number;
   updatedAt?: number;
 };
@@ -20,8 +18,6 @@ export type ActiveWeChatUserEventView = {
   display_name?: string;
   authorizedAt: number;
   lastActive?: number;
-  provider: 'claude-code' | 'codex';
-  cwd: string;
 };
 
 export type ChannelPluginView = {
@@ -65,7 +61,7 @@ export type ProviderStatusView = {
   codex?: unknown;
 };
 
-export type BridgeSessionView = {
+export type CurrentSessionView = {
   id: string;
   chatId: string;
   ownerUserId: string;
@@ -93,6 +89,8 @@ export type BridgeSessionView = {
   archivedAt?: number;
 };
 
+export type BridgeSessionView = CurrentSessionView;
+
 export type PermissionRequestView = {
   id: string;
   bridgeSessionId: string;
@@ -107,7 +105,7 @@ export type PermissionRequestView = {
 
 export type StatusView = {
   ok: boolean;
-  sessions: BridgeSessionView[];
+  sessions: CurrentSessionView[];
   permissions: PermissionRequestView[];
 };
 
@@ -208,8 +206,11 @@ export async function syncWeixinChannelSettings(): Promise<void> {
   });
 }
 
-export async function fetchSessions(): Promise<BridgeSessionView[]> {
-  return await requestJson('/api/channel/sessions');
+export async function fetchCurrentSession(): Promise<CurrentSessionView | null> {
+  const current = await requestJsonOptional<CurrentSessionView>('/api/channel/current-session');
+  if (current) return current;
+  const legacy = await requestJsonOptional<CurrentSessionView[]>('/api/channel/sessions');
+  return legacy?.[0] ?? null;
 }
 
 export async function fetchRecoverableProviderSessions(providerId: 'claude-code' | 'codex'): Promise<RecoverableProviderSessionView[]> {
@@ -223,7 +224,7 @@ export async function attachProviderSession(input: {
   chatId?: string;
   cwd?: string;
 }): Promise<void> {
-  await requestJson('/api/channel/sessions/attach', {
+  await requestJson('/api/channel/current-session/attach', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
@@ -247,12 +248,14 @@ export async function repairAllRecoverableProviderSessionsNativeResume(input: {
   });
 }
 
-export async function stopSession(id: string): Promise<void> {
-  await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/stop`, { method: 'POST' });
-}
-
-export async function archiveSession(id: string): Promise<void> {
-  await requestJson(`/api/channel/sessions/${encodeURIComponent(id)}/archive`, { method: 'POST' });
+export async function stopCurrentSession(): Promise<void> {
+  const current = await fetchCurrentSession();
+  if (!current) return;
+  try {
+    await requestJson('/api/channel/current-session/stop', { method: 'POST' });
+  } catch {
+    await requestJson(`/api/channel/sessions/${encodeURIComponent(current.id)}/stop`, { method: 'POST' });
+  }
 }
 
 export async function decidePermission(input: {

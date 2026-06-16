@@ -1,4 +1,4 @@
-import type { ProviderId } from '../providers/types';
+import type { CurrentConversationBinding } from '../session/currentConversationStore';
 
 export type ActiveWeChatUserRecord = {
   id: string;
@@ -6,16 +6,15 @@ export type ActiveWeChatUserRecord = {
   platformUserId: string;
   displayName?: string;
   role: 'admin' | 'user';
-  provider: ProviderId;
-  cwd: string;
   createdAt: number;
   updatedAt?: number;
+  currentConversation?: CurrentConversationBinding;
 };
 
 export type ActiveWeChatUserStore = {
   setActiveUser(input: Omit<ActiveWeChatUserRecord, 'id' | 'createdAt'>): ActiveWeChatUserRecord;
   getActiveUser(): ActiveWeChatUserRecord | null;
   isActiveUser(platform: string, platformUserId: string): ActiveWeChatUserRecord | null;
-  updateActiveUser(platform: string, patch: { provider?: ProviderId; cwd?: string }): void;
+  updateActiveUser(platform: string, patch: { currentConversation?: CurrentConversationBinding }): void;
   clearActiveUser(id: string): { ok: true } | { ok: false; error: string };
 };

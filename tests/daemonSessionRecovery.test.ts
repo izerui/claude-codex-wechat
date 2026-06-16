@@ -30,8 +30,6 @@ describe('daemon provider session recovery', () => {
         platform: PRIMARY_WEIXIN_PLATFORM,
         platformUserId: 'wx_user_1',
         role: 'user',
-        provider: 'claude-code',
-        cwd: '/tmp/project',
       });
 
       const firstRunnerCalls: Parameters<ClaudeProcessRunner>[0][] = [];
@@ -143,8 +141,6 @@ describe('daemon provider session recovery', () => {
         platform: PRIMARY_WEIXIN_PLATFORM,
         platformUserId: 'wx_user_legacy',
         role: 'user',
-        provider: 'claude-code',
-        cwd: '/tmp/project',
       });
       const runtimeSessions = new RuntimeSessionRepository(db);
       const resumeTitle = '微信 · wx_user_legacy · [claude-codex-wechat:legacyprobe]';

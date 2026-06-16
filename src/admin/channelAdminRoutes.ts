@@ -7,9 +7,8 @@ import { defaultConfigPath } from '../daemon/config';
 import { persistWechatCredentialsToConfigFile } from '../daemon/configPersistence';
 import type { BridgeEventHub } from '../daemon/events';
 import type { ProviderBindingRepository } from '../storage/providerBindingRepository';
-import type { RuntimeSessionRepository } from '../storage/runtimeSessionRepository';
 import type { ActiveWeChatUserStore } from '../storage/userStore';
-import type { SessionManager } from '../session/sessionManager';
+import type { CurrentConversationStore } from '../session/currentConversationStore';
 import type { NativeProviderAdapter } from '../providers/types';
 import { ensureClaudeSessionBridgeMetadata, findRecoverableClaudeSessionPath, getClaudeRecoverableSessionById, hasClaudeHistoryDisplay, hasClaudeSessionBridgeMetadata, listRecoverableClaudeSessions } from '../providers/claude-code/nativeSessions';
 import { findRecoverableCodexSessionPath } from '../providers/codex/nativeSessions';
@@ -18,8 +17,8 @@ import { attachProviderSessionToBridge, listUnattachedRecoverableSessions, selec
 export function registerChannelAdminRoutes(input: {
   app: FastifyInstance;
   providerBindings?: ProviderBindingRepository;
-  sessions?: RuntimeSessionRepository;
-  sessionManager?: SessionManager;
+  conversation?: CurrentConversationStore;
+  defaults?: { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string };
   providers?: NativeProviderAdapter[];
   getSessionBindingMatch?: (sessionId: string) => boolean;
   users: ActiveWeChatUserStore;
@@ -140,7 +139,7 @@ export function registerChannelAdminRoutes(input: {
     return await Promise.all((await listUnattachedRecoverableSessions({
       provider,
       providerId: request.params.providerId === 'codex' ? 'codex' : 'claude-code',
-      sessionRepository: input.sessions,
+      currentSession: input.conversation?.getCurrent(),
     })).map(async (session) => ({
       ...session,
       preferredResumeMode: buildPreferredResumeMode(session.providerId, session.resumeTitle),
@@ -168,22 +167,21 @@ export function registerChannelAdminRoutes(input: {
     if (!user) {
       return reply.code(404).send({ ok: false, error: 'active_wechat_user_not_found' });
     }
-    if (!input.sessionManager) {
-      return reply.code(500).send({ ok: false, error: 'bridge_session_manager_unavailable' });
+    if (!input.conversation) {
+      return reply.code(500).send({ ok: false, error: 'current_conversation_store_unavailable' });
     }
     const recoverableCandidate = provider.listRecoverableSessions
       ? (await provider.listRecoverableSessions()).find((candidate) => candidate.id === request.body.providerSessionId)
       : undefined;
     const attached = await attachProviderSessionToBridge({
-      sessionManager: input.sessionManager,
+      conversationStore: input.conversation,
       bindingRepository: input.providerBindings,
-      sessionRepository: input.sessions,
       provider,
       user,
       providerId: request.body.providerId === 'codex' ? 'codex' : 'claude-code',
       providerSessionId: request.body.providerSessionId,
       chatId: request.body.chatId ?? user.platformUserId,
-      cwd: request.body.cwd ?? recoverableCandidate?.cwd ?? user.cwd,
+      cwd: request.body.cwd ?? recoverableCandidate?.cwd ?? input.defaults?.defaultWorkspace ?? process.cwd(),
       recoverySource: 'manual_attach',
     });
     return {
@@ -200,6 +198,20 @@ export function registerChannelAdminRoutes(input: {
 
   input.app.post<{ Body: {
     providerId: string;
+    providerSessionId: string;
+    platformUserId: string;
+    chatId?: string;
+    cwd?: string;
+  } }>('/api/channel/current-session/attach', async (request, reply) => {
+    return await input.app.inject({
+      method: 'POST',
+      url: '/api/channel/sessions/attach',
+      payload: request.body,
+    }).then((response) => reply.code(response.statusCode).send(response.json()));
+  });
+
+  input.app.post<{ Body: {
+    providerId: string;
     platformUserId: string;
     chatId?: string;
     cwd?: string;
@@ -212,10 +224,10 @@ export function registerChannelAdminRoutes(input: {
     if (!user) {
       return reply.code(404).send({ ok: false, error: 'active_wechat_user_not_found' });
     }
-    if (!input.sessionManager) {
-      return reply.code(500).send({ ok: false, error: 'bridge_session_manager_unavailable' });
+    if (!input.conversation) {
+      return reply.code(500).send({ ok: false, error: 'current_conversation_store_unavailable' });
     }
-    const targetCwd = request.body.cwd ?? user.cwd;
+    const targetCwd = request.body.cwd ?? input.defaults?.defaultWorkspace ?? process.cwd();
     const selection = await selectBestRecoverableSession({
       provider,
       providerId: request.body.providerId === 'codex' ? 'codex' : 'claude-code',
@@ -223,21 +235,20 @@ export function registerChannelAdminRoutes(input: {
       targetPlatformUserId: user.platformUserId,
       targetChatId: request.body.chatId ?? user.platformUserId,
       bindingRepository: input.providerBindings,
-      sessionRepository: input.sessions,
+      currentSession: input.conversation.getCurrent(),
     });
     if (!selection) {
       return reply.code(404).send({ ok: false, error: 'recoverable_provider_session_not_found' });
     }
     const attached = await attachProviderSessionToBridge({
-      sessionManager: input.sessionManager,
+      conversationStore: input.conversation,
       bindingRepository: input.providerBindings,
-      sessionRepository: input.sessions,
       provider,
       user,
       providerId: request.body.providerId === 'codex' ? 'codex' : 'claude-code',
       providerSessionId: selection.candidate.id,
       chatId: request.body.chatId ?? user.platformUserId,
-      cwd: request.body.cwd ?? selection.candidate.cwd ?? user.cwd,
+      cwd: request.body.cwd ?? selection.candidate.cwd ?? input.defaults?.defaultWorkspace ?? process.cwd(),
       recoverySource: selection.bindingSource,
       resumeTitle: selection.candidate.resumeTitle,
     });
@@ -255,7 +266,9 @@ export function registerChannelAdminRoutes(input: {
     };
   });
 
-  input.app.get('/api/channel/sessions', async () => await Promise.all((input.sessions?.list() ?? []).map(async (session) => {
+  input.app.get('/api/channel/current-session', async () => {
+    const session = input.conversation?.getCurrent();
+    if (!session) return null;
     const providerNativePath = await resolveProviderNativePath(session.providerId, session.providerSessionId);
     const providerResumeTitleSynced = await resolveProviderResumeTitleSynced(session);
     const providerResumeHistorySynced = await resolveProviderResumeHistorySynced(session);
@@ -279,30 +292,40 @@ export function registerChannelAdminRoutes(input: {
       providerResumeRepairable: session.providerId === 'claude-code' && Boolean(session.providerSessionId && session.resumeTitle && providerNativePath),
       ...(providerNativePath ? { providerNativePath } : {}),
     };
-  })));
+  });
+
+  input.app.get('/api/channel/sessions', async () => {
+    const session = await input.app.inject({ method: 'GET', url: '/api/channel/current-session' });
+    if (session.statusCode === 404) return [];
+    const payload = session.json();
+    return payload ? [payload] : [];
+  });
 
   input.app.post<{ Body: { platform: string } }>('/api/channel/settings/sync', async (_request) => {
-    for (const session of input.sessions?.list() ?? []) {
-      input.sessionManager?.removeSession(session.id);
-      input.sessions?.delete(session.id);
-    }
+    input.conversation?.clear();
+    return { ok: true };
+  });
+
+  input.app.post('/api/channel/current-session/stop', async (_request, reply) => {
+    const runtimeSession = input.conversation?.getCurrent();
+    if (!runtimeSession) return reply.code(404).send({ ok: false, error: 'session_not_found' });
+    const provider = input.providers?.find((candidate) => candidate.id === runtimeSession.providerId);
+    await provider?.stopSession(runtimeSession.id);
+    input.conversation?.clear();
     return { ok: true };
   });
 
   input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/stop', async (request, reply) => {
-    const runtimeSession = input.sessions?.findById(request.params.id);
-    if (!runtimeSession) return reply.code(404).send({ ok: false, error: 'session_not_found' });
-    const provider = input.providers?.find((candidate) => candidate.id === runtimeSession.providerId);
-    await provider?.stopSession(runtimeSession.id);
-    input.sessionManager?.removeSession(runtimeSession.id);
-    input.sessions?.delete(runtimeSession.id);
-    return { ok: true };
+    const current = input.conversation?.getCurrent();
+    if (!current || current.id !== request.params.id) {
+      return reply.code(404).send({ ok: false, error: 'session_not_found' });
+    }
+    return await input.app.inject({ method: 'POST', url: '/api/channel/current-session/stop' }).then((response) => response.json());
   });
 
-  input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/archive', async (request, reply) => {
+  input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/archive', async (_request, reply) => {
     return reply.code(404).send({ ok: false, error: 'session_archive_not_supported' });
   });
-
 }
 
 function toWechatPluginStatus(wechat: WeixinConfig | undefined, activeUserStore: ActiveWeChatUserStore, channel?: ChannelAdapter) {
