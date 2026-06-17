@@ -14,6 +14,8 @@
     "@fastify/websocket": "latest",
     "@vitejs/plugin-react": "latest",
     "better-sqlite3": "latest",
+    "bootstrap": "^5.3.3",
+    "bootstrap-icons": "^1.11.3",
     "fastify": "latest",
     "nanoid": "latest",
     "qrcode.react": "^4.2.0",

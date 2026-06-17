@@ -70,7 +70,8 @@ export function registerChannelAdminRoutes(input: {
     return { ok: true };
   });
 
-  input.app.get('/api/channel/weixin/login', async (_request, reply) => {
+  input.app.post('/api/channel/weixin/login/start', async (_request, reply) => {
+    const client = new WeixinDirectLoginClient();
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache',
@@ -78,7 +79,6 @@ export function registerChannelAdminRoutes(input: {
     });
 
     try {
-      const client = new WeixinDirectLoginClient();
       const qr = await client.fetchQrCode();
       reply.raw.write(`event: qr\n`);
       reply.raw.write(`data: ${JSON.stringify({ qrcodeData: qr.qrcodeData })}\n\n`);
@@ -232,8 +232,6 @@ export function registerChannelAdminRoutes(input: {
       provider,
       providerId: request.body.providerId === 'codex' ? 'codex' : 'claude-code',
       targetCwd,
-      targetPlatformUserId: user.platformUserId,
-      targetChatId: request.body.chatId ?? user.platformUserId,
       lastProviderSessions: input.lastProviderSessions,
       currentSession: input.conversation.getCurrent(),
     });

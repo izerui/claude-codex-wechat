@@ -412,7 +412,7 @@ describe('channel message flow', () => {
 
       const history = readFileSync(join(process.env.HOME, '.claude', 'history.jsonl'), 'utf8');
       expect(history).toContain('"display":"帮我恢复微信凭据并继续验证 · 微信 · wx_user_native"');
-      expect(history).toContain(`"project":"${process.cwd()}"`);
+      expect(history).toContain(`"project":"/tmp/project"`);
 
       await app.close();
     } finally {
@@ -458,7 +458,7 @@ describe('channel message flow', () => {
     seedRuntimeUserStore(store, { platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user' });
     const activeUserStore = store.activeUserStore;
     new LastProviderSessionStore(store.configPath).set('claude-code', {
-      providerSessionId: 'claude-session-bound',
+      providerSessionId: 'claude-code_recoverable_1',
       cwd: '/tmp/project',
     });
 
@@ -480,7 +480,7 @@ describe('channel message flow', () => {
     });
 
     expect(sessions.getActiveSession('chat-bound')).toMatchObject({
-      providerSessionId: 'claude-session-bound',
+      providerSessionId: 'claude-code_recoverable_1',
     });
     expect(JSON.parse(readFileSync(store.configPath, 'utf8'))).toMatchObject({
       bridge: {
@@ -488,7 +488,7 @@ describe('channel message flow', () => {
           platformUserId: 'wx_user_1',
           currentConversation: {
             chatId: 'chat-bound',
-            providerSessionId: 'claude-session-bound',
+            providerSessionId: 'claude-code_recoverable_1',
           },
         },
       },
@@ -502,7 +502,7 @@ describe('channel message flow', () => {
     seedRuntimeUserStore(store, { platform: PRIMARY_WEIXIN_PLATFORM, platformUserId: 'wx_user_1', role: 'user' });
     const activeUserStore = store.activeUserStore;
     new LastProviderSessionStore(store.configPath).set('claude-code', {
-      providerSessionId: 'claude-session-bound',
+      providerSessionId: 'claude-code_recoverable_1',
       cwd: '/tmp/project',
     });
 
@@ -524,7 +524,7 @@ describe('channel message flow', () => {
     });
 
     expect(sessions.getActiveSession('chat-restart-bound')).toMatchObject({
-      providerSessionId: 'claude-session-bound',
+      providerSessionId: 'claude-code_recoverable_1',
       recoverySource: 'binding_table',
     });
 

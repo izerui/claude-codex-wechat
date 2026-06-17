@@ -238,6 +238,34 @@ describe('MessageRouter', () => {
     expect(sessions.getActiveSession('chat-a')?.providerId).toBe('codex');
   });
 
+  it('creates a new session for /new using the default provider', async () => {
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [new FakeProviderAdapter('claude-code'), new FakeProviderAdapter('codex')],
+      sessions,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/new' },
+      timestamp: 1,
+    });
+
+    expect(sessions.getActiveSession('chat-a')).toMatchObject({ providerId: 'claude-code', status: 'starting' });
+    expect(sent[0]).toEqual({ kind: 'status', text: expect.stringContaining('Started new claude-code session') });
+  });
+
   it('updates cwd and reports session status', async () => {
     const channel = new MockChannelAdapter();
     const permissions = new PermissionRouter();

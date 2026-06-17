@@ -1,8 +1,18 @@
 /** @vitest-environment jsdom */
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
 import type { ActiveWeChatUserView, BridgeSessionView } from '../../src/web/apiClient';
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+async function openSessionsTab() {
+  const tab = (await screen.findAllByRole('button')).find((node) => node.classList.contains('nav-link') && node.textContent === '会话');
+  if (tab) fireEvent.click(tab);
+}
 
 function createFetchStub() {
   const calls: Array<{ url: string; method: string }> = [];
@@ -76,7 +86,7 @@ function createFetchStub() {
     }
     if (url.endsWith('/api/settings')) {
       return new Response(JSON.stringify({
-        provider: 'claude-code',
+        defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
@@ -87,19 +97,21 @@ function createFetchStub() {
 }
 
 describe('App session interactions without bridge event history', () => {
-  it('does not render bridge event controls or panels', async () => {
+  it('renders current session in table and does not expose bridge event routes', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
     render(<App />);
+    await openSessionsTab();
 
-    expect(await screen.findByText('原生标题：微信 · wx_user_1 · [claude-codex-wechat:test]')).toBeTruthy();
+    expect((await screen.findAllByText('微信 · wx_user_1 · [claude-codex-wechat:test]')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('/tmp/project')).length).toBeGreaterThan(0);
     expect(screen.queryByText('事件')).toBeNull();
     expect(screen.queryByText('桥接事件 · bs_1')).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/events'))).toBe(false);
   });
 
-  it('still renders session rows for sidecar-attached sessions', async () => {
+  it('renders session cwd for sidecar-recovered sessions without event controls', async () => {
     const { fetchImpl } = createFetchStub();
     const sidecarFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -135,8 +147,9 @@ describe('App session interactions without bridge event history', () => {
     vi.stubGlobal('fetch', sidecarFetch as typeof fetch);
 
     render(<App />);
+    await openSessionsTab();
 
-    expect(await screen.findByText('工作目录：/tmp/sidecar')).toBeTruthy();
+    expect((await screen.findAllByText('/tmp/sidecar')).length).toBeGreaterThan(0);
     expect(screen.queryByText('事件')).toBeNull();
   });
 });

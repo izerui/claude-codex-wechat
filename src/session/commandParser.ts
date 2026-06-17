@@ -3,7 +3,7 @@ import type { PermissionChoice, ProviderId } from '../providers/types';
 export type BridgeCommand =
   | { kind: 'help' }
   | { kind: 'status' }
-  | { kind: 'new_session'; providerId: ProviderId }
+  | { kind: 'new_session'; providerId: ProviderId | null }
   | { kind: 'use_provider'; providerId: ProviderId }
   | { kind: 'set_cwd'; cwd: string }
   | { kind: 'stop' }
@@ -31,7 +31,7 @@ export function parseBridgeCommand(input: string): BridgeCommand {
 
   if (command === '/new') {
     const providerId = parseProvider(first);
-    return providerId ? { kind: 'new_session', providerId } : { kind: 'chat', text };
+    return first ? (providerId ? { kind: 'new_session', providerId } : { kind: 'chat', text }) : { kind: 'new_session', providerId: null };
   }
 
   if (command === '/use') {

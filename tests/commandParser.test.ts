@@ -3,6 +3,7 @@ import { parseBridgeCommand } from '../src/session/commandParser';
 
 describe('parseBridgeCommand', () => {
   it('parses provider creation commands', () => {
+    expect(parseBridgeCommand('/new')).toEqual({ kind: 'new_session', providerId: null });
     expect(parseBridgeCommand('/new claude')).toEqual({ kind: 'new_session', providerId: 'claude-code' });
     expect(parseBridgeCommand('/new codex')).toEqual({ kind: 'new_session', providerId: 'codex' });
   });

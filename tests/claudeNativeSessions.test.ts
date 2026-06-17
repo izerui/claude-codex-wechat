@@ -101,14 +101,11 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
     expect(history).not.toContain('"display":"旧标题"');
   });
 
-  it('backfills Claude history project when the session history entry is missing cwd metadata', async () => {
+  it('backfills Claude history project from session file path when history entry is missing cwd metadata', async () => {
     const home = await mkdtemp(join(tmpdir(), 'claude-native-sessions-'));
     tempDirs.push(home);
-    const projectCwd = '/Users/liuyuhua/github/claude-codex-wechat';
-    const projectDir = join(home, '.claude', 'projects', '-Users-liuyuhua-github-claude-codex-wechat');
+    const projectDir = join(home, '.claude', 'projects', '-tmp-project');
     await import('node:fs/promises').then(({ mkdir }) => mkdir(projectDir, { recursive: true }));
-    const sidecarDir = join(home, '.claude-codex-wechat', 'provider-sidecar');
-    await import('node:fs/promises').then(({ mkdir }) => mkdir(sidecarDir, { recursive: true }));
     const sessionId = 'history-project-missing';
     const sessionPath = join(projectDir, `${sessionId}.jsonl`);
     const historyPath = join(home, '.claude', 'history.jsonl');
@@ -122,17 +119,6 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
       timestamp: 1710000000000,
       sessionId,
     }), 'utf8');
-    await writeFile(join(sidecarDir, `claude-code__${sessionId}.json`), JSON.stringify({
-      providerId: 'claude-code',
-      providerSessionId: sessionId,
-      bridgeTag: {
-        platform: 'weixin',
-        platformUserId: 'wx_user_1',
-        chatId: 'chat-a',
-      },
-      cwd: projectCwd,
-      updatedAt: 1710000000000,
-    }, null, 2), 'utf8');
 
     await ensureClaudeSessionBridgeMetadata({
       sessionId,
@@ -142,7 +128,7 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
 
     const history = await readFile(historyPath, 'utf8');
     expect(history).toContain(`"display":"${resumeTitle}"`);
-    expect(history).toContain(`"project":"${projectCwd}"`);
+    expect(history).toContain(`"project":"/tmp/project"`);
   });
 
   it('normalizes bridge-created Claude session files so resume UI can treat them like cli sessions', async () => {

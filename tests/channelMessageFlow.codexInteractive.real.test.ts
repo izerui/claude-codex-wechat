@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
 import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { PRIMARY_WEIXIN_PLATFORM } from '../src/channels/platforms';
 import { createDaemonServer } from '../src/daemon/server';

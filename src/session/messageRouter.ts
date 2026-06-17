@@ -9,7 +9,6 @@ import type { SessionManager } from './sessionManager';
 import type { BridgeEventHub } from '../daemon/events';
 import { buildSessionBridgeName } from './sessionBridgeTag';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
-import { writeProviderSessionSidecar } from '../providers/sidecarMetadata';
 import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
 import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 
@@ -113,7 +112,7 @@ export class MessageRouter {
           threadName: updated.resumeTitle,
         });
       }
-      await this.persistBridgeMetadata(updated, message.user.id);
+      await this.persistBridgeMetadata(updated);
     }
 
     let bufferedText = '';
@@ -156,7 +155,7 @@ export class MessageRouter {
               threadName: updated.resumeTitle,
             });
           }
-          await this.persistBridgeMetadata(updated, message.user.id);
+          await this.persistBridgeMetadata(updated);
         }
         if (event.type === 'error' && event.error) {
           if (bufferedText.trim()) {
@@ -193,16 +192,17 @@ export class MessageRouter {
     }
 
     if (command.kind === 'new_session') {
+      const providerId = command.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
       const session = this.conversation.create({
         chatId,
         ownerUserId: user.id,
-        providerId: command.providerId,
+        providerId,
         cwd: this.conversation.getCurrent()?.cwd ?? this.options.defaults?.defaultWorkspace ?? '/tmp/project',
       });
       await this.options.channel.sendMessage({
         chatId,
         kind: 'status',
-        text: `Started new ${command.providerId} session: ${session.id}`,
+        text: `Started new ${providerId} session: ${session.id}`,
       });
       return;
     }
@@ -315,20 +315,10 @@ export class MessageRouter {
     return result;
   }
 
-  private async persistBridgeMetadata(session: CurrentConversationBinding, platformUserId: string): Promise<void> {
+  private async persistBridgeMetadata(session: CurrentConversationBinding): Promise<void> {
     if (!session.providerSessionId || !session.resumeTitle) return;
     this.options.lastProviderSessions?.set(session.providerId, {
       providerSessionId: session.providerSessionId,
-      cwd: session.cwd,
-    });
-    await writeProviderSessionSidecar({
-      providerId: session.providerId,
-      providerSessionId: session.providerSessionId,
-      bridgeTag: {
-        platform: 'weixin',
-        platformUserId,
-        chatId: session.chatId,
-      },
       cwd: session.cwd,
     });
     if (session.providerId === 'claude-code') {

@@ -1,29 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  type ActiveWeChatUserEventView,
+  approvePairing,
+  type AuthorizedUserEventView,
   disableWeixinPlugin,
   enableWeixinPlugin,
   type BridgeWsEvent,
-  type CurrentSessionView,
   fetchChannelPlugins,
   fetchWeixinRuntimeConfig,
-  fetchActiveUser,
+  fetchAuthorizedUsers,
+  fetchPairings,
   fetchRecoverableProviderSessions,
   fetchSettings,
   attachProviderSession,
+  autoAttachProviderSession,
+  repairAllRecoverableProviderSessionsNativeResume,
+  repairRecoverableProviderSessionNativeResume,
+  type PairingEventView,
+  rejectPairing,
   resolveApiUrl,
   type RecoverableProviderSessionView,
+  revokeAuthorizedUser,
   syncWeixinChannelSettings,
   updateSettings,
-  type ActiveWeChatUserView,
+  type AuthorizedUserView,
   type BridgeSettingsView,
   type ChannelPluginView,
+  type PairingView,
   type WeixinRuntimeConfigView,
 } from './apiClient';
 
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
-type SessionTab = 'claude-native' | 'codex-native';
 
 function formatRecoverableResumeState(session: RecoverableProviderSessionView): string {
   if (session.providerId !== 'claude-code') return '-';
@@ -54,13 +61,14 @@ function formatPluginHint(plugin: ChannelPluginView | null): string | null {
   return null;
 }
 
-export function WeChatPanel(input: { currentSession: CurrentSessionView | null; onStopCurrentSession(): Promise<void> }) {
-  const [activeUser, setActiveUser] = useState<ActiveWeChatUserView | null>(null);
+export function WeChatPanel() {
+  const [pairings, setPairings] = useState<PairingView[]>([]);
+  const [users, setUsers] = useState<AuthorizedUserView[]>([]);
   const [plugin, setPlugin] = useState<ChannelPluginView | null>(null);
   const [runtimeConfig, setRuntimeConfig] = useState<WeixinRuntimeConfigView | null>(null);
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
   const [recoverableSessions, setRecoverableSessions] = useState<RecoverableProviderSessionView[]>([]);
-  const [activeSessionTab, setActiveSessionTab] = useState<SessionTab>('claude-native');
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [loginState, setLoginState] = useState<LoginState>('idle');
   const [qrcodeData, setQrcodeData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,13 +79,15 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [nextUser, nextPlugins, nextSettings] = await Promise.all([
-        fetchActiveUser(),
+      const [nextPairings, nextUsers, nextPlugins, nextSettings] = await Promise.all([
+        fetchPairings(),
+        fetchAuthorizedUsers(),
         fetchChannelPlugins(),
         fetchSettings(),
       ]);
       const nextRuntimeConfig = await fetchWeixinRuntimeConfig().catch(() => null);
-      setActiveUser(nextUser);
+      setPairings(nextPairings);
+      setUsers(nextUsers);
       setSettings(nextSettings);
       setRuntimeConfig(nextRuntimeConfig);
       const weixin = nextPlugins.find((candidate) => candidate.type === 'weixin') ?? null;
@@ -98,12 +108,16 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
   }, [refresh]);
 
   useEffect(() => {
-    if (!activeUser) return;
-    void scanRecoverableSessions(activeSessionTab === 'codex-native' ? 'codex' : 'claude-code');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeUser, activeSessionTab]);
+    if (users.length === 0) {
+      setSelectedUserId('');
+      return;
+    }
+    if (!users.some((user) => user.id === selectedUserId)) {
+      setSelectedUserId(users[0]!.id);
+    }
+  }, [selectedUserId, users]);
 
-  useEffect(() => {
+  useEffect(() => () => {
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
   }, []);
@@ -114,8 +128,13 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
     socketRef.current = socket;
     socket.addEventListener('message', (event) => {
       const payload = JSON.parse(event.data) as BridgeWsEvent;
+      if (payload.type === 'channel.pairing-requested') {
+        setPairings((current) => prependPairing(current, payload.pairing));
+        return;
+      }
       if (payload.type === 'channel.user-authorized') {
-        setActiveUser(toActiveWeChatUserView(payload.user));
+        setUsers((current) => prependAuthorizedUser(current, payload.user));
+        setPairings((current) => current.filter((pairing) => pairing.platformUserId !== payload.user.platformUserId));
         return;
       }
       if (payload.type === 'channel.plugin-status-changed') {
@@ -129,6 +148,17 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
       socketRef.current = null;
     };
   }, []);
+
+  const decide = async (code: string, decision: 'approve' | 'reject') => {
+    if (decision === 'approve') await approvePairing(code);
+    else await rejectPairing(code);
+    await refresh();
+  };
+
+  const revoke = async (userId: string) => {
+    await revokeAuthorizedUser(userId);
+    await refresh();
+  };
 
   const disconnect = async () => {
     setBusy(true);
@@ -144,13 +174,21 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
     }
   };
 
-  const changeDefaultProvider = (provider: 'claude-code' | 'codex') => {
-    setSettings((current) => current ? { ...current, defaultProvider: provider } : current);
+  const changeDefaultProvider = async (provider: 'claude-code' | 'codex') => {
+    if (!settings) return;
+    const next = { ...settings, defaultProvider: provider };
+    setSettings(next);
+    try {
+      await updateSettings(next);
+      await syncWeixinChannelSettings();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const scanRecoverableSessions = async (providerId: 'claude-code' | 'codex') => {
     try {
-      setActiveSessionTab(providerId === 'claude-code' ? 'claude-native' : 'codex-native');
       setRecoverableSessions(await fetchRecoverableProviderSessions(providerId));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -158,19 +196,64 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
   };
 
   const attachRecoverableSession = async (session: RecoverableProviderSessionView) => {
-    if (!activeUser) {
-      setError('no_active_wechat_user');
+    const user = users.find((candidate) => candidate.id === selectedUserId);
+    if (!user) {
+      setError('no_authorized_user_selected');
       return;
     }
     try {
       await attachProviderSession({
         providerId: session.providerId,
         providerSessionId: session.id,
-        platformUserId: activeUser.platformUserId,
-        chatId: activeUser.platformUserId,
-        cwd: session.cwd,
+        platformUserId: user.platformUserId,
+        chatId: user.platformUserId,
+        cwd: session.cwd ?? user.defaultCwd,
       });
       await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const repairRecoverableSession = async (session: RecoverableProviderSessionView) => {
+    try {
+      await repairRecoverableProviderSessionNativeResume({
+        providerId: session.providerId,
+        providerSessionId: session.id,
+      });
+      await scanRecoverableSessions(session.providerId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const autoAttachSession = async (providerId: 'claude-code' | 'codex') => {
+    const user = users.find((candidate) => candidate.id === selectedUserId);
+    if (!user) {
+      setError('no_authorized_user_selected');
+      return;
+    }
+    try {
+      await autoAttachProviderSession({
+        providerId,
+        platformUserId: user.platformUserId,
+        chatId: user.platformUserId,
+        cwd: user.defaultCwd,
+      });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const hasRepairableClaudeRecoverableSessions = recoverableSessions.some((session) => (
+    session.providerId === 'claude-code' && session.providerResumeRepairable === true
+  ));
+
+  const repairAllRecoverableSessions = async (providerId: 'claude-code' | 'codex') => {
+    try {
+      await repairAllRecoverableProviderSessionsNativeResume({ providerId });
+      await scanRecoverableSessions(providerId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -236,48 +319,6 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
 
   return (
     <section style={{ marginTop: 24 }}>
-      {settings ? (
-        <section style={styles.settingsSection}>
-          <div style={styles.sectionRow}>
-            <div>
-              <h3 style={styles.inlineTitle}>会话配置</h3>
-              <div style={styles.panelSubtle}>保存后，后续微信消息会按这里的提供方和工作目录继续对话。</div>
-            </div>
-          </div>
-          <div style={styles.formGrid}>
-            <label style={styles.field}>
-              <span>提供方</span>
-              <select
-                value={settings.defaultProvider}
-                onChange={(event) => void changeDefaultProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
-                style={styles.select}
-              >
-                <option value="claude-code">Claude Code</option>
-                <option value="codex">Codex CLI</option>
-              </select>
-            </label>
-            <label style={styles.field}>
-              <span>工作目录</span>
-              <input
-                value={settings.defaultWorkspace}
-                onChange={(event) => setSettings((current) => current ? { ...current, defaultWorkspace: event.target.value } : current)}
-                style={styles.input}
-              />
-            </label>
-          </div>
-          <button
-            type="button"
-            style={styles.button}
-            onClick={() => void (settings ? updateSettings(settings).then(async () => {
-              await syncWeixinChannelSettings();
-              await refresh();
-            }) : Promise.resolve())}
-          >
-            保存配置
-          </button>
-        </section>
-      ) : null}
-
       <div style={styles.panelHeader}>
         <div>
           <h2 style={styles.panelTitle}>微信</h2>
@@ -296,7 +337,7 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
 
       <div style={styles.statusCard}>
         <div>
-          <div style={styles.statusLabel}>微信 Bot 账号</div>
+          <div style={styles.statusLabel}>账号 ID</div>
           <div style={styles.statusValue}>{plugin?.enabled ? (plugin.botUsername ?? formatPluginBadge(plugin)) : '未连接'}</div>
           {runtimeConfig?.baseUrl ? <div style={styles.statusMeta}>网关：{runtimeConfig.baseUrl}</div> : null}
           {runtimeConfig?.token ? <div style={styles.statusMeta}>Token：已配置</div> : null}
@@ -333,68 +374,72 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
         </button>
       ) : null}
 
-      <h3 style={styles.inlineTitle}>当前活跃用户信息</h3>
-      <div style={styles.panelSubtle}>展示当前唯一活跃微信用户及其当前有效会话。</div>
-      {!activeUser && !input.currentSession ? <p>当前还没有活跃微信用户。</p> : (
-        <div style={styles.activeUserCard}>
-          <strong>{activeUser?.displayName ?? activeUser?.platformUserId ?? input.currentSession?.chatId}</strong>
-          <div style={styles.statusMeta}>平台 ID：{activeUser?.platformUserId ?? input.currentSession?.chatId}</div>
-          <div style={styles.statusMeta}>角色：{activeUser?.role ?? 'user'}</div>
-          {input.currentSession ? (
-            <div style={styles.conversationBlock}>
-              <div style={styles.conversationTitle}>当前会话</div>
-              <div style={styles.statusMeta}>提供方：{input.currentSession.providerId}</div>
-              <div style={styles.statusMeta}>工作目录：{input.currentSession.cwd}</div>
-              <div style={styles.statusMeta}>状态：{input.currentSession.status}</div>
-              {input.currentSession.resumeTitle ? <div style={styles.statusMeta}>原生标题：{input.currentSession.resumeTitle}</div> : null}
-              {input.currentSession.status !== 'closed' ? (
-                <div style={{ marginTop: 10 }}>
-                  <button type="button" style={styles.button} onClick={() => void input.onStopCurrentSession()}>停止</button>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div style={styles.statusMeta}>当前没有有效会话。</div>
-          )}
+      <div style={styles.sectionRow}>
+        <div>
+          <h3 style={styles.inlineTitle}>对话模型</h3>
+          <div style={styles.panelSubtle}>选择微信新会话默认使用的本地提供方。</div>
         </div>
+        <select
+          value={settings?.defaultProvider ?? 'claude-code'}
+          onChange={(event) => void changeDefaultProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
+          style={styles.select}
+        >
+          <option value="claude-code">Claude Code</option>
+          <option value="codex">Codex CLI</option>
+        </select>
+      </div>
+
+      <h3 style={styles.inlineTitle}>待审批配对</h3>
+      {pairings.length === 0 ? <p>暂无待审批配对。</p> : (
+        <ul>
+          {pairings.map((pairing) => (
+            <li key={pairing.code} style={{ marginBottom: 12 }}>
+              <strong>{pairing.displayName ?? pairing.platformUserId}</strong>
+              <div>会话：{pairing.chatId}</div>
+              <div>配对码：{pairing.code}</div>
+              <button type="button" onClick={() => void decide(pairing.code, 'approve')}>允许</button>{' '}
+              <button type="button" onClick={() => void decide(pairing.code, 'reject')}>拒绝</button>
+            </li>
+          ))}
+        </ul>
       )}
 
-      {!activeUser && !input.currentSession ? <p>请先让当前微信用户给上面的 Bot 发一条消息。</p> : (
-        <div>
-          <div style={styles.tabRow}>
-            <button
-              type="button"
-              style={activeSessionTab === 'claude-native' ? styles.activeTabButton : styles.tabButton}
-              aria-pressed={activeSessionTab === 'claude-native'}
-              onClick={() => void scanRecoverableSessions('claude-code')}
-            >
-              Claude 原生会话
-            </button>
-            <button
-              type="button"
-              style={activeSessionTab === 'codex-native' ? styles.activeTabButton : styles.tabButton}
-              aria-pressed={activeSessionTab === 'codex-native'}
-              onClick={() => void scanRecoverableSessions('codex')}
-            >
-              Codex 原生会话
-            </button>
-          </div>
+      <h3 style={styles.inlineTitle}>已授权用户</h3>
+      {users.length === 0 ? <p>暂无已授权用户。</p> : (
+        <ul>
+          {users.map((user) => (
+            <li key={user.id} style={{ marginBottom: 12 }}>
+              <strong>{user.displayName ?? user.platformUserId}</strong> · {user.defaultProvider} · {user.defaultCwd}{' '}
+              <button type="button" onClick={() => void revoke(user.id)}>撤销授权</button>
+            </li>
+          ))}
+        </ul>
+      )}
 
+      <h3 style={styles.inlineTitle}>可恢复原生会话</h3>
+      {users.length === 0 ? <p>请先完成微信用户授权。</p> : (
+        <div>
           <div style={styles.sectionRow}>
-            <div style={styles.panelSubtle}>
-              当前用户：{activeUser?.displayName ?? activeUser?.platformUserId ?? input.currentSession?.chatId}
-            </div>
-            <div style={styles.panelSubtle}>
-              {activeSessionTab === 'claude-native' ? '本机可接入的 Claude 原生会话。' : '本机可接入的 Codex 原生会话。'}
+            <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)} style={styles.select}>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.displayName ?? user.platformUserId}
+                </option>
+              ))}
+            </select>
+            <div style={styles.headerActions}>
+              <button type="button" style={styles.button} onClick={() => void autoAttachSession('claude-code')}>自动接入 Claude 会话</button>
+              <button type="button" style={styles.button} onClick={() => void autoAttachSession('codex')}>自动接入 Codex 会话</button>
+              {hasRepairableClaudeRecoverableSessions ? (
+                <button type="button" style={styles.button} onClick={() => void repairAllRecoverableSessions('claude-code')}>批量修复 Claude 恢复</button>
+              ) : null}
+              <button type="button" style={styles.button} onClick={() => void scanRecoverableSessions('claude-code')}>扫描 Claude 原生会话</button>
+              <button type="button" style={styles.button} onClick={() => void scanRecoverableSessions('codex')}>扫描 Codex 原生会话</button>
             </div>
           </div>
-          {recoverableSessions.filter((session) => (
-            activeSessionTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
-          )).length === 0 ? <p>暂无可恢复原生会话。</p> : (
+          {recoverableSessions.length === 0 ? <p>暂无可恢复原生会话。</p> : (
             <ul>
-              {recoverableSessions.filter((session) => (
-                activeSessionTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
-              )).map((session) => (
+              {recoverableSessions.map((session) => (
                 <li key={`${session.providerId}:${session.id}`} style={{ marginBottom: 12 }}>
                   <strong>{session.providerId}</strong> · {session.title ?? session.id}
                   <div>原生会话 ID：{session.id}</div>
@@ -405,6 +450,12 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
                   {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
                   {session.cwd ? <div>工作目录：{session.cwd}</div> : null}
                   <button type="button" onClick={() => void attachRecoverableSession(session)}>接入会话</button>
+                  {session.providerId === 'claude-code' && session.providerResumeRepairable ? (
+                    <>
+                      {' '}
+                      <button type="button" onClick={() => void repairRecoverableSession(session)}>修复原生恢复</button>
+                    </>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -415,25 +466,38 @@ export function WeChatPanel(input: { currentSession: CurrentSessionView | null; 
   );
 }
 
-function toActiveWeChatUserView(user: ActiveWeChatUserEventView): ActiveWeChatUserView {
-  return {
+function prependPairing(current: PairingView[], pairing: PairingEventView): PairingView[] {
+  if (current.some((item) => item.code === pairing.code)) return current;
+  return [{
+    code: pairing.code,
+    platformUserId: pairing.platformUserId,
+    chatId: pairing.platformUserId,
+    displayName: pairing.display_name,
+    requestedAt: pairing.requestedAt,
+    expiresAt: pairing.expiresAt,
+    status: 'pending',
+  }, ...current];
+}
+
+function prependAuthorizedUser(current: AuthorizedUserView[], user: AuthorizedUserEventView): AuthorizedUserView[] {
+  if (current.some((item) => item.id === user.id)) return current;
+  return [{
     id: user.id,
     platform: 'weixin',
     platformUserId: user.platformUserId,
     displayName: user.display_name,
     role: 'user',
+    defaultProvider: user.defaultProvider,
+    defaultCwd: user.defaultCwd,
     createdAt: user.authorizedAt,
-    updatedAt: user.lastActive,
-  };
+    lastActiveAt: user.lastActive,
+  }, ...current];
 }
 
 const styles: Record<string, React.CSSProperties> = {
   panelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 16 },
   panelTitle: { margin: 0, fontSize: 22 },
   panelSubtle: { color: '#6b7280', fontSize: 13, marginTop: 4 },
-  activeUserCard: { padding: 12, border: '1px solid #d1d5db', borderRadius: 8, marginBottom: 16 },
-  conversationBlock: { marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb' },
-  conversationTitle: { fontSize: 15, fontWeight: 600, marginBottom: 6 },
   headerActions: { display: 'flex', gap: 8, alignItems: 'center' },
   button: { border: '1px solid #aeb6bf', background: '#fff', borderRadius: 6, padding: '7px 10px', cursor: 'pointer' },
   dangerButton: { border: '1px solid #f0b4ad', color: '#d94841', background: '#fff1f0', borderRadius: 6, padding: '7px 10px', cursor: 'pointer' },
@@ -446,14 +510,7 @@ const styles: Record<string, React.CSSProperties> = {
   disconnectedBadge: { background: '#f5f5f5', color: '#6b7280', borderRadius: 999, padding: '6px 12px', fontSize: 13 },
   qrCard: { marginBottom: 16, border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, background: '#fff' },
   qrValue: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 12, border: '1px solid #d5d8dc', borderRadius: 6, background: '#fbfcfc' },
-  settingsSection: { marginTop: 20, marginBottom: 16 },
   sectionRow: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 20, marginBottom: 16 },
-  tabRow: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 20, marginBottom: 16 },
   inlineTitle: { margin: '0 0 8px', fontSize: 18 },
   select: { minWidth: 180, border: '1px solid #d1d5db', borderRadius: 8, padding: '10px 12px', background: '#fff' },
-  input: { minWidth: 180, border: '1px solid #d1d5db', borderRadius: 8, padding: '10px 12px', background: '#fff' },
-  formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 14 },
-  field: { display: 'grid', gap: 6, fontSize: 13 },
-  tabButton: { border: '1px solid #d1d5db', background: '#fff', borderRadius: 999, padding: '8px 14px', cursor: 'pointer' },
-  activeTabButton: { border: '1px solid #111827', background: '#111827', color: '#fff', borderRadius: 999, padding: '8px 14px', cursor: 'pointer' },
 };

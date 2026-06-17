@@ -4,6 +4,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
 
 const okStatus = { ok: true, sessions: [], permissions: [] };
+const checkedAt = 1234567890000;
+
+function formatCheckedAtForLocalTimezone(value: number): string {
+  const date = new Date(value);
+  const yyyy = date.getFullYear();
+  const mm = date.getMonth() + 1;
+  const dd = date.getDate();
+  const hh = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${yyyy}/${mm}/${dd} ${hh}:${min}:${ss}`;
+}
 
 describe('App dashboard provider diagnostics', () => {
   it('shows distinct provider failure reasons in dashboard diagnostics', async () => {
@@ -27,9 +39,15 @@ describe('App dashboard provider diagnostics', () => {
       if (url.endsWith('/api/channel/sessions')) {
         return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
+      if (url.endsWith('/api/channel/plugins')) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/wechat/runtime-config')) {
+        return new Response(JSON.stringify(null), { status: 404, headers: { 'Content-Type': 'application/json' } });
+      }
       if (url.endsWith('/api/settings')) {
         return new Response(JSON.stringify({
-          provider: 'claude-code',
+          defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -38,10 +56,12 @@ describe('App dashboard provider diagnostics', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('命令执行失败')).toBeTruthy();
-    expect(await screen.findByText('未找到可执行文件')).toBeTruthy();
-    expect(await screen.findByText('/opt/bin/claude · 检查于 2009/2/14 07:31:30')).toBeTruthy();
-    expect(await screen.findByText('/opt/bin/codex · 检查于 2009/2/14 07:31:30')).toBeTruthy();
+    const expectedCheckedAt = formatCheckedAtForLocalTimezone(checkedAt);
+
+    expect((await screen.findAllByText('命令执行失败')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('未找到可执行文件')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(`/opt/bin/claude · 检查于 ${expectedCheckedAt}`)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(`/opt/bin/codex · 检查于 ${expectedCheckedAt}`)).length).toBeGreaterThan(0);
     expect(screen.queryByText('/opt/bin/claude · 检查于 1234567890000')).toBeNull();
   });
 });

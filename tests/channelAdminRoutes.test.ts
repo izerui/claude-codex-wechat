@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -104,7 +104,6 @@ describe('channel admin routes', () => {
       expect.objectContaining({
         id: next!.id,
         status: 'idle',
-        recoverySource: 'binding_table',
         providerSessionId: expect.stringContaining('claude-code_fake_'),
       }),
     ]);
@@ -192,6 +191,40 @@ describe('channel admin routes', () => {
       permissions: [],
     });
     expect(provider.permissionDecisions).toEqual([{ requestId: 'pr_fake_1', decision: 'deny' }]);
+    await app.close();
+  });
+
+  it('deletes config.json when disabling the wechat plugin', async () => {
+    const store = createRuntimeUserStore('bridge-admin-disable-wechat-');
+    writeFileSync(store.configPath, JSON.stringify({
+      wechat: {
+        enabled: true,
+        baseUrl: 'https://ilinkai.weixin.qq.com',
+        token: 'wx-bot-token',
+        accountId: 'wx-account-1',
+      },
+    }, null, 2));
+
+    const { app } = createDaemonServer({
+      activeUserStore: store.activeUserStore,
+      configPath: store.configPath,
+      wechat: {
+        enabled: true,
+        baseUrl: 'https://ilinkai.weixin.qq.com',
+        token: 'wx-bot-token',
+        accountId: 'wx-account-1',
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/channel/plugins/disable',
+      payload: { plugin_id: 'weixin' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    expect(existsSync(store.configPath)).toBe(false);
     await app.close();
   });
 
@@ -1313,11 +1346,20 @@ describe('channel admin routes', () => {
     }
   });
 
-  it('syncs channel settings by clearing active runtime sessions', async () => {
+  it('syncs channel settings by updating the current conversation to the latest provider and workspace', async () => {
     const channel = new MockChannelAdapter();
-    const provider = new FakeProviderAdapter('claude-code');
-    const { app, activeUserStore } = createDaemonServer({ channel, providers: [provider] });
-    activeUserStore.setActiveUser({
+    const store = createRuntimeUserStore('bridge-admin-settings-sync-current-conversation-');
+    const { app, activeUserStore, conversation } = createDaemonServer({
+      channel,
+      providers: [new FakeProviderAdapter('claude-code'), new FakeProviderAdapter('codex')],
+      activeUserStore: store.activeUserStore,
+      configPath: store.configPath,
+      bridgeDefaults: {
+        defaultProvider: 'claude-code',
+        defaultWorkspace: '/tmp/original-project',
+      },
+    });
+    const activeUser = activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       role: 'user',
@@ -1331,8 +1373,25 @@ describe('channel admin routes', () => {
       content: { type: 'text', text: 'hello' },
       timestamp: 1,
     });
-    const before = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
-    expect(before.json()).toHaveLength(1);
+    const before = conversation.getCurrent();
+    expect(before).toMatchObject({
+      chatId: 'chat-a',
+      ownerUserId: activeUser.id,
+      providerId: 'claude-code',
+      providerSessionId: expect.stringContaining('claude-code_fake_'),
+      cwd: '/tmp/original-project',
+      status: 'idle',
+    });
+
+    const update = await app.inject({
+      method: 'POST',
+      url: '/api/settings',
+      payload: {
+        defaultProvider: 'codex',
+        defaultWorkspace: '/tmp/updated-project',
+      },
+    });
+    expect(update.statusCode).toBe(200);
 
     const sync = await app.inject({
       method: 'POST',
@@ -1343,8 +1402,32 @@ describe('channel admin routes', () => {
     expect(sync.statusCode).toBe(200);
     expect(sync.json()).toEqual({ ok: true });
 
-    const after = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
-    expect(after.json()).toEqual([]);
+    const after = conversation.getCurrent();
+    expect(after).toMatchObject({
+      id: before?.id,
+      chatId: 'chat-a',
+      ownerUserId: activeUser.id,
+      providerId: 'codex',
+      cwd: '/tmp/updated-project',
+      recoverySource: 'runtime',
+      status: 'starting',
+    });
+    expect(after?.providerSessionId).toBeUndefined();
+    expect(after?.resumeTitle).toBeUndefined();
+    expect(after?.createdAt).toBe(before?.createdAt);
+    expect(after?.lastActivityAt).toBeGreaterThanOrEqual(before?.lastActivityAt ?? 0);
+
+    const listed = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
+    expect(listed.json()).toEqual([
+      expect.objectContaining({
+        id: before?.id,
+        chatId: 'chat-a',
+        ownerUserId: activeUser.id,
+        providerId: 'codex',
+        cwd: '/tmp/updated-project',
+        status: 'starting',
+      }),
+    ]);
     await app.close();
   });
 });

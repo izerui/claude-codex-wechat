@@ -1,7 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { readProviderSessionSidecar } from '../sidecarMetadata';
 import type { ProviderSessionCandidate } from '../types';
 
 function resolveCodexSessionsRoot(env: NodeJS.ProcessEnv = process.env): string {
@@ -39,15 +38,13 @@ export async function listRecoverableCodexSessions(env: NodeJS.ProcessEnv = proc
       if (!entry.isFile()) continue;
       const sessionId = extractCodexSessionId(name);
       if (!sessionId) continue;
-      const sidecar = await readProviderSessionSidecar('codex', sessionId, env);
       const indexed = index.get(sessionId);
+      const sessionMeta = await readCodexSessionMeta(path);
       candidates.push({
         id: sessionId,
         providerId: 'codex',
-        ...(sidecar?.cwd ? { cwd: sidecar.cwd } : {}),
-        ...(sidecar?.updatedAt ? { lastActivityAt: sidecar.updatedAt } : {}),
-        ...(sidecar?.bridgeTag ? { bridgeBindingSource: 'sidecar' as const } : {}),
-        ...(sidecar?.bridgeTag ? { bridgeTag: sidecar.bridgeTag } : {}),
+        ...(sessionMeta.cwd ? { cwd: sessionMeta.cwd } : {}),
+        ...(sessionMeta.lastActivityAt ? { lastActivityAt: sessionMeta.lastActivityAt } : {}),
         title: indexed?.threadName ?? name,
         ...(indexed?.threadName ? { resumeTitle: indexed.threadName } : {}),
       });
@@ -108,4 +105,30 @@ async function readCodexSessionIndex(env: NodeJS.ProcessEnv): Promise<Map<string
     return index;
   }
   return index;
+}
+
+async function readCodexSessionMeta(filePath: string): Promise<{ cwd?: string; lastActivityAt?: number }> {
+  try {
+    const content = await readFile(filePath, 'utf8');
+    let cwd: string | undefined;
+    for (const line of content.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const record = JSON.parse(line) as Record<string, unknown>;
+        if (typeof record.cwd === 'string' && record.cwd.trim()) {
+          cwd = record.cwd.trim();
+          break;
+        }
+      } catch {
+        // Ignore malformed lines.
+      }
+    }
+    const metadata = await stat(filePath).catch(() => null);
+    return {
+      cwd,
+      lastActivityAt: metadata ? Math.trunc(metadata.mtimeMs) : undefined,
+    };
+  } catch {
+    return {};
+  }
 }

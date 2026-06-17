@@ -1,7 +1,6 @@
 import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { readProviderSessionSidecar } from '../sidecarMetadata';
 import type { ProviderSessionCandidate } from '../types';
 import { buildSessionBridgeName, parseSessionBridgeName } from '../../session/sessionBridgeTag';
 
@@ -28,28 +27,23 @@ export async function listRecoverableClaudeSessions(env: NodeJS.ProcessEnv = pro
         const parsedMeta = await readClaudeSessionMetadata(filePath).catch(() => null);
         const historyMeta = historyIndex.get(basename(fileName, '.jsonl'));
         const sessionId = basename(fileName, '.jsonl');
-        const sidecar = await readProviderSessionSidecar('claude-code', sessionId, env);
-        const bridgeTag = sidecar?.bridgeTag ?? historyMeta?.bridgeTag ?? parseSessionBridgeName(parsedMeta?.sessionName);
-        const readableSummary = parsedMeta?.aiTitle ?? parsedMeta?.lastPrompt;
+        const bridgeTag = historyMeta?.bridgeTag ?? parseSessionBridgeName(parsedMeta?.sessionName);
         candidates.push({
           id: sessionId,
           providerId: 'claude-code',
-          ...(sidecar?.cwd ? { cwd: sidecar.cwd } : historyMeta?.project ? { cwd: historyMeta.project } : {}),
+          ...(historyMeta?.project ? { cwd: historyMeta.project } : {}),
           title: parsedMeta?.aiTitle ?? parsedMeta?.lastPrompt ?? fileName,
           ...(parsedMeta?.sessionName
             ? { resumeTitle: parsedMeta.sessionName }
             : historyMeta?.display
               ? { resumeTitle: historyMeta.display }
               : {}),
-          ...(sidecar?.updatedAt
-            ? { lastActivityAt: sidecar.updatedAt }
-            : historyMeta?.timestamp
+          ...(historyMeta?.timestamp
             ? { lastActivityAt: historyMeta.timestamp }
             : metadata
               ? { lastActivityAt: Math.trunc(metadata.mtimeMs) }
               : {}),
-          ...(sidecar?.bridgeTag ? { bridgeBindingSource: 'sidecar' as const } : historyMeta?.bridgeTag || parseSessionBridgeName(parsedMeta?.sessionName) ? { bridgeBindingSource: 'bridge_tag' as const } : {}),
-          ...(bridgeTag ? { bridgeTag } : {}),
+          ...(bridgeTag ? { bridgeBindingSource: 'bridge_tag' as const, bridgeTag } : {}),
         });
       }
     }
@@ -93,7 +87,6 @@ export async function ensureClaudeSessionBridgeMetadata(input: {
   const env = input.env ?? process.env;
   const sessionPath = await findRecoverableClaudeSessionPath(input.sessionId, env);
   if (!sessionPath) return false;
-  const sidecar = await readProviderSessionSidecar('claude-code', input.sessionId, env);
   const normalizedSessionFile = await normalizeClaudeSessionFileForResume(sessionPath);
   const metadata = await readClaudeSessionMetadata(sessionPath).catch(() => null);
   let changed = normalizedSessionFile;
@@ -109,7 +102,7 @@ export async function ensureClaudeSessionBridgeMetadata(input: {
   changed = await upsertClaudeHistoryDisplay({
     sessionId: input.sessionId,
     resumeTitle: input.resumeTitle,
-    project: sidecar?.cwd ?? deriveClaudeProjectPathFromSessionFile(sessionPath),
+    project: deriveClaudeProjectPathFromSessionFile(sessionPath),
     env,
   }) || changed;
   return changed;

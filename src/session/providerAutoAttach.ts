@@ -1,5 +1,4 @@
 import type { ChannelIncomingMessage } from '../channels/types';
-import { writeProviderSessionSidecar } from '../providers/sidecarMetadata';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
 import { syncCodexThreadForResume } from '../providers/codex/nativeThreads';
 import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate } from '../providers/types';
@@ -33,8 +32,6 @@ export async function selectBestRecoverableSession(input: {
   provider: NativeProviderAdapter;
   providerId: ProviderId;
   targetCwd: string;
-  targetPlatformUserId?: string;
-  targetChatId?: string;
   lastProviderSessions?: LastProviderSessionStore;
   currentSession?: CurrentConversationBinding | null;
   allowHeuristicMatch?: boolean;
@@ -48,16 +45,6 @@ export async function selectBestRecoverableSession(input: {
     });
     const exact = candidates.find((candidate) => candidate.id === persistedBinding.providerSessionId);
     if (exact) return { candidate: exact, matchedBinding: true, bindingSource: 'binding_table' };
-    return {
-      candidate: {
-        id: persistedBinding.providerSessionId,
-        providerId: input.providerId,
-        cwd: persistedBinding.cwd,
-        lastActivityAt: persistedBinding.updatedAt,
-      },
-      matchedBinding: true,
-      bindingSource: 'binding_table',
-    };
   }
   if (input.allowHeuristicMatch === false) return null;
   const candidates = await listUnattachedRecoverableSessions({
@@ -66,9 +53,6 @@ export async function selectBestRecoverableSession(input: {
     currentSession: input.currentSession,
   });
   candidates.sort((a, b) => {
-    const aTagMatch = a.bridgeTag?.platformUserId === input.targetPlatformUserId && a.bridgeTag?.chatId === input.targetChatId ? 1 : 0;
-    const bTagMatch = b.bridgeTag?.platformUserId === input.targetPlatformUserId && b.bridgeTag?.chatId === input.targetChatId ? 1 : 0;
-    if (aTagMatch !== bTagMatch) return bTagMatch - aTagMatch;
     const aMatch = a.cwd === input.targetCwd ? 1 : 0;
     const bMatch = b.cwd === input.targetCwd ? 1 : 0;
     if (aMatch !== bMatch) return bMatch - aMatch;
@@ -123,16 +107,6 @@ export async function attachProviderSessionToBridge(input: {
     cwd: updated.cwd,
   });
   if (updated.providerSessionId) {
-    await writeProviderSessionSidecar({
-      providerId: input.providerId,
-      providerSessionId: updated.providerSessionId,
-      bridgeTag: {
-        platform: 'weixin',
-        platformUserId: input.user.platformUserId,
-        chatId: input.chatId,
-      },
-      cwd: updated.cwd,
-    });
     if (updated.providerId === 'codex' && updated.resumeTitle) {
       await upsertCodexSessionIndexEntry({
         sessionId: updated.providerSessionId,
@@ -161,8 +135,6 @@ export async function autoAttachProviderSessionForMessage(input: {
     provider: input.provider,
     providerId: input.defaultProviderId,
     targetCwd: input.user.currentConversation?.cwd ?? input.defaultCwd,
-    targetPlatformUserId: input.user.platformUserId,
-    targetChatId: input.message.chatId,
     lastProviderSessions: input.lastProviderSessions,
     currentSession: input.conversationStore.getCurrent(),
     allowHeuristicMatch: false,

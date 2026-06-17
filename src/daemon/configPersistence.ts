@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { ProviderId } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
@@ -24,6 +24,15 @@ export async function persistWechatCredentialsToConfigFile(input: {
 
   await mkdir(dirname(input.configPath), { recursive: true });
   await writeFile(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+}
+
+export async function deleteConfigFile(configPath: string): Promise<void> {
+  try {
+    await rm(configPath);
+  } catch (error) {
+    if (isMissingFileError(error)) return;
+    throw error;
+  }
 }
 
 export async function persistBridgeDefaultsToConfigFile(input: {
