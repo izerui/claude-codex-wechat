@@ -14,6 +14,13 @@ export function App() {
   const [providerStatus, setProviderStatus] = useState<ProviderStatusView | null>(null);
   const [currentSession, setCurrentSession] = useState<CurrentSessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -51,6 +58,12 @@ export function App() {
           </div>
         </header>
 
+        {toast ? (
+          <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 1050, whiteSpace: 'nowrap' }} className="alert alert-success py-2 px-3 shadow-sm" role="status">
+            {toast}
+          </div>
+        ) : null}
+
         <StatusCards providerStatus={providerStatus} />
 
         {error ? (
@@ -62,6 +75,7 @@ export function App() {
         <WeChatPanel
           currentSession={currentSession}
           onRefreshCurrentSession={setCurrentSession}
+          onNotice={setToast}
         />
       </main>
     </div>

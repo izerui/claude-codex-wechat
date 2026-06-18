@@ -63,6 +63,7 @@ function formatPluginHint(plugin: ChannelPluginView | null): string | null {
 export function WeChatPanel(input: {
   currentSession: CurrentSessionView | null;
   onRefreshCurrentSession?(session: CurrentSessionView | null): void;
+  onNotice?(message: string): void;
 }) {
   const [activeUser, setActiveUser] = useState<ActiveWeChatUserView | null>(null);
   const [plugin, setPlugin] = useState<ChannelPluginView | null>(null);
@@ -73,7 +74,6 @@ export function WeChatPanel(input: {
   const [loginState, setLoginState] = useState<LoginState>('idle');
   const [qrcodeData, setQrcodeData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [attachingSessionId, setAttachingSessionId] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -183,7 +183,6 @@ export function WeChatPanel(input: {
       return;
     }
     setError(null);
-    setNotice(null);
     setAttachingSessionId(session.id);
     try {
       await attachProviderSession({
@@ -196,7 +195,7 @@ export function WeChatPanel(input: {
       const nextCurrentSession = await fetchCurrentSession();
       input.onRefreshCurrentSession?.(nextCurrentSession);
       await refresh();
-      setNotice('已接入会话');
+      input.onNotice?.('已接入会话');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -207,13 +206,12 @@ export function WeChatPanel(input: {
   const saveDefaultSettings = async () => {
     if (!settings || savingSettings) return;
     setError(null);
-    setNotice(null);
     setSavingSettings(true);
     try {
       await updateSettings(settings);
       await syncWeixinChannelSettings();
       await refresh();
-      setNotice('配置已同步');
+      input.onNotice?.('配置已同步');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -288,7 +286,6 @@ export function WeChatPanel(input: {
   return (
     <section>
       {error ? <div className="alert alert-danger" role="alert">{error}</div> : null}
-      {notice ? <div className="alert alert-success" role="alert">{notice}</div> : null}
 
       <div className="soft-card mb-2">
         <div className="card-header d-flex justify-content-between align-items-center">
