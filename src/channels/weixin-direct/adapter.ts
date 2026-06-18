@@ -114,6 +114,15 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       let updates;
       try {
         this.pollAbort = new AbortController();
+        // getUpdates is a long-poll that stays pending until an inbound message
+        // arrives, so an idle-but-healthy connection never produces a response.
+        // Treat a dispatched in-flight poll (no prior error) as connected instead
+        // of waiting for the first response, otherwise the channel is stuck
+        // showing "connecting" until someone messages the bot.
+        if (!this.healthy && !this.lastError) {
+          this.healthy = true;
+          this.notifyHealthChange();
+        }
         updates = await this.options.api.getUpdates(this.buffer, this.pollAbort.signal);
         this.healthy = true;
         this.lastError = null;

@@ -34,8 +34,8 @@ describe('daemon WeChat runtime channel', () => {
         type: 'weixin',
         name: 'WeChat channel',
         enabled: true,
-        connected: false,
-        status: 'connecting',
+        connected: true,
+        status: 'connected',
         hasToken: true,
       }),
     ]);

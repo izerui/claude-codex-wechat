@@ -200,6 +200,27 @@ describe('WeixinDirectAdapter', () => {
     await adapter.stop();
   });
 
+  it('reports connected while the first long-poll is in flight and has not yet returned', async () => {
+    const api = {
+      getUpdates: vi.fn().mockImplementation((_buffer: string, signal?: AbortSignal) => new Promise<never>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      })),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
+    adapter.onMessage(async () => {});
+
+    await adapter.start({ background: true });
+
+    await vi.waitFor(() => {
+      expect(api.getUpdates).toHaveBeenCalled();
+      expect(adapter.getHealth()).toMatchObject({ connected: true, status: 'connected' });
+    });
+
+    await adapter.stop();
+  });
+
   it('aborts the in-flight getUpdates long-poll when stopped instead of waiting for it to return', async () => {
     let aborted = false;
     const api = {
@@ -224,13 +245,9 @@ describe('WeixinDirectAdapter', () => {
     expect(aborted).toBe(true);
   });
 
-  it('notifies health listeners when the poll status transitions from connecting to connected', async () => {
-    let resolveFirst: ((value: { nextBuffer: string; messages: never[] }) => void) | undefined;
+  it('notifies health listeners with connected once the poll loop dispatches its long-poll', async () => {
     const api = {
       getUpdates: vi.fn()
-        .mockImplementationOnce(() => new Promise<{ nextBuffer: string; messages: never[] }>((resolve) => {
-          resolveFirst = resolve;
-        }))
         .mockImplementation((_buffer: string, signal?: AbortSignal) => new Promise<never>((_resolve, reject) => {
           signal?.addEventListener('abort', () => reject(new Error('aborted')));
         })),
@@ -245,12 +262,11 @@ describe('WeixinDirectAdapter', () => {
     });
 
     await adapter.start({ background: true });
-    expect(adapter.getHealth().status).toBe('connecting');
 
-    resolveFirst?.({ nextBuffer: 'buf_1', messages: [] });
     await vi.waitFor(() => {
       expect(statuses).toContain('connected');
     });
+    expect(adapter.getHealth().status).toBe('connected');
 
     await adapter.stop();
   });
