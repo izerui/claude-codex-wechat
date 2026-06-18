@@ -232,6 +232,17 @@ export async function fetchWeixinRuntimeConfig(): Promise<WeixinRuntimeConfigVie
   return await requestJsonOptional('/api/channel/wechat/runtime-config');
 }
 
+export type ChannelStateView = {
+  activeUser: ActiveWeChatUserView | null;
+  plugin: ChannelPluginView;
+  settings: BridgeSettingsView;
+  runtimeConfig: WeixinRuntimeConfigView | null;
+};
+
+export async function fetchChannelState(): Promise<ChannelStateView> {
+  return await requestJson('/api/channel/state');
+}
+
 export async function enableWeixinPlugin(input: { accountId: string; botToken: string; baseUrl?: string }): Promise<void> {
   await requestJson('/api/channel/plugins/enable', {
     method: 'POST',

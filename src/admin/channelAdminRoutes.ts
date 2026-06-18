@@ -41,6 +41,12 @@ export function registerChannelAdminRoutes(input: {
 
   input.app.get('/api/channel/plugins', async () => [toWechatPluginStatus(wechat, input.users, input.channel)]);
   input.app.get('/api/channel/wechat/runtime-config', async () => wechat ?? { enabled: false });
+  input.app.get('/api/channel/state', async () => ({
+    activeUser: input.users.getActiveUser(),
+    plugin: toWechatPluginStatus(wechat, input.users, input.channel),
+    settings: input.defaults ?? { defaultProvider: 'claude-code', defaultWorkspace: process.cwd() },
+    runtimeConfig: wechat ?? null,
+  }));
 
   input.app.post<{ Body: { plugin_id: string; config?: Record<string, unknown> } }>('/api/channel/plugins/enable', async (request, reply) => {
     if (request.body.plugin_id !== 'weixin') {

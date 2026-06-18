@@ -9,13 +9,11 @@ import {
   enableWeixinPlugin,
   type BridgeSettingsView,
   type ChannelPluginView,
+  type ChannelStateView,
   type CurrentSessionView,
-  fetchActiveUser,
-  fetchChannelPlugins,
+  fetchChannelState,
   fetchCurrentSession,
   fetchRecoverableProviderSessions,
-  fetchSettings,
-  fetchWeixinRuntimeConfig,
   resolveApiUrl,
   type RecoverableProviderSessionView,
   syncWeixinChannelSettings,
@@ -82,27 +80,21 @@ export function WeChatPanel(input: {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [nextUser, nextPlugins, nextSettings] = await Promise.all([
-        fetchActiveUser(),
-        fetchChannelPlugins(),
-        fetchSettings(),
-      ]);
-      const nextRuntimeConfig = await fetchWeixinRuntimeConfig().catch(() => null);
-      setActiveUser(nextUser);
-      setSettings(nextSettings);
-      setRuntimeConfig(nextRuntimeConfig);
-      const weixin = nextPlugins.find((candidate) => candidate.type === 'weixin') ?? null;
-      setPlugin(weixin);
-      if (isPluginConnected(weixin)) {
+      const state = await fetchChannelState();
+      setActiveUser(state.activeUser);
+      setSettings(state.settings);
+      setRuntimeConfig(state.runtimeConfig);
+      setPlugin(state.plugin);
+      if (isPluginConnected(state.plugin)) {
         setLoginState('connected');
         setQrcodeData(null);
-      } else if (loginState === 'connected') {
-        setLoginState('idle');
+      } else {
+        setLoginState((current) => (current === 'connected' ? 'idle' : current));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [loginState]);
+  }, []);
 
   const scanRecoverableSessions = useCallback(async (providerId: 'claude-code' | 'codex') => {
     try {

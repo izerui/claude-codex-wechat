@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  fetchCurrentSession,
   fetchProviderStatus,
   fetchStatus,
   type CurrentSessionView,
@@ -25,14 +24,13 @@ export function App() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [nextStatus, nextProviderStatus, nextCurrentSession] = await Promise.all([
+      const [nextStatus, nextProviderStatus] = await Promise.all([
         fetchStatus(),
         fetchProviderStatus(),
-        fetchCurrentSession(),
       ]);
       setStatus(nextStatus);
       setProviderStatus(nextProviderStatus);
-      setCurrentSession(nextCurrentSession);
+      setCurrentSession(nextStatus.sessions[0] ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
