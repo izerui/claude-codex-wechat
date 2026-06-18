@@ -2,18 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { buildSessionBridgeName, parseSessionBridgeName } from '../src/session/sessionBridgeTag';
 
 describe('sessionBridgeTag', () => {
-  it('builds short bridge titles without embedding a machine tag', () => {
+  it('returns no title when there is no prompt summary', () => {
     const title = buildSessionBridgeName({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
       chatId: 'chat_1',
     });
 
-    expect(title).toBe('微信 · wx_user_1');
-    expect(parseSessionBridgeName(title)).toBeNull();
+    expect(title).toBeUndefined();
   });
 
-  it('keeps readable summary prefixes in short bridge titles', () => {
+  it('uses the prompt summary alone as a native-style title', () => {
     const title = buildSessionBridgeName({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
@@ -21,7 +20,7 @@ describe('sessionBridgeTag', () => {
       summary: '最后一条：修复 resume',
     });
 
-    expect(title).toBe('最后一条：修复 resume · 微信 · wx_user_1');
+    expect(title).toBe('最后一条：修复 resume');
   });
 
   it('parses legacy bridge tags for backward compatibility', () => {

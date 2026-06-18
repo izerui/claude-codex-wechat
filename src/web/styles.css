@@ -1,0 +1,266 @@
+/* Design tokens mirrored from maas-api/front-web (Tailwind v4 + shadcn) */
+:root {
+  --radius: 12px;
+  --background: oklch(0.952 0.005 70);
+  --foreground: oklch(0.22 0.006 55);
+  --card: oklch(0.995 0.001 75);
+  --primary: oklch(0.62 0.14 52);
+  --primary-hover: oklch(0.58 0.14 52);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.928 0.01 65);
+  --muted: oklch(0.928 0.01 65);
+  --muted-foreground: oklch(0.52 0.015 55);
+  --accent: oklch(0.95 0.02 52);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.85 0.008 65);
+  --input: oklch(0.875 0.008 65);
+  --ring: oklch(0.62 0.14 52);
+
+  --card-shadow: 0 1px 2px 0 rgba(20, 16, 12, 0.04), 0 1px 3px 0 rgba(20, 16, 12, 0.05);
+
+  /* Soft status palette (warm hues, mirrored from toaster styles) */
+  --soft-success-bg: oklch(0.97 0.015 45);
+  --soft-success-border: oklch(0.88 0.025 45);
+  --soft-success-fg: oklch(0.52 0.16 45);
+  --soft-warning-bg: oklch(0.97 0.025 52);
+  --soft-warning-border: oklch(0.86 0.035 52);
+  --soft-warning-fg: oklch(0.58 0.16 52);
+  --soft-error-bg: oklch(0.96 0.025 30);
+  --soft-error-border: oklch(0.82 0.04 30);
+  --soft-error-fg: oklch(0.56 0.22 30);
+}
+
+body {
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", "Segoe UI", system-ui, sans-serif);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 450;
+  letter-spacing: -0.015em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.03em;
+  font-weight: 650;
+  color: var(--foreground);
+}
+
+.app-bg {
+  background: var(--background);
+  min-height: 100vh;
+}
+
+.text-muted-soft {
+  color: var(--muted-foreground) !important;
+}
+
+/* ── Cards: warm surface, subtle border + soft shadow ── */
+.soft-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+}
+
+.soft-card > .card-header {
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+  padding: 11px 16px;
+}
+
+.soft-card .card-body {
+  padding: 14px 16px;
+}
+
+.soft-card .card-body.p-0 {
+  padding: 0;
+}
+
+.soft-card .list-group-item {
+  background: transparent;
+  border-color: var(--border);
+  padding: 9px 16px;
+  color: var(--foreground);
+}
+
+.weixin-info-item {
+  height: 100%;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  color: var(--foreground);
+}
+
+/* ── Buttons ── */
+.btn-accent {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: var(--primary-foreground);
+  border-radius: var(--radius);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 150ms cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 150ms cubic-bezier(0.4, 0, 0.2, 1),
+    transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-accent:hover,
+.btn-accent:focus-visible {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+  color: var(--primary-foreground);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.btn-accent:active {
+  transform: scale(0.98);
+}
+.btn-accent:disabled {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  opacity: 0.5;
+}
+
+.btn-outline-danger {
+  border-radius: var(--radius);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* ── Soft badges: rounded rectangles, not full pills ── */
+.badge.badge-soft-success,
+.badge.badge-soft-accent,
+.badge.badge-soft-error,
+.badge.badge-soft-neutral {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 3px 11px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+}
+
+/* Solid status badges — for emphasis (mirrors front-web 错误/耗时 solid pills) */
+.badge.badge-solid-success,
+.badge.badge-solid-error,
+.badge.badge-solid-warning {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 3px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+  color: #fff;
+}
+.badge-solid-success { background: oklch(0.64 0.15 152); }
+.badge-solid-error { background: var(--destructive); }
+.badge-solid-warning { background: var(--primary); }
+.badge-soft-success {
+  background: var(--soft-success-bg);
+  border-color: var(--soft-success-border);
+  color: var(--soft-success-fg);
+}
+.badge-soft-accent {
+  background: var(--soft-warning-bg);
+  border-color: var(--soft-warning-border);
+  color: var(--soft-warning-fg);
+}
+.badge-soft-error {
+  background: var(--soft-error-bg);
+  border-color: var(--soft-error-border);
+  color: var(--soft-error-fg);
+}
+.badge-soft-neutral {
+  background: var(--secondary);
+  border-color: var(--border);
+  color: var(--muted-foreground);
+}
+
+/* ── Tabs: line style, orange active underline ── */
+.nav-accent {
+  border-bottom: 1px solid var(--border);
+  gap: 4px;
+}
+.nav-accent .nav-link {
+  position: relative;
+  border: none;
+  color: color-mix(in oklch, var(--foreground) 60%, transparent);
+  padding: 8px 4px;
+  margin-right: 20px;
+  background: transparent;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  transition: color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.nav-accent .nav-link:hover {
+  color: var(--foreground);
+}
+.nav-accent .nav-link.active {
+  color: var(--foreground);
+  font-weight: 600;
+  background: transparent;
+}
+.nav-accent .nav-link.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--primary);
+}
+
+/* ── Form controls ── */
+.form-control,
+.form-select {
+  border-color: var(--input);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  font-size: 13px;
+}
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 20%, transparent);
+}
+.form-label {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+/* ── Status dot ── */
+.status-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.status-dot-success { background: var(--soft-success-fg); }
+.status-dot-warning { background: var(--primary); }
+.status-dot-neutral { background: var(--muted-foreground); }
+
+/* ── Inner bordered blocks (recoverable session items) ── */
+.soft-card .border.rounded {
+  border-color: var(--border) !important;
+  border-radius: var(--radius) !important;
+}
+
+/* ── Alerts ── */
+.alert {
+  border-radius: var(--radius);
+  letter-spacing: -0.015em;
+}

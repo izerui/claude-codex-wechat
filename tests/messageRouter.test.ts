@@ -441,7 +441,7 @@ describe('MessageRouter', () => {
     const activeSession = conversation.getCurrent();
     expect(activeSession?.providerSessionId).toMatch(/^claude-code_fake_/);
     expect(activeSession?.resumeTitle).toContain('hello');
-    expect(activeSession?.resumeTitle).toBe('hello · 微信 · wx_user_1');
+    expect(activeSession?.resumeTitle).toBe('hello');
     expect(bindingRepository.get('claude-code')).toMatchObject({
       providerSessionId: activeSession?.providerSessionId,
       cwd: '/tmp/project',

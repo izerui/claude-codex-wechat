@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/main.ts",
-    "web": "vite --host 127.0.0.1",
+    "web": "vite --host",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build:web": "vite build"

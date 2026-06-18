@@ -103,6 +103,7 @@ export type CurrentSessionView = {
   providerId: string;
   providerSessionId?: string;
   resumeTitle?: string;
+  nativeTitle?: string;
   preferredResumeMode?: 'title' | 'id';
   preferredResumeCommand?: string;
   providerResumeCommand?: string;

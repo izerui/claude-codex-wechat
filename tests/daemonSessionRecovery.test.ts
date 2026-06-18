@@ -64,7 +64,7 @@ describe('daemon provider session recovery', () => {
               chatId: 'chat-a',
               providerId: 'claude-code',
               providerSessionId: 'claude-session-1',
-              resumeTitle: 'first · 微信 · wx_user_1',
+              resumeTitle: 'first',
             },
           },
         },
@@ -120,7 +120,7 @@ describe('daemon provider session recovery', () => {
           activeWeChatUser: {
             currentConversation: {
               providerSessionId: 'claude-session-1',
-              resumeTitle: 'first · 微信 · wx_user_1',
+              resumeTitle: 'first',
             },
           },
         },

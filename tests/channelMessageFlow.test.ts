@@ -328,7 +328,7 @@ describe('channel message flow', () => {
       });
       const index = readFileSync(`${codexHome}/session_index.jsonl`, 'utf8');
       expect(index).toContain('codex-session-1');
-      expect(index).toContain('微信 · wx_user_1');
+      expect(index).toContain('hello codex');
 
       await app.close();
     } finally {
@@ -408,10 +408,10 @@ describe('channel message flow', () => {
       const content = readFileSync(join(projectDir, `${sessionId}.jsonl`), 'utf8');
       expect(content).toContain('"type":"custom-title"');
       expect(content).toContain('"type":"agent-name"');
-      expect(content).toContain('微信 · wx_user_native');
+      expect(content).toContain('帮我恢复微信凭据并继续验证');
 
       const history = readFileSync(join(process.env.HOME, '.claude', 'history.jsonl'), 'utf8');
-      expect(history).toContain('"display":"帮我恢复微信凭据并继续验证 · 微信 · wx_user_native"');
+      expect(history).toContain('"display":"帮我恢复微信凭据并继续验证"');
       expect(history).toContain(`"project":"/tmp/project"`);
 
       await app.close();

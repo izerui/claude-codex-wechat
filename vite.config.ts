@@ -6,7 +6,7 @@ const bridgePort = Number(process.env.BRIDGE_PORT ?? 8787);
 export default defineConfig({
   plugins: [react()],
   server: {
-    host: '127.0.0.1',
+    host: true,
     port: 5177,
     allowedHosts: true,
     proxy: {

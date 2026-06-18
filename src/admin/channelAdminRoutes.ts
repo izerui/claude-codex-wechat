@@ -202,6 +202,7 @@ export function registerChannelAdminRoutes(input: {
       chatId: request.body.chatId ?? user.platformUserId,
       cwd: request.body.cwd ?? recoverableCandidate?.cwd ?? input.defaults?.defaultWorkspace ?? process.cwd(),
       recoverySource: 'manual_attach',
+      resumeTitle: recoverableCandidate?.resumeTitle,
     });
     return {
       ok: true,
@@ -286,12 +287,18 @@ export function registerChannelAdminRoutes(input: {
   input.app.get('/api/channel/current-session', async () => {
     const session = input.conversation?.getCurrent();
     if (!session) return null;
+    const provider = input.providers?.find((candidate) => candidate.id === session.providerId);
+    const nativeTitle = session.providerSessionId && provider?.listRecoverableSessions
+      ? (await provider.listRecoverableSessions().catch(() => []))
+          .find((candidate) => candidate.id === session.providerSessionId)?.title
+      : undefined;
     const providerNativePath = await resolveProviderNativePath(session.providerId, session.providerSessionId);
     const providerResumeTitleSynced = await resolveProviderResumeTitleSynced(session);
     const providerResumeHistorySynced = await resolveProviderResumeHistorySynced(session);
     const binding = input.lastProviderSessions?.get(session.providerId);
     return {
       ...session,
+      ...(nativeTitle ? { nativeTitle } : {}),
       preferredResumeMode: buildPreferredResumeMode(session.providerId, session.resumeTitle),
       preferredResumeCommand: buildPreferredResumeCommand(session.providerId, session.providerSessionId, session.resumeTitle),
       providerResumeCommand: buildProviderResumeCommand(session.providerId, session.providerSessionId),
