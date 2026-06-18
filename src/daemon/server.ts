@@ -1,7 +1,6 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import websocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
 import { registerSettingsRoutes } from '../admin/settingsRoutes';
@@ -145,7 +144,6 @@ export function createDaemonServer(options: {
     });
   }
 
-  void app.register(websocket);
   registerChannelAdminRoutes({
     app,
     users: activeUserStore,
@@ -190,25 +188,33 @@ export function createDaemonServer(options: {
     return result;
   });
 
-  app.get('/api/bridge-ws', { websocket: true }, (socket) => {
-    const send = (event: unknown) => {
+  app.post('/api/bridge-events', async (request, reply) => {
+    reply.raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    });
+
+    const write = (event: unknown) => {
       try {
-        if (typeof socket.send === 'function' && socket.readyState === socket.OPEN) {
-          socket.send(JSON.stringify(event));
-        }
-      } catch (err) {
-        app.log.warn({ err }, '[ws] send failed');
+        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch {
+        // client gone; cleanup runs on close
       }
     };
-    const unsubscribe = events.subscribe(send);
-    const cleanup = () => unsubscribe();
-    if (typeof (socket as { on?: unknown }).on === 'function') {
-      (socket as unknown as { on(ev: string, cb: () => void): void }).on('close', cleanup);
-      (socket as unknown as { on(ev: string, cb: () => void): void }).on('error', cleanup);
-    } else if (typeof socket.addEventListener === 'function') {
-      socket.addEventListener('close', cleanup);
-      socket.addEventListener('error', cleanup);
-    }
+
+    write({ type: 'connected' });
+    const unsubscribe = events.subscribe(write);
+    const heartbeat = setInterval(() => write({ type: 'ping' }), 15000);
+
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+    request.raw.on('close', cleanup);
+    request.raw.on('error', cleanup);
+
+    return reply.hijack();
   });
 
   app.addHook('onReady', async () => {

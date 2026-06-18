@@ -151,6 +151,8 @@ export type BridgeSettingsView = {
 };
 
 export type BridgeWsEvent =
+  | { type: 'connected' }
+  | { type: 'ping' }
   | { type: 'channel.pairing-requested'; pairing: PairingEventView }
   | { type: 'channel.user-authorized'; user: ActiveWeChatUserEventView }
   | { type: 'channel.plugin-status-changed'; plugin_id: 'weixin'; status: ChannelPluginView }

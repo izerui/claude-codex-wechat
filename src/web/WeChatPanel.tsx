@@ -340,7 +340,7 @@ export function WeChatPanel(input: {
                 </div>
               </div>
             ) : null}
-            {input.currentSession ? (
+            {input.currentSession && isPluginConnected(plugin) ? (
               <>
                 <div className="col-md-6">
                   <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">

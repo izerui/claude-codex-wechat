@@ -11,7 +11,7 @@
     "build:web": "vite build"
   },
   "dependencies": {
-    "@fastify/websocket": "latest",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@vitejs/plugin-react": "latest",
     "better-sqlite3": "latest",
     "bootstrap": "^5.3.3",
