@@ -47,6 +47,9 @@ export function createDaemonServer(options: {
     defaultCwd: bridgeDefaults.defaultWorkspace,
     defaultProviderId: bridgeDefaults.defaultProvider,
   });
+  conversation.onChange(() => {
+    events.emit({ type: 'channel.current-session-changed' });
+  });
   const permissions = options.permissionsRouter ?? new PermissionRouter();
   const providers = new ProviderRegistry({
     claudeCommand: options.providerCommands?.claude?.command,
@@ -187,9 +190,25 @@ export function createDaemonServer(options: {
     return result;
   });
 
-  app.get('/ws', { websocket: true }, (socket) => {
-    const unsubscribe = events.subscribe((event) => socket.send(JSON.stringify(event)));
-    socket.on('close', unsubscribe);
+  app.get('/api/bridge-ws', { websocket: true }, (socket) => {
+    const send = (event: unknown) => {
+      try {
+        if (typeof socket.send === 'function' && socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify(event));
+        }
+      } catch (err) {
+        app.log.warn({ err }, '[ws] send failed');
+      }
+    };
+    const unsubscribe = events.subscribe(send);
+    const cleanup = () => unsubscribe();
+    if (typeof (socket as { on?: unknown }).on === 'function') {
+      (socket as unknown as { on(ev: string, cb: () => void): void }).on('close', cleanup);
+      (socket as unknown as { on(ev: string, cb: () => void): void }).on('error', cleanup);
+    } else if (typeof socket.addEventListener === 'function') {
+      socket.addEventListener('close', cleanup);
+      socket.addEventListener('error', cleanup);
+    }
   });
 
   app.addHook('onReady', async () => {

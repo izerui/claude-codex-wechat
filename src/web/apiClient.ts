@@ -154,6 +154,7 @@ export type BridgeWsEvent =
   | { type: 'channel.pairing-requested'; pairing: PairingEventView }
   | { type: 'channel.user-authorized'; user: ActiveWeChatUserEventView }
   | { type: 'channel.plugin-status-changed'; plugin_id: 'weixin'; status: ChannelPluginView }
+  | { type: 'channel.current-session-changed' }
   | { type: 'status'; message: string }
   | { type: 'permission_requested'; requestId: string }
   | { type: 'permission_decided'; requestId: string; decision: string };

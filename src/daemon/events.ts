@@ -31,13 +31,20 @@ export type BridgeEvent =
         hasToken: boolean;
         botUsername?: string;
       };
-    };
+    }
+  | { type: 'channel.current-session-changed' };
 
 export class BridgeEventHub {
   private readonly listeners = new Set<(event: BridgeEvent) => void>();
 
   emit(event: BridgeEvent): void {
-    for (const listener of this.listeners) listener(event);
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch {
+        // a failing listener must not break others or crash the process
+      }
+    }
   }
 
   subscribe(listener: (event: BridgeEvent) => void): () => void {

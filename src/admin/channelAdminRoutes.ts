@@ -126,26 +126,31 @@ export function registerChannelAdminRoutes(input: {
     if (request.body.plugin_id !== 'weixin') {
       return reply.code(400).send({ ok: false, error: 'unknown_channel_plugin' });
     }
-    const runtimeSession = input.conversation?.getCurrent();
-    if (runtimeSession) {
-      const provider = input.providers?.find((candidate) => candidate.id === runtimeSession.providerId);
-      await provider?.stopSession(runtimeSession.id);
+    try {
+      const runtimeSession = input.conversation?.getCurrent();
+      if (runtimeSession) {
+        const provider = input.providers?.find((candidate) => candidate.id === runtimeSession.providerId);
+        await provider?.stopSession(runtimeSession.id);
+      }
       input.conversation?.clear();
+      const activeUser = input.users.getActiveUser();
+      if (activeUser) {
+        input.users.clearActiveUser(activeUser.id);
+      }
+      const nextWechat = { enabled: false };
+      await input.onWechatConfigChanged?.(nextWechat);
+      wechat = nextWechat;
+      input.events?.emit({
+        type: 'channel.plugin-status-changed',
+        plugin_id: 'weixin',
+        status: toWechatPluginStatus(wechat, input.users, input.channel),
+      });
+      await deleteConfigFile(configPath);
+      return { ok: true };
+    } catch (err) {
+      input.app.log.error({ err }, '[disable] failed');
+      return reply.code(500).send({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
-    const activeUser = input.users.getActiveUser();
-    if (activeUser) {
-      input.users.clearActiveUser(activeUser.id);
-    }
-    const nextWechat = { enabled: false };
-    await input.onWechatConfigChanged?.(nextWechat);
-    wechat = nextWechat;
-    input.events?.emit({
-      type: 'channel.plugin-status-changed',
-      plugin_id: 'weixin',
-      status: toWechatPluginStatus(wechat, input.users, input.channel),
-    });
-    await deleteConfigFile(configPath);
-    return { ok: true };
   });
 
   input.app.get('/api/channel/active-user', async () => input.users.getActiveUser());

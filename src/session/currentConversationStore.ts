@@ -25,10 +25,17 @@ type RuntimeStateFile = {
 };
 
 export class CurrentConversationStore {
+  private readonly changeListeners = new Set<() => void>();
+
   constructor(
     private readonly configPath: string,
     private readonly defaults: { defaultCwd: string; defaultProviderId: ProviderId },
   ) {}
+
+  onChange(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => this.changeListeners.delete(listener);
+  }
 
   getCurrent(): CurrentConversationBinding | null {
     return this.readState().bridge?.activeWeChatUser?.currentConversation ?? null;
@@ -121,5 +128,6 @@ export class CurrentConversationStore {
   private writeState(state: RuntimeStateFile): void {
     mkdirSync(dirname(this.configPath), { recursive: true });
     writeFileSync(this.configPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    for (const listener of this.changeListeners) listener();
   }
 }

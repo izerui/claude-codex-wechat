@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import { subscribeBridgeEvents } from './bridgeEventsSocket';
 import {
   type ActiveWeChatUserEventView,
   type ActiveWeChatUserView,
@@ -7,7 +8,6 @@ import {
   disableWeixinPlugin,
   enableWeixinPlugin,
   type BridgeSettingsView,
-  type BridgeWsEvent,
   type ChannelPluginView,
   type CurrentSessionView,
   fetchActiveUser,
@@ -78,7 +78,6 @@ export function WeChatPanel(input: {
   const [attachingSessionId, setAttachingSessionId] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -124,13 +123,15 @@ export function WeChatPanel(input: {
   }, [activeSessionTab, activeUser, scanRecoverableSessions]);
 
   useEffect(() => {
-    const wsUrl = resolveApiUrl('/ws').replace(/^http/, 'ws');
-    const socket = new WebSocket(wsUrl);
-    socketRef.current = socket;
-    socket.addEventListener('message', (event) => {
-      const payload = JSON.parse(event.data) as BridgeWsEvent;
+    return subscribeBridgeEvents((payload) => {
       if (payload.type === 'channel.user-authorized') {
         setActiveUser(toActiveWeChatUserView(payload.user));
+        return;
+      }
+      if (payload.type === 'channel.current-session-changed') {
+        void fetchCurrentSession()
+          .then((session) => input.onRefreshCurrentSession?.(session))
+          .catch(() => undefined);
         return;
       }
       if (payload.type === 'channel.plugin-status-changed') {
@@ -147,14 +148,12 @@ export function WeChatPanel(input: {
         if (!payload.status.enabled) {
           setRuntimeConfig(null);
           setActiveUser(null);
+        }
+        if (!payload.status.connected) {
           input.onRefreshCurrentSession?.(null);
         }
       }
     });
-    return () => {
-      socket.close();
-      socketRef.current = null;
-    };
   }, []);
 
   const disconnect = async () => {
