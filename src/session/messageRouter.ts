@@ -208,8 +208,26 @@ export class MessageRouter {
     if (command.kind === 'help') {
       await this.options.channel.sendMessage({
         chatId,
-        kind: 'status',
-        text: '/help /status /new claude|codex /use claude|codex /cwd <path> /stop /approve <id> /deny <id> /abort <id>',
+        kind: 'markdown',
+        text: [
+          '**可用命令**',
+          '',
+          '直接发送文字即可与 AI 对话。',
+          '',
+          '**会话管理**',
+          '- `/help` — 显示本帮助',
+          '- `/status` — 查看当前会话（provider、工作目录、状态）',
+          '- `/new [claude|codex]` — 新建会话，省略则用默认 provider',
+          '- `/use claude|codex` — 切换当前 provider',
+          '- `/cwd <path>` — 设置工作目录，例：`/cwd /home/project`',
+          '- `/stop` — 停止并清除当前会话',
+          '- `/reload` — 重启当前会话（保留 provider 与目录）',
+          '',
+          '**权限审批**（AI 请求工具授权时使用，`<id>` 见请求消息）',
+          '- `/approve <id>` — 批准本次请求',
+          '- `/deny <id>` — 拒绝本次请求',
+          '- `/abort <id>` — 中止本次请求',
+        ].join('\n'),
       });
       return;
     }
