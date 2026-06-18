@@ -1,4 +1,5 @@
 import type { ChannelIncomingMessage } from '../channels/types';
+import { nanoid } from 'nanoid';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
 import { syncCodexThreadForResume } from '../providers/codex/nativeThreads';
 import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate } from '../providers/types';
@@ -80,28 +81,32 @@ export async function attachProviderSessionToBridge(input: {
   recoverySource: CurrentConversationBinding['recoverySource'];
   resumeTitle?: string;
 }): Promise<CurrentConversationBinding> {
-  const session = input.conversationStore.create({
+  const bridgeSessionId = `bs_${nanoid(10)}`;
+  const resumeTitle = input.resumeTitle ?? buildSessionBridgeName({
+    platform: 'weixin',
+    platformUserId: input.user.platformUserId,
+    chatId: input.chatId,
+  });
+  const attached = await input.provider.attachSession?.({
+    candidateId: input.providerSessionId,
+    bridgeSessionId,
+    cwd: input.cwd,
+  });
+  const now = Date.now();
+  const updated: CurrentConversationBinding = {
+    id: bridgeSessionId,
     chatId: input.chatId,
     ownerUserId: input.user.id,
     providerId: input.providerId,
     cwd: input.cwd,
     recoverySource: input.recoverySource,
-    resumeTitle: input.resumeTitle ?? buildSessionBridgeName({
-      platform: 'weixin',
-      platformUserId: input.user.platformUserId,
-      chatId: input.chatId,
-    }),
-  });
-  const attached = await input.provider.attachSession?.({
-    candidateId: input.providerSessionId,
-    bridgeSessionId: session.id,
-    cwd: session.cwd,
-  });
-  const updated = input.conversationStore.update({
+    resumeTitle,
     providerSessionId: attached?.providerSessionId,
-    status: attached?.status ?? session.status,
-    lastActivityAt: Date.now(),
-  }) ?? session;
+    status: attached?.status ?? 'starting',
+    createdAt: now,
+    lastActivityAt: now,
+  };
+  input.conversationStore.setCurrent(updated);
   input.lastProviderSessions?.set(input.providerId, {
     providerSessionId: updated.providerSessionId ?? input.providerSessionId,
     cwd: updated.cwd,

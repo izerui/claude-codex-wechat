@@ -40,10 +40,11 @@ function connect(): void {
       dispatch(payload);
     },
     onerror(err) {
-      throw err; // stop retrying on fatal errors (e.g. 4xx)
+      throw err;
     },
   }).catch(() => {
-    // aborted or fatal; controller is cleared on close
+    if (controller === next) controller = null;
+    if (listeners.size > 0) setTimeout(connect, 2000);
   });
 }
 
