@@ -47,7 +47,30 @@ export class MessageRouter {
     return this.options.conversation as CurrentConversationStore;
   }
 
+  private conversationSignature(): string {
+    const current = this.conversation.getCurrent();
+    if (!current) return '';
+    return `${current.id}|${current.providerId}|${current.providerSessionId ?? ''}|${current.cwd}|${current.status}`;
+  }
+
+  private async withSessionChangeNotification<T>(run: () => Promise<T>): Promise<T> {
+    const before = this.conversationSignature();
+    try {
+      return await run();
+    } finally {
+      if (this.conversationSignature() !== before) {
+        this.options.events?.emit({ type: 'channel.current-session-changed' });
+      }
+    }
+  }
+
   async handleMessage(message: ChannelIncomingMessage): Promise<
+    { status: 'accepted' } | { status: 'pairing_required'; code: string }
+  > {
+    return this.withSessionChangeNotification(() => this.handleMessageInner(message));
+  }
+
+  private async handleMessageInner(message: ChannelIncomingMessage): Promise<
     { status: 'accepted' } | { status: 'pairing_required'; code: string }
   > {
     let user = this.options.resolveUser(message);

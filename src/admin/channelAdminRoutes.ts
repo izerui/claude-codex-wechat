@@ -139,6 +139,7 @@ export function registerChannelAdminRoutes(input: {
         await provider?.stopSession(runtimeSession.id);
       }
       input.conversation?.clear();
+      input.events?.emit({ type: 'channel.current-session-changed' });
       const activeUser = input.users.getActiveUser();
       if (activeUser) {
         input.users.clearActiveUser(activeUser.id);
@@ -215,6 +216,7 @@ export function registerChannelAdminRoutes(input: {
       recoverySource: 'manual_attach',
       resumeTitle: recoverableCandidate?.resumeTitle,
     });
+    input.events?.emit({ type: 'channel.current-session-changed' });
     return {
       ok: true,
       session: {
@@ -337,6 +339,7 @@ export function registerChannelAdminRoutes(input: {
 
   input.app.post<{ Body: { platform: string } }>('/api/channel/settings/sync', async (_request) => {
     input.conversation?.clear();
+    input.events?.emit({ type: 'channel.current-session-changed' });
     return { ok: true };
   });
 
@@ -346,6 +349,7 @@ export function registerChannelAdminRoutes(input: {
     const provider = input.providers?.find((candidate) => candidate.id === runtimeSession.providerId);
     await provider?.stopSession(runtimeSession.id);
     input.conversation?.clear();
+    input.events?.emit({ type: 'channel.current-session-changed' });
     return { ok: true };
   });
 

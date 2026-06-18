@@ -46,9 +46,6 @@ export function createDaemonServer(options: {
     defaultCwd: bridgeDefaults.defaultWorkspace,
     defaultProviderId: bridgeDefaults.defaultProvider,
   });
-  conversation.onChange(() => {
-    events.emit({ type: 'channel.current-session-changed' });
-  });
   const permissions = options.permissionsRouter ?? new PermissionRouter();
   const providers = new ProviderRegistry({
     claudeCommand: options.providerCommands?.claude?.command,
