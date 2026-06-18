@@ -20,7 +20,7 @@ export function formatPermissionMessage(request: PermissionRequest): string {
   if (cwd) lines.push(`目录: ${cwd}`);
   if (file) lines.push(`文件: ${file}`);
   if (command) lines.push('', '命令:', command);
-  lines.push('', '回复:');
+  lines.push('', '请直接在微信里回复以下任一命令完成选择:');
   if (request.choices.includes('approve')) lines.push(`/approve ${request.id}`);
   if (request.choices.includes('deny')) lines.push(`/deny ${request.id}`);
   if (request.choices.includes('abort')) lines.push(`/abort ${request.id}`);

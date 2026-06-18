@@ -110,6 +110,36 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
+  it('clears the active wechat user and current session when disabling the weixin plugin', async () => {
+    const channel = new MockChannelAdapter();
+    const provider = new FakeProviderAdapter('claude-code');
+    const { app, activeUserStore, sessions } = createDaemonServer({ channel, providers: [provider], activeUserStore: createRuntimeUserStore('bridge-admin-disable-').activeUserStore });
+    activeUserStore.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user' });
+
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hello' },
+      timestamp: 1,
+    });
+    const active = sessions.getActiveSession('chat-a');
+    expect(active).not.toBeNull();
+
+    const disable = await app.inject({ method: 'POST', url: '/api/channel/plugins/disable', payload: { plugin_id: 'weixin' } });
+    expect(disable.statusCode).toBe(200);
+    expect(disable.json()).toEqual({ ok: true });
+
+    const activeUser = await app.inject({ method: 'GET', url: '/api/channel/active-user' });
+    expect(activeUser.json()).toBeNull();
+
+    expect(provider.stoppedSessions).toEqual([active!.id]);
+    const listed = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
+    expect(listed.json()).toEqual([]);
+    await app.close();
+  });
+
   it('does not expose bridge event history routes', async () => {
     const channel = new MockChannelAdapter();
     const provider = new FakeProviderAdapter('claude-code');
@@ -619,6 +649,41 @@ describe('channel admin routes', () => {
         providerSessionId: 'claude-code_recoverable_1',
       }),
     ]);
+
+    await app.close();
+  });
+
+  it('rejects attaching a recoverable session when no active wechat user is authorized', async () => {
+    const provider = new FakeProviderAdapter('claude-code');
+    const store = createRuntimeUserStore('bridge-admin-reattach-wechat-user-');
+    const created = store.activeUserStore.setActiveUser({
+      platform: 'weixin',
+      platformUserId: 'wx_user_1',
+      role: 'user',
+    });
+    const { app } = createDaemonServer({
+      providers: [provider],
+      activeUserStore: store.activeUserStore,
+      configPath: store.configPath,
+    });
+
+    expect(store.activeUserStore.getActiveUser()).toMatchObject({ platformUserId: 'wx_user_1' });
+    expect(store.activeUserStore.clearActiveUser(created.id)).toEqual({ ok: true });
+    expect(store.activeUserStore.getActiveUser()).toBeNull();
+
+    const attach = await app.inject({
+      method: 'POST',
+      url: '/api/channel/sessions/attach',
+      payload: {
+        providerId: 'claude-code',
+        providerSessionId: 'claude-code_recoverable_1',
+        platformUserId: 'wx_user_1',
+        chatId: 'chat-reattached',
+      },
+    });
+    expect(attach.statusCode).toBe(404);
+    expect(attach.json()).toEqual({ ok: false, error: 'active_wechat_user_not_found' });
+    expect(store.activeUserStore.getActiveUser()).toBeNull();
 
     await app.close();
   });

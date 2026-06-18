@@ -2,7 +2,7 @@ import type { ChannelAdapter, ChannelIncomingMessage, ChannelMessageHandler, Cha
 import { PRIMARY_WEIXIN_PLATFORM } from '../platforms';
 
 type WeixinDirectApi = {
-  getUpdates(buffer: string): Promise<{
+  getUpdates(buffer: string, signal?: AbortSignal): Promise<{
     nextBuffer: string;
     messages: Array<{
       id: string;
@@ -26,9 +26,12 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   private contextTokens = new Map<string, string>();
   private typingTickets = new Map<string, string>();
   private runningTask: Promise<void> | null = null;
+  private pollAbort: AbortController | null = null;
   private healthy = false;
   private lastError: string | null = null;
   private consecutiveSessionTimeouts = 0;
+  private healthListeners = new Set<() => void>();
+  private lastNotifiedStatus: string | null = null;
 
   constructor(private readonly options: {
     api: WeixinDirectApi;
@@ -37,6 +40,17 @@ export class WeixinDirectAdapter implements ChannelAdapter {
 
   onMessage(handler: ChannelMessageHandler): void {
     this.handler = handler;
+  }
+
+  onHealthChange(listener: () => void): void {
+    this.healthListeners.add(listener);
+  }
+
+  private notifyHealthChange(): void {
+    const status = this.getHealth().status;
+    if (status === this.lastNotifiedStatus) return;
+    this.lastNotifiedStatus = status;
+    for (const listener of this.healthListeners) listener();
   }
 
   async start(input?: { background?: boolean }): Promise<void> {
@@ -50,8 +64,10 @@ export class WeixinDirectAdapter implements ChannelAdapter {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.pollAbort?.abort();
     await this.runningTask;
     this.runningTask = null;
+    this.notifyHealthChange();
   }
 
   async sendMessage(message: ChannelOutgoingMessage): Promise<void> {
@@ -97,16 +113,19 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     while (!this.stopped) {
       let updates;
       try {
-        updates = await this.options.api.getUpdates(this.buffer);
+        this.pollAbort = new AbortController();
+        updates = await this.options.api.getUpdates(this.buffer, this.pollAbort.signal);
         this.healthy = true;
         this.lastError = null;
         this.consecutiveSessionTimeouts = 0;
+        this.notifyHealthChange();
       } catch (error) {
+        if (this.stopped) break;
         this.healthy = false;
         this.lastError = error instanceof Error ? error.message : String(error);
         if (this.lastError.includes('session timeout')) this.consecutiveSessionTimeouts += 1;
         else this.consecutiveSessionTimeouts = 0;
-        if (this.stopped) break;
+        this.notifyHealthChange();
         await new Promise((resolve) => setTimeout(resolve, this.options.pollIntervalMs ?? 1_000));
         continue;
       }

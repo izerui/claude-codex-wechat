@@ -4,7 +4,7 @@ import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { WeixinDirectLoginClient } from '../channels/weixin-direct/loginClient';
 import type { WeixinConfig } from '../daemon/config';
 import { defaultConfigPath } from '../daemon/config';
-import { persistWechatCredentialsToConfigFile } from '../daemon/configPersistence';
+import { deleteConfigFile, persistWechatCredentialsToConfigFile } from '../daemon/configPersistence';
 import type { BridgeEventHub } from '../daemon/events';
 import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 import type { ActiveWeChatUserStore } from '../storage/userStore';
@@ -30,6 +30,14 @@ export function registerChannelAdminRoutes(input: {
 }): void {
   let wechat = input.wechat;
   const configPath = input.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath();
+
+  input.channel?.onHealthChange?.(() => {
+    input.events?.emit({
+      type: 'channel.plugin-status-changed',
+      plugin_id: 'weixin',
+      status: toWechatPluginStatus(wechat, input.users, input.channel),
+    });
+  });
 
   input.app.get('/api/channel/plugins', async () => [toWechatPluginStatus(wechat, input.users, input.channel)]);
   input.app.get('/api/channel/wechat/runtime-config', async () => wechat ?? { enabled: false });
@@ -70,7 +78,7 @@ export function registerChannelAdminRoutes(input: {
     return { ok: true };
   });
 
-  input.app.post('/api/channel/weixin/login/start', async (_request, reply) => {
+  input.app.get('/api/channel/weixin/login', async (_request, reply) => {
     const client = new WeixinDirectLoginClient();
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
@@ -118,6 +126,16 @@ export function registerChannelAdminRoutes(input: {
     if (request.body.plugin_id !== 'weixin') {
       return reply.code(400).send({ ok: false, error: 'unknown_channel_plugin' });
     }
+    const runtimeSession = input.conversation?.getCurrent();
+    if (runtimeSession) {
+      const provider = input.providers?.find((candidate) => candidate.id === runtimeSession.providerId);
+      await provider?.stopSession(runtimeSession.id);
+      input.conversation?.clear();
+    }
+    const activeUser = input.users.getActiveUser();
+    if (activeUser) {
+      input.users.clearActiveUser(activeUser.id);
+    }
     const nextWechat = { enabled: false };
     await input.onWechatConfigChanged?.(nextWechat);
     wechat = nextWechat;
@@ -126,6 +144,7 @@ export function registerChannelAdminRoutes(input: {
       plugin_id: 'weixin',
       status: toWechatPluginStatus(wechat, input.users, input.channel),
     });
+    await deleteConfigFile(configPath);
     return { ok: true };
   });
 

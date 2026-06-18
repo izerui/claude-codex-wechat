@@ -42,6 +42,34 @@ describe('daemon WeChat runtime channel', () => {
     await app.close();
   });
 
+  it('broadcasts plugin-status-changed as connected when the weixin poll succeeds', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({
+      ret: 0,
+      errcode: 0,
+      msgs: [],
+      get_updates_buf: 'buf_1',
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock as typeof fetch);
+
+    const server = createDaemonServer({
+      wechat: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'secret-token', accountId: 'wx-account-1' },
+      activeUserStore: createRuntimeUserStore('bridge-daemon-wechat-health-broadcast-').activeUserStore,
+    });
+    const broadcastStatuses: string[] = [];
+    server.events.subscribe((event) => {
+      if (event.type === 'channel.plugin-status-changed') broadcastStatuses.push(event.status.status);
+    });
+
+    await server.app.ready();
+    await vi.waitFor(() => {
+      expect(broadcastStatuses).toContain('connected');
+    });
+
+    await server.app.close();
+    vi.stubGlobal('fetch', originalFetch);
+  });
+
   it('reports session timeout as disconnected for the managed weixin runtime', async () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify({

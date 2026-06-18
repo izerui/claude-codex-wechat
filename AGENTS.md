@@ -257,6 +257,16 @@ If you touch Codex recovery behavior, validate against:
 - only an explicit stored value of `false` should disable automatic WeChat authorization
 - do not reintroduce a mismatch where settings display defaults to enabled but runtime still requires manual pairing approval
 
+### Current product decisions
+
+These product decisions are intentional and should not be “fixed” back to the older multi-user admin model unless explicitly requested by the user.
+
+- The bridge is currently scoped to a single local operator and a single WeChat user on that operator's own machine.
+- WeChat authorization should auto-pass by default for this product shape. Do not restore manual pairing approval UI or pending-pairing admin workflows unless the user explicitly asks to support that mode again.
+- Provider permission prompts should be decided by the WeChat user in the WeChat conversation itself. Prefer clear text instructions and replyable commands in WeChat over restoring a web-admin approval workflow.
+- It is acceptable for the web admin UI to omit permission-decision controls and pairing-approval controls when the WeChat flow is the intended control surface.
+- The current development setup may intentionally accept the Vite `allowedHosts` risk for local use. Do not “fix” that by default unless the user explicitly asks for the tighter host-validation posture.
+
 ## Where to look first for common changes
 
 - Add or change chat command behavior: `src/session/commandParser.ts` and `src/session/messageRouter.ts`
@@ -285,6 +295,7 @@ The bridge has an intentional slash-command extension point for WeChat text inpu
 The current WeChat direct channel is text-only in practice. Do not design bridge or agent interactions that depend on buttons, cards, or structured click UI unless the transport layer is explicitly upgraded first.
 
 - Treat WeChat as a plain-text chat surface.
+- For real provider permission prompts, prefer explicit WeChat reply commands or equally direct text choices so the WeChat user can make the decision inside WeChat.
 - For user choices during multi-turn conversations, prefer numbered text options that the user can reply to directly.
 - Recommended pattern:
   - `1. 保守方案`

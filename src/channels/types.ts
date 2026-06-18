@@ -41,6 +41,7 @@ export interface ChannelAdapter {
   sendMessage(message: ChannelOutgoingMessage): Promise<void>;
   setTyping?(chatId: string, active: boolean): Promise<void>;
   updateMessage?(message: ChannelOutgoingMessage & { platformMessageId: string }): Promise<void>;
+  onHealthChange?(listener: () => void): void;
   getHealth?(): {
     connected: boolean;
     status: string;

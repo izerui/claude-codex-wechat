@@ -626,6 +626,32 @@ describe('App admin interactions', () => {
     expect(within(panelRoot).queryByText('批量修复 Claude 恢复')).toBeNull();
   });
 
+  it('does not attempt to attach a recoverable session when the active wechat user is unavailable', async () => {
+    const { fetchImpl, calls } = createFetchStub();
+    const inactiveUserFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/channel/active-user')) {
+        return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return await fetchImpl(input, init);
+    });
+    vi.stubGlobal('fetch', inactiveUserFetch as typeof fetch);
+    vi.stubGlobal('WebSocket', class {
+      addEventListener() {}
+      close() {}
+      constructor(_url: string) {}
+    } as unknown as typeof WebSocket);
+
+    render(<App />);
+
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 原生会话' });
+    fireEvent.click(claudeTabButtons.at(-1)!);
+    fireEvent.click((await screen.findAllByRole('button', { name: '接入会话' })).at(-1)!);
+
+    expect(await screen.findByText('no_active_wechat_user')).toBeTruthy();
+    expect(calls.some((call) => call.url.endsWith('/api/channel/current-session/attach') && call.method === 'POST')).toBe(false);
+  });
+
   it('does not render recoverable-session native resume repair controls in the WeChat panel', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);

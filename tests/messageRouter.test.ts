@@ -528,7 +528,7 @@ describe('MessageRouter', () => {
 
     expect(sent).toEqual([
       { kind: 'text', text: '收到：hello codex' },
-      { kind: 'permission_request', text: expect.stringContaining('/approve pr_fake_1') },
+      { kind: 'permission_request', text: expect.stringContaining('请直接在微信里回复以下任一命令完成选择') },
     ]);
   });
 

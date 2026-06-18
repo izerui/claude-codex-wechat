@@ -24,6 +24,7 @@ describe('PermissionRouter', () => {
   });
 
   it('formats permission messages for WeChat commands', () => {
+    expect(formatPermissionMessage(request)).toContain('请直接在微信里回复以下任一命令完成选择');
     expect(formatPermissionMessage(request)).toContain('/approve pr_123');
     expect(formatPermissionMessage(request)).toContain('运行 yarn test');
     expect(formatPermissionMessage(request)).toContain('Bash');

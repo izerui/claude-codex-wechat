@@ -20,6 +20,41 @@ export type ActiveWeChatUserEventView = {
   lastActive?: number;
 };
 
+export type AuthorizedUserEventView = ActiveWeChatUserEventView & {
+  defaultProvider: 'claude-code' | 'codex';
+  defaultCwd: string;
+};
+
+export type AuthorizedUserView = {
+  id: string;
+  platform: string;
+  platformUserId: string;
+  displayName?: string;
+  role: string;
+  defaultProvider: 'claude-code' | 'codex';
+  defaultCwd: string;
+  createdAt: number;
+  lastActiveAt?: number;
+};
+
+export type PairingView = {
+  code: string;
+  platformUserId: string;
+  chatId: string;
+  displayName?: string;
+  requestedAt: number;
+  expiresAt?: number;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+};
+
+export type PairingEventView = {
+  code: string;
+  platformUserId: string;
+  display_name?: string;
+  requestedAt: number;
+  expiresAt?: number;
+};
+
 export type ChannelPluginView = {
   id: string;
   type: string;
@@ -115,6 +150,7 @@ export type BridgeSettingsView = {
 };
 
 export type BridgeWsEvent =
+  | { type: 'channel.pairing-requested'; pairing: PairingEventView }
   | { type: 'channel.user-authorized'; user: ActiveWeChatUserEventView }
   | { type: 'channel.plugin-status-changed'; plugin_id: 'weixin'; status: ChannelPluginView }
   | { type: 'status'; message: string }
@@ -162,6 +198,26 @@ export async function fetchProviderStatus(): Promise<ProviderStatusView> {
 
 export async function fetchActiveUser(): Promise<ActiveWeChatUserView | null> {
   return await requestJsonOptional('/api/channel/active-user');
+}
+
+export async function fetchAuthorizedUsers(): Promise<AuthorizedUserView[]> {
+  const active = await fetchActiveUser();
+  if (!active) return [];
+  return [{
+    id: active.id,
+    platform: active.platform,
+    platformUserId: active.platformUserId,
+    displayName: active.displayName,
+    role: active.role,
+    defaultProvider: 'claude-code',
+    defaultCwd: '/tmp/project',
+    createdAt: active.createdAt,
+    lastActiveAt: active.updatedAt,
+  }];
+}
+
+export async function fetchPairings(): Promise<PairingView[]> {
+  return [];
 }
 
 export async function fetchChannelPlugins(): Promise<ChannelPluginView[]> {
@@ -231,6 +287,19 @@ export async function attachProviderSession(input: {
   });
 }
 
+export async function autoAttachProviderSession(input: {
+  providerId: 'claude-code' | 'codex';
+  platformUserId: string;
+  chatId?: string;
+  cwd?: string;
+}): Promise<void> {
+  await requestJson('/api/channel/sessions/auto-attach', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
 export async function repairRecoverableProviderSessionNativeResume(input: {
   providerId: 'claude-code' | 'codex';
   providerSessionId: string;
@@ -268,6 +337,18 @@ export async function decidePermission(input: {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
   });
+}
+
+export async function approvePairing(_code: string): Promise<void> {
+  return;
+}
+
+export async function rejectPairing(_code: string): Promise<void> {
+  return;
+}
+
+export async function revokeAuthorizedUser(_userId: string): Promise<void> {
+  return;
 }
 
 export async function fetchSettings(): Promise<BridgeSettingsView> {

@@ -10,6 +10,7 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
   private adapter: ChannelAdapter | null = null;
   private running = false;
   private operation = Promise.resolve();
+  private healthListeners = new Set<() => void>();
 
   constructor(initialConfig?: WeixinConfig) {
     this.adapter = createWeixinAdapter(initialConfig);
@@ -18,6 +19,16 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
   onMessage(handler: ChannelMessageHandler): void {
     this.handler = handler;
     this.adapter?.onMessage(handler);
+  }
+
+  onHealthChange(listener: () => void): void {
+    this.healthListeners.add(listener);
+    this.adapter?.onHealthChange?.(listener);
+  }
+
+  private attachHealthListeners(): void {
+    if (!this.adapter?.onHealthChange) return;
+    for (const listener of this.healthListeners) this.adapter.onHealthChange(listener);
   }
 
   async start(options?: ChannelStartOptions): Promise<void> {
@@ -45,6 +56,7 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
       if (this.adapter && this.handler) {
         this.adapter.onMessage(this.handler);
       }
+      this.attachHealthListeners();
       if (this.running && this.adapter) {
         await this.adapter.start({ background: true });
       }

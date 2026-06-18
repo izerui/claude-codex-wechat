@@ -56,7 +56,7 @@ export class WeixinDirectApiClient {
     }
   }
 
-  async getUpdates(buffer: string): Promise<{
+  async getUpdates(buffer: string, signal?: AbortSignal): Promise<{
     nextBuffer: string;
     messages: Array<{
       id: string;
@@ -78,6 +78,7 @@ export class WeixinDirectApiClient {
         get_updates_buf: buffer,
         base_info: {},
       }),
+      ...(signal ? { signal } : {}),
     });
     if (!response.ok) {
       throw new Error(`weixin_get_updates_failed:${response.status}`);
