@@ -98,6 +98,19 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--radius);
   padding: 9px 12px;
   color: var(--foreground);
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.weixin-info-item > span:last-child {
+  min-width: 0;
+  word-break: break-all;
+  text-align: right;
+}
+
+.soft-card .border.rounded > div {
+  overflow-wrap: break-word;
+  word-break: break-all;
 }
 
 /* ── Buttons ── */

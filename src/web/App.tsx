@@ -43,14 +43,15 @@ export function App() {
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>微信远程控制台</h1>
             <p className="text-muted-soft" style={{ margin: '4px 0 0', fontSize: 13 }}>通过微信控制本地 Claude Code / Codex 会话。</p>
           </div>
-          <div className="d-flex align-items-center gap-2">
+          <div className="d-flex flex-column align-items-end gap-1">
             <span className={`badge ${status?.ok === true ? 'badge-solid-success' : 'badge-soft-accent'}`}>
               {status?.ok === true ? '在线' : '待确认'}
             </span>
+            <span className="font-monospace text-muted-soft" style={{ fontSize: 12 }}>127.0.0.1:5177</span>
           </div>
         </header>
 
-        <StatusCards providerStatus={providerStatus} status={status} />
+        <StatusCards providerStatus={providerStatus} />
 
         {error ? (
           <div className="alert alert-danger" role="alert">
@@ -69,16 +70,9 @@ export function App() {
 
 function StatusCards(input: {
   providerStatus: ProviderStatusView | null;
-  status: StatusView | null;
 }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 12 }}>
-      <StatusCard
-        detail="127.0.0.1:5177"
-        title="桥接"
-        tone={input.status?.ok ? 'success' : 'warning'}
-        value={input.status?.ok ? '运行中' : '未知'}
-      />
       <StatusCard
         detail={readProviderCommand(input.providerStatus?.claude) ?? '-'}
         title="Claude"
