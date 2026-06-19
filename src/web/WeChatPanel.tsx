@@ -470,7 +470,6 @@ export function WeChatPanel(input: {
       </ul>
 
       <div className="soft-card mb-2">
-        <div className="card-header">{sessionConfigTab === 'new' && activeUser && isPluginConnected(plugin) ? '新建会话' : '会话默认值'}</div>
         <div className="card-body">
           {sessionConfigTab === 'new' && activeUser && isPluginConnected(plugin) ? (
             <>
