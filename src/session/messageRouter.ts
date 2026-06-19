@@ -3,7 +3,7 @@ import { formatPermissionMessage } from '../permissions/formatPermissionMessage'
 import type { PermissionRouter } from '../permissions/permissionRouter';
 import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, PermissionChoice } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
-import { parseBridgeCommand } from './commandParser';
+import { parseBridgeCommand, type BridgeCommand } from './commandParser';
 import { CurrentConversationStore, type CurrentConversationBinding } from './currentConversationStore';
 import { attachProviderSessionToBridge, listUnattachedRecoverableSessions } from './providerAutoAttach';
 import type { SessionManager } from './sessionManager';
@@ -18,6 +18,11 @@ export class MessageRouter {
   private static readonly SESSION_LIST_LIMIT = 8;
   private readonly providers = new Map<ProviderId, NativeProviderAdapter>();
   private readonly sessionListCache = new Map<string, { providerId: ProviderId; ids: string[] }>();
+  // Single global lock: the bridge stores one current conversation, so every
+  // session-mutating operation (chat generation + state-changing commands) must
+  // run one at a time. /cancel and read-only commands bypass this lock.
+  private sessionOpChain: Promise<void> = Promise.resolve();
+  private readonly activeGenerations = new Map<string, { providerId: ProviderId; bridgeSessionId: string }>();
 
   constructor(
     private readonly options: {
@@ -91,15 +96,54 @@ export class MessageRouter {
       return { status: 'accepted' };
     }
     if (command.kind !== 'chat') {
-      await this.handleCommand(message.chatId, user, command);
+      // /cancel and read-only commands run immediately (concurrent with an
+      // in-flight generation, which is exactly what /cancel needs). Every
+      // session-mutating command is serialized behind the active generation.
+      if (isImmediateCommand(command.kind)) {
+        await this.handleCommand(message.chatId, user, command);
+      } else {
+        await this.runExclusive(() => this.handleCommand(message.chatId, user, command));
+      }
       return { status: 'accepted' };
     }
 
+    if (await this.maybeSteer(message.chatId, command.text)) {
+      return { status: 'accepted' };
+    }
+    await this.runExclusive(() => this.runChatGeneration(message, user, command.text));
+    return { status: 'accepted' };
+  }
+
+  // A chat message arriving while a turn is in flight: if the provider supports
+  // native steer (Codex turn/steer), inject it into the running turn instead of
+  // queueing a new turn. Otherwise fall back to the serialized lock (queue).
+  private maybeSteer(chatId: string, text: string): Promise<boolean> {
+    const active = this.activeGenerations.get(chatId);
+    if (!active) return Promise.resolve(false);
+    const provider = this.providers.get(active.providerId);
+    if (!provider?.steerSession) return Promise.resolve(false);
+    return provider.steerSession(active.bridgeSessionId, text).then(() => true);
+  }
+
+  // Serialize session-mutating work onto one global chain. The chain is updated
+  // synchronously (no await before the assignment) so two non-blocking channel
+  // dispatches enqueue in arrival order without racing.
+  private runExclusive<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.sessionOpChain.then(() => run());
+    this.sessionOpChain = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private async runChatGeneration(
+    message: ChannelIncomingMessage,
+    user: ActiveWeChatUserRecord,
+    text: string,
+  ): Promise<void> {
     const sessionResumeTitle = buildSessionBridgeName({
       platform: 'weixin',
       platformUserId: message.user.id,
       chatId: message.chatId,
-      summary: summarizeResumeTitle(command.text),
+      summary: summarizeResumeTitle(text),
     });
     const session = this.conversation.getCurrent()
       ?? await this.options.autoAttachSession?.(message, user)
@@ -141,6 +185,7 @@ export class MessageRouter {
       await this.persistBridgeMetadata(updated);
     }
 
+    this.activeGenerations.set(message.chatId, { providerId: session.providerId, bridgeSessionId: session.id });
     let bufferedText = '';
     await this.options.channel.setTyping?.(message.chatId, true);
     const typingKeepalive = this.options.channel.setTyping
@@ -149,7 +194,7 @@ export class MessageRouter {
         }, MessageRouter.TYPING_KEEPALIVE_MS)
       : null;
     try {
-      for await (const event of provider.sendMessage({ bridgeSessionId: session.id, text: command.text })) {
+      for await (const event of provider.sendMessage({ bridgeSessionId: session.id, text })) {
         if (event.type === 'text_delta' && event.text) {
           bufferedText += event.text;
         }
@@ -197,10 +242,10 @@ export class MessageRouter {
         }
       }
     } finally {
+      this.activeGenerations.delete(message.chatId);
       if (typingKeepalive) clearInterval(typingKeepalive);
       await this.options.channel.setTyping?.(message.chatId, false);
     }
-    return { status: 'accepted' };
   }
 
   private async handleCommand(
@@ -224,6 +269,7 @@ export class MessageRouter {
           '- `/use claude|codex` — 切换当前 provider',
           '- `/cwd <path>` — 设置工作目录，例：`/cwd /home/project`',
           '- `/stop` — 停止并清除当前会话',
+          '- `/cancel` — 中断当前正在生成的回复（会话保留）',
           '- `/reload` — 重启当前会话（保留 provider 与目录）',
           '',
           '**历史会话**',
@@ -241,6 +287,22 @@ export class MessageRouter {
           '- `/abort <id>` — 中止本次请求',
         ].join('\n'),
       });
+      return;
+    }
+
+    if (command.kind === 'cancel_generation') {
+      const active = this.activeGenerations.get(chatId);
+      if (!active) {
+        await this.options.channel.sendMessage({ chatId, kind: 'status', text: '当前没有正在进行的生成' });
+        return;
+      }
+      const provider = this.providers.get(active.providerId);
+      if (!provider?.interruptSession) {
+        await this.options.channel.sendMessage({ chatId, kind: 'status', text: `${active.providerId} 暂不支持中断` });
+        return;
+      }
+      await provider.interruptSession(active.bridgeSessionId);
+      await this.options.channel.sendMessage({ chatId, kind: 'status', text: '已中断当前生成，会话保留' });
       return;
     }
 
@@ -540,6 +602,16 @@ function summarizeResumeTitle(text: string): string | undefined {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return undefined;
   return normalized.length > 32 ? `${normalized.slice(0, 32).trimEnd()}…` : normalized;
+}
+
+// Commands that may run while a generation is in flight: /cancel must (to
+// interrupt it), and read-only commands are safe. Everything else mutates the
+// single current conversation and is serialized behind the active generation.
+function isImmediateCommand(kind: BridgeCommand['kind']): boolean {
+  return kind === 'cancel_generation'
+    || kind === 'help'
+    || kind === 'status'
+    || kind === 'list_sessions';
 }
 
 function formatRelativeTime(ts: number): string {

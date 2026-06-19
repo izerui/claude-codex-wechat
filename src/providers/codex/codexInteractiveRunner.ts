@@ -167,6 +167,31 @@ export class CodexInteractiveRunner {
     await execFileAsync(this.command ?? 'codex', ['archive', providerSessionId]);
   }
 
+  async interruptTurn(bridgeSessionId: string): Promise<void> {
+    const session = this.sessions.get(bridgeSessionId);
+    if (!session?.client) return;
+    if (session.threadId && session.activeTurnId) {
+      await session.client.request('turn/interrupt', {
+        threadId: session.threadId,
+        turnId: session.activeTurnId,
+      }).catch(() => undefined);
+    }
+    // Unblock the in-flight sendMessage await so the turn ends cleanly even if
+    // the app-server does not emit a turn/completed for the interrupted turn.
+    session.turnCompletedResolver?.();
+    session.turnCompletedResolver = undefined;
+  }
+
+  async steerTurn(bridgeSessionId: string, text: string): Promise<void> {
+    const session = this.sessions.get(bridgeSessionId);
+    if (!session?.client || !session.threadId || !session.activeTurnId) return;
+    await session.client.request('turn/steer', {
+      threadId: session.threadId,
+      expectedTurnId: session.activeTurnId,
+      input: [{ type: 'text', text }],
+    }).catch(() => undefined);
+  }
+
   private async ensureClient(session: StoredSession): Promise<CodexAppServerClient> {
     if (session.client) return session.client;
     const client = new CodexAppServerClient({

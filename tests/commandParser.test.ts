@@ -41,4 +41,9 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/archive 2')).toEqual({ kind: 'archive_session', ref: '2' });
     expect(parseBridgeCommand('/archive sess_xyz')).toEqual({ kind: 'archive_session', ref: 'sess_xyz' });
   });
+
+  it('parses cancel/interrupt commands', () => {
+    expect(parseBridgeCommand('/cancel')).toEqual({ kind: 'cancel_generation' });
+    expect(parseBridgeCommand('/interrupt')).toEqual({ kind: 'cancel_generation' });
+  });
 });

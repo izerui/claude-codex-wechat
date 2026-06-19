@@ -105,6 +105,158 @@ describe('MessageRouter', () => {
     expect(permissions.getPendingRequests()).toHaveLength(1);
   });
 
+  it('interrupts an in-flight generation on /cancel and keeps the session', async () => {
+    let releaseGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
+    let signalStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    class GatedProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      readonly interrupted: string[] = [];
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `claude_gated_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        signalStarted();
+        yield { type: 'text_delta', text: `生成中：${input.text}` };
+        await gate;
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+      async interruptSession(bridgeSessionId: string): Promise<void> {
+        this.interrupted.push(bridgeSessionId);
+        releaseGate();
+      }
+    }
+
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const provider = new GatedProvider();
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [provider],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    // Fire the chat without awaiting so the generation is in flight (gated),
+    // mirroring the non-blocking dispatch of the real channel adapter.
+    const generation = router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-cancel',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'count to 100' },
+      timestamp: 1,
+    });
+    await started;
+
+    await router.handleMessage({
+      id: 'm2',
+      platform: 'weixin',
+      chatId: 'chat-cancel',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/cancel' },
+      timestamp: 2,
+    });
+
+    expect(provider.interrupted).toHaveLength(1);
+    expect(sent.some((message) => message.text === '已中断当前生成，会话保留')).toBe(true);
+    expect(sessions.listSessions()).toHaveLength(1);
+
+    await generation;
+  });
+
+  it('steers a follow-up chat into the in-flight turn when the provider supports it', async () => {
+    let releaseGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
+    let signalStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    let startCount = 0;
+    class SteerableProvider implements NativeProviderAdapter {
+      readonly id = 'codex' as const;
+      readonly steered: string[] = [];
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        startCount += 1;
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `codex_steer_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        signalStarted();
+        yield { type: 'text_delta', text: `生成中：${input.text}` };
+        await gate;
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+      async steerSession(_bridgeSessionId: string, text: string): Promise<void> {
+        this.steered.push(text);
+        releaseGate();
+      }
+    }
+
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
+    const provider = new SteerableProvider();
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [provider],
+      sessions,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'codex', defaultWorkspace: '/tmp/project' },
+    });
+
+    const generation = router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-steer',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'start a long task' },
+      timestamp: 1,
+    });
+    await started;
+
+    await router.handleMessage({
+      id: 'm2',
+      platform: 'weixin',
+      chatId: 'chat-steer',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'also handle the edge case' },
+      timestamp: 2,
+    });
+
+    expect(provider.steered).toEqual(['also handle the edge case']);
+    expect(startCount).toBe(1);
+
+    await generation;
+  });
+
   it('toggles typing state around a normal chat turn', async () => {
     const channel = new MockChannelAdapter();
     const permissions = new PermissionRouter();

@@ -47,12 +47,12 @@ describe('ClaudeHeadlessRunner', () => {
     }
 
     expect(calls).toEqual([
-      {
+      expect.objectContaining({
         command: 'claude',
         args: ['-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--dangerously-skip-permissions', '-n', '微信 · Alice', 'say hello'],
         cwd: '/tmp/project',
         input: '',
-      },
+      }),
     ]);
     expect(events).toEqual([
       { type: 'text_delta', text: 'hello' },

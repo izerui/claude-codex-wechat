@@ -29,6 +29,10 @@ export interface ClaudeRunner {
   }): Promise<void>;
 
   stopSession(bridgeSessionId: string): Promise<void>;
+
+  interruptSession?(bridgeSessionId: string): Promise<void>;
+
+  steerSession?(bridgeSessionId: string, text: string): Promise<void>;
 }
 
 export type ClaudeRawPermissionPayload = {

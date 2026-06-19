@@ -11,6 +11,7 @@ export type BridgeCommand =
   | { kind: 'list_sessions'; scope: 'all' | 'mine'; keyword: string | null }
   | { kind: 'resume_session'; ref: string }
   | { kind: 'archive_session'; ref: string }
+  | { kind: 'cancel_generation' }
   | { kind: 'permission_decision'; requestId: string; decision: PermissionChoice }
   | { kind: 'chat'; text: string };
 
@@ -31,6 +32,7 @@ export function parseBridgeCommand(input: string): BridgeCommand {
   if (command === '/status') return { kind: 'status' };
   if (command === '/stop') return { kind: 'stop' };
   if (command === '/reload') return { kind: 'reload' };
+  if (command === '/cancel' || command === '/interrupt') return { kind: 'cancel_generation' };
 
   if (command === '/sessions') {
     if (first === 'mine') return { kind: 'list_sessions', scope: 'mine', keyword: null };

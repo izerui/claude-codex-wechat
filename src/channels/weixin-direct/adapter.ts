@@ -143,7 +143,12 @@ export class WeixinDirectAdapter implements ChannelAdapter {
         if (message.contextToken) {
           this.contextTokens.set(message.chatId, message.contextToken);
         }
-        await this.handler?.({
+        // Dispatch without awaiting the full turn so the long-poll loop stays
+        // responsive while a generation streams — this is what lets /cancel and
+        // follow-up messages reach the router mid-generation. Per-chat generation
+        // ordering is enforced inside MessageRouter (its serialization chain is
+        // established synchronously, before any await).
+        void this.handler?.({
           id: message.id,
           platform: PRIMARY_WEIXIN_PLATFORM,
           chatId: message.chatId,
@@ -151,6 +156,8 @@ export class WeixinDirectAdapter implements ChannelAdapter {
           content: { type: 'text', text: message.text },
           timestamp: Date.now(),
           raw: message,
+        })?.catch((error) => {
+          console.error('[weixin] message handler failed:', error);
         });
         if (this.stopped) break;
       }

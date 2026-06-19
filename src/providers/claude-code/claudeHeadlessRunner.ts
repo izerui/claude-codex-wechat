@@ -7,6 +7,7 @@ export type ClaudeProcessCall = {
   args: string[];
   cwd: string;
   input: string;
+  signal?: AbortSignal;
 };
 
 export type ClaudeProcessResult = {
@@ -26,6 +27,7 @@ export type ClaudeLineStreamer = (call: ClaudeProcessCall) => AsyncIterable<Clau
 type StoredClaudeSession = ClaudeRunnerSession & {
   claudeSessionId?: string;
   sessionName?: string;
+  abortController?: AbortController;
 };
 
 export class ClaudeHeadlessRunner implements ClaudeRunner {
@@ -63,32 +65,44 @@ export class ClaudeHeadlessRunner implements ClaudeRunner {
     const session = this.sessions.get(input.bridgeSessionId);
     if (!session) throw new Error(`claude_session_not_found:${input.bridgeSessionId}`);
 
+    const controller = new AbortController();
+    session.abortController = controller;
     const args = buildClaudeArgs(input.text, session.claudeSessionId, session.sessionName);
-    const call: ClaudeProcessCall = { command: this.command, args, cwd: session.cwd, input: '' };
+    const call: ClaudeProcessCall = { command: this.command, args, cwd: session.cwd, input: '', signal: controller.signal };
 
     let emittedDone = false;
-    for await (const chunk of this.lineStreamer(call)) {
-      if (chunk.type === 'exit') {
-        if (chunk.code !== 0) {
-          yield { type: 'error', error: chunk.stderr || `claude exited with ${chunk.code}` };
-          return;
+    try {
+      for await (const chunk of this.lineStreamer(call)) {
+        if (chunk.type === 'exit') {
+          if (controller.signal.aborted) break;
+          if (chunk.code !== 0) {
+            yield { type: 'error', error: chunk.stderr || `claude exited with ${chunk.code}` };
+            return;
+          }
+          break;
         }
-        break;
-      }
-      for (const event of parseClaudeLine({ bridgeSessionId: input.bridgeSessionId, cwd: session.cwd, line: chunk.line })) {
-        if (event.type === 'session_state') {
-          session.providerSessionId = event.state.providerSessionId;
-          session.claudeSessionId = event.state.providerSessionId;
-          session.status = event.state.status;
+        for (const event of parseClaudeLine({ bridgeSessionId: input.bridgeSessionId, cwd: session.cwd, line: chunk.line })) {
+          if (event.type === 'session_state') {
+            session.providerSessionId = event.state.providerSessionId;
+            session.claudeSessionId = event.state.providerSessionId;
+            session.status = event.state.status;
+          }
+          if (event.type === 'message_done') emittedDone = true;
+          yield event;
         }
-        if (event.type === 'message_done') emittedDone = true;
-        yield event;
       }
+    } finally {
+      session.abortController = undefined;
     }
     if (!emittedDone) yield { type: 'message_done' };
   }
 
+  async interruptSession(bridgeSessionId: string): Promise<void> {
+    this.sessions.get(bridgeSessionId)?.abortController?.abort();
+  }
+
   async stopSession(bridgeSessionId: string): Promise<void> {
+    this.sessions.get(bridgeSessionId)?.abortController?.abort();
     this.sessions.delete(bridgeSessionId);
   }
 }
@@ -202,6 +216,14 @@ function wrapProcessRunner(processRunner: ClaudeProcessRunner): ClaudeLineStream
 async function* defaultClaudeLineStreamer(call: ClaudeProcessCall): AsyncIterable<ClaudeStreamChunk> {
   const child = spawn(call.command, call.args, { cwd: call.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
   child.stdin.end(call.input);
+
+  const onAbort = () => {
+    child.kill('SIGTERM');
+  };
+  if (call.signal) {
+    if (call.signal.aborted) onAbort();
+    else call.signal.addEventListener('abort', onAbort, { once: true });
+  }
 
   let stderr = '';
   let buffer = '';

@@ -39,6 +39,14 @@ export class ClaudeCodeProvider implements NativeProviderAdapter {
     await this.options.runner.stopSession(bridgeSessionId);
   }
 
+  async interruptSession(bridgeSessionId: string): Promise<void> {
+    await this.options.runner.interruptSession?.(bridgeSessionId);
+  }
+
+  async steerSession(bridgeSessionId: string, text: string): Promise<void> {
+    await this.options.runner.steerSession?.(bridgeSessionId, text);
+  }
+
   async listRecoverableSessions() {
     return await listRecoverableClaudeSessions();
   }

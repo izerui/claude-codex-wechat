@@ -1,13 +1,30 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) and Codex CLI when working with code in this repository.
+
+## Purpose / design baseline
+
+This repository is a **bridge layer**. Its single reason to exist is:
+
+> **Let a WeChat user drive the native Claude Code CLI and Codex CLI — and all of their native features — from inside a WeChat conversation.**
+
+Everything in this codebase is designed against that baseline. When making any design or implementation decision, judge it against this question: *does it let WeChat operate the real, native CLI exactly as a human at the terminal would?*
+
+Concrete implications of the baseline (each is expanded later in this file):
+
+- **Native CLI is the source of truth, not the bridge.** The bridge is a transport/control surface that forwards WeChat input into real `claude` / `codex` CLI sessions and pushes their output back. It must not become a parallel agent runtime, an ACP bridge, or a separate protocol silo.
+- **Two-way session continuity is mandatory.** A WeChat-driven turn and a human-typed CLI turn must land in the *same* native session transcript. Either side can pick up where the other left off via the CLI's own resume mechanism. (See *Resume invariants*.)
+- **Expose native features, don't reinvent them.** Session ids, resume behavior, message flow, and permission prompts must mirror native CLI semantics so WeChat unlocks the CLI's real capabilities rather than a reduced clone.
+- **WeChat is the human-facing control surface.** Conversation controls (new/stop/approve/deny, plan choices, permission decisions) are exercised by the WeChat user in plain text, because that is where the human is. The web admin UI is secondary and may omit controls that belong in the WeChat flow.
+
+If a change makes the bridge diverge from native CLI behavior for the sake of bridge-internal convenience, it is almost certainly wrong.
 
 ## Core commands
 
 Run everything from the repo root:
 
 ```bash
-cd /Users/liuyuhua/github/local-agent-wechat-bridge
+cd /Users/liuyuhua/github/claude-codex-wechat
 ```
 
 Install dependencies:
@@ -153,6 +170,18 @@ Supporting pieces:
 - `src/permissions/formatPermissionMessage.ts` — user-facing permission text formatting
 
 If behavior looks wrong at runtime, start by tracing through `MessageRouter`.
+
+#### Concurrency invariants (non-blocking intake + global session lock)
+
+To support native-style interrupt (`/cancel`) and follow-up/insert (steer), message **intake is non-blocking** while every session-mutating operation runs under **one global lock**. Do not break either half:
+
+- **Channel adapters dispatch without awaiting the full turn.** `WeixinDirectAdapter` fires `handler(message)` with `void ... .catch(...)`, never `await`, so the long-poll loop keeps reading while a turn streams. If you re-introduce `await handler(...)` in a real adapter's read loop, `/cancel`, steer, and queued messages can never arrive mid-generation. (The `MockChannelAdapter` still awaits — that's intentional, so tests observe a settled turn.)
+- **`MessageRouter` serializes session-mutating work on one global chain.** The bridge stores a single current conversation, so `runExclusive()` chains chat generation **and** every state-changing command (`/new /use /cwd /stop /reload /resume /archive`) onto `sessionOpChain`. This prevents two turns (or a command and a turn) from clobbering the shared session/native transcript. **The chain MUST be updated synchronously** — no `await` between `handleMessage` entry and the `sessionOpChain = ...` assignment in `runExclusive`, otherwise two non-blocking dispatches race. Keep `conversationSignature()`/user resolution/parse synchronous on that path.
+- **`/cancel` and read-only commands bypass the lock.** `isImmediateCommand` (`cancel_generation`, `help`, `status`, `list_sessions`) runs immediately, concurrent with an in-flight generation — `/cancel` must, to interrupt it. Do not move state-changing commands into the immediate set.
+- **Follow-up chat during a turn = native steer, not a second turn.** If a generation is active (`activeGenerations[chatId]`) and the provider exposes `steerSession`, a new chat message is injected into the running turn (`maybeSteer` → Codex `turn/steer { threadId, input, expectedTurnId }`) rather than queued. Providers without steer (one-shot Claude `-p`) fall back to the serialized lock (queue). This is the "insert" capability and must use the native mechanism, never a second concurrent provider turn.
+- **Interrupt is native, not a kill-all.** `interruptSession` maps to Codex `turn/interrupt { threadId, turnId }` and Claude sending `SIGTERM` to the in-flight `claude -p` child (equivalent to terminal Ctrl+C). It must stop only the current turn and leave the session resumable — never tear down the whole session (that is `/stop`).
+
+If behaviour around interrupt/steer/queueing looks wrong, check these invariants first.
 
 ### Persistence model
 
