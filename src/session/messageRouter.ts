@@ -4,6 +4,7 @@ import type { PermissionRouter } from '../permissions/permissionRouter';
 import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, PermissionChoice } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { parseBridgeCommand, type BridgeCommand } from './commandParser';
+import { buildBridgeCommandHelpMarkdown } from '../shared/bridgeCommandHelp';
 import { CurrentConversationStore, type CurrentConversationBinding } from './currentConversationStore';
 import { attachProviderSessionToBridge, listUnattachedRecoverableSessions } from './providerAutoAttach';
 import type { SessionManager } from './sessionManager';
@@ -22,7 +23,16 @@ export class MessageRouter {
   // session-mutating operation (chat generation + state-changing commands) must
   // run one at a time. /cancel and read-only commands bypass this lock.
   private sessionOpChain: Promise<void> = Promise.resolve();
-  private readonly activeGenerations = new Map<string, { providerId: ProviderId; bridgeSessionId: string }>();
+  // Commands run on their own chain, independent of sessionOpChain, so a hung
+  // generation can never block /new, /stop, etc.
+  private commandChain: Promise<void> = Promise.resolve();
+  private generationSeq = 0;
+  // 每条消息到达时按顺序分配一个全局序号；latestMutatingSeq 记录每个 chat
+  // 最近一次会话变更命令的序号。聊天用它判断自己是否已被更晚到达的命令取代，
+  // 从而消除「命令从 commandChain 插队到排队中的聊天前面」导致的串话。
+  private opSeq = 0;
+  private readonly latestMutatingSeq = new Map<string, number>();
+  private readonly activeGenerations = new Map<string, { genId: number; providerId: ProviderId; bridgeSessionId: string; abort: () => void }>();
 
   constructor(
     private readonly options: {
@@ -95,13 +105,17 @@ export class MessageRouter {
       await this.decidePermission({ requestId: command.requestId, userId: user.id, decision: command.decision });
       return { status: 'accepted' };
     }
+    // 在到达顺序上同步分配序号（在任何 await 之前），保证命令与聊天的先后关系确定。
+    const seq = ++this.opSeq;
     if (command.kind !== 'chat') {
-      // /cancel and read-only commands run immediately (concurrent with an
-      // in-flight generation, which is exactly what /cancel needs). Every
-      // session-mutating command is serialized behind the active generation.
-      // setTyping toggles inside the run callback (not before runExclusive) so a
-      // queued command's typing isn't cleared by the preceding generation's
-      // finally-block setTyping(false).
+      // 命令跑在独立的 commandChain 上，与生成链 sessionOpChain 互不依赖，
+      // 所以卡住的生成永远不会阻塞 /new、/stop 等命令。/cancel 和只读命令
+      // 仍立即执行。setTyping 在回调内部切换（不在 runOnCommandChain 之前），
+      // 避免被前一次生成 finally 里的 setTyping(false) 清掉。
+      if (!isImmediateCommand(command.kind)) {
+        // 会话变更命令：同步记录序号，让此刻仍排队/在跑的更早聊天据此作废。
+        this.latestMutatingSeq.set(message.chatId, seq);
+      }
       const runWithTyping = async () => {
         await this.options.channel.setTyping?.(message.chatId, true);
         try {
@@ -113,15 +127,19 @@ export class MessageRouter {
       if (isImmediateCommand(command.kind)) {
         await runWithTyping();
       } else {
-        await this.runExclusive(runWithTyping);
+        await this.runOnCommandChain(runWithTyping);
       }
       return { status: 'accepted' };
     }
 
+    // 若已有更晚到达的会话变更命令，这条聊天已被取代，直接丢弃（不 steer、不排队）。
+    if ((this.latestMutatingSeq.get(message.chatId) ?? 0) > seq) {
+      return { status: 'accepted' };
+    }
     if (await this.maybeSteer(message.chatId, command.text)) {
       return { status: 'accepted' };
     }
-    await this.runExclusive(() => this.runChatGeneration(message, user, command.text));
+    await this.runExclusive(() => this.runChatGeneration(message, user, command.text, seq));
     return { status: 'accepted' };
   }
 
@@ -145,11 +163,40 @@ export class MessageRouter {
     return result;
   }
 
+  // Commands serialize among themselves on a chain that is independent of the
+  // generation chain, so they never wait behind a (possibly hung) generation.
+  private runOnCommandChain<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.commandChain.then(() => run());
+    this.commandChain = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  // Abandon the live generation for a chat before a command swaps/clears the
+  // current session. Signalling abort makes the generation loop release
+  // sessionOpChain immediately even if the provider can't be interrupted (a hung
+  // CLI or a provider without interruptSession), so later chats never queue
+  // forever behind it. Interrupting the provider is then best-effort cleanup.
+  private async preemptActiveGeneration(chatId: string): Promise<void> {
+    const active = this.activeGenerations.get(chatId);
+    if (!active) return;
+    this.activeGenerations.delete(chatId);
+    active.abort();
+    try {
+      await this.providers.get(active.providerId)?.interruptSession?.(active.bridgeSessionId);
+    } catch {
+      // 中断失败不影响命令本身：abort 已让生成跳出循环、让出生成链。
+    }
+  }
+
   private async runChatGeneration(
     message: ChannelIncomingMessage,
     user: ActiveWeChatUserRecord,
     text: string,
+    seq: number,
   ): Promise<void> {
+    // 排队期间若有更晚到达的会话变更命令，这条聊天已被取代：直接放弃，
+    // 不创建会话、不发任何消息，避免投递到被命令换掉的会话（Codex 指出的串话）。
+    if ((this.latestMutatingSeq.get(message.chatId) ?? 0) > seq) return;
     const sessionResumeTitle = buildSessionBridgeName({
       platform: 'weixin',
       platformUserId: message.user.id,
@@ -173,7 +220,7 @@ export class MessageRouter {
       this.conversation.update({
         resumeTitle,
         lastActivityAt: Date.now(),
-      });
+      }, session.id);
       const providerSession = await provider.startSession({
         bridgeSessionId: session.id,
         cwd: session.cwd,
@@ -186,7 +233,7 @@ export class MessageRouter {
         resumeTitle,
         status: providerSession.status,
         lastActivityAt: Date.now(),
-      }) ?? session;
+      }, session.id) ?? session;
       if (updated.providerId === 'codex' && updated.providerSessionId && updated.resumeTitle) {
         await upsertCodexSessionIndexEntry({
           sessionId: updated.providerSessionId,
@@ -196,7 +243,19 @@ export class MessageRouter {
       await this.persistBridgeMetadata(updated);
     }
 
-    this.activeGenerations.set(message.chatId, { providerId: session.providerId, bridgeSessionId: session.id });
+    const genId = ++this.generationSeq;
+    let abortGeneration!: () => void;
+    const aborted = new Promise<'aborted'>((resolve) => { abortGeneration = () => resolve('aborted'); });
+    this.activeGenerations.set(message.chatId, {
+      genId,
+      providerId: session.providerId,
+      bridgeSessionId: session.id,
+      abort: abortGeneration,
+    });
+    // 存活判定同时覆盖两种取代：被新生成顶替（genId 不匹配），
+    // 或被更晚到达的会话变更命令取代（latestMutatingSeq 越过本次序号）。
+    const isLive = () => this.activeGenerations.get(message.chatId)?.genId === genId
+      && (this.latestMutatingSeq.get(message.chatId) ?? 0) <= seq;
     let bufferedText = '';
     await this.options.channel.setTyping?.(message.chatId, true);
     const typingKeepalive = this.options.channel.setTyping
@@ -204,8 +263,15 @@ export class MessageRouter {
           void this.options.channel.setTyping?.(message.chatId, true);
         }, MessageRouter.TYPING_KEEPALIVE_MS)
       : null;
+    // 手动驱动迭代器并与 abort 信号竞速：被抢占时即便 provider 卡死、迭代器永不
+    // 返回下一个事件，也能立即跳出循环、释放 sessionOpChain，后续聊天不再永久排队。
+    const iterator = provider.sendMessage({ bridgeSessionId: session.id, text })[Symbol.asyncIterator]();
     try {
-      for await (const event of provider.sendMessage({ bridgeSessionId: session.id, text })) {
+      while (isLive()) {
+        const step = await Promise.race([iterator.next(), aborted]);
+        if (step === 'aborted' || step.done) break;
+        if (!isLive()) break;
+        const event = step.value;
         if (event.type === 'text_delta' && event.text) {
           bufferedText += event.text;
         }
@@ -230,7 +296,7 @@ export class MessageRouter {
             providerSessionId: event.state.providerSessionId,
             status: event.state.status,
             lastActivityAt: Date.now(),
-          }) ?? session;
+          }, session.id) ?? session;
           if (updated.providerId === 'codex' && updated.providerSessionId && updated.resumeTitle) {
             await upsertCodexSessionIndexEntry({
               sessionId: updated.providerSessionId,
@@ -252,14 +318,18 @@ export class MessageRouter {
           });
         }
       }
-      if (bufferedText.trim()) {
+      if (isLive() && bufferedText.trim()) {
         await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
         bufferedText = '';
       }
     } finally {
-      this.activeGenerations.delete(message.chatId);
+      void iterator.return?.().catch(() => undefined);
+      // 只有当 entry 仍是本次生成时才清除并复位 typing；被抢占时新生成会自行管理，
+      // 这里不能动，避免抹掉它的 entry 或清掉它的 typing。
+      const stillMine = this.activeGenerations.get(message.chatId)?.genId === genId;
+      if (stillMine) this.activeGenerations.delete(message.chatId);
       if (typingKeepalive) clearInterval(typingKeepalive);
-      await this.options.channel.setTyping?.(message.chatId, false);
+      if (stillMine) await this.options.channel.setTyping?.(message.chatId, false);
     }
   }
 
@@ -272,34 +342,7 @@ export class MessageRouter {
       await this.options.channel.sendMessage({
         chatId,
         kind: 'markdown',
-        text: [
-          '**可用命令**',
-          '',
-          '直接发送文字即可与 AI 对话。',
-          '',
-          '**会话管理**',
-          '- `/help` — 显示本帮助',
-          '- `/status` — 查看当前会话（provider、工作目录、状态）',
-          '- `/new [claude|codex][:目录]` — 新建会话；省略 provider 用默认，可带目录，例：`/new`、`/new codex`、`/new ~/project`、`/new claude:/home/project`',
-          '- `/use claude|codex` — 切换当前 provider',
-          '- `/stop` — 停止并清除当前会话',
-          '- `/cancel` — 中断当前正在生成的回复（会话保留）',
-          '- `/reload` — 重启当前会话（保留 provider 与目录）',
-          '',
-          '**历史会话**',
-          '- `/sessions` — 列出最近的历史会话（按更新时间倒序）',
-          '- `/sessions <关键词>` — 按标题/目录筛选',
-          '- `/sessions mine` — 只看通过微信创建的会话',
-          '- `/resume <编号>` — 按列表编号恢复',
-          '- `/resume <id>` — 按会话 id 恢复',
-          '- `/archive [编号]` — 归档会话（仅 Codex；省略则归档当前会话）',
-          '',
-          '**权限审批**（AI 请求工具授权时使用，`<id>` 见请求消息）',
-          '- `/approve <id>` — 批准本次请求',
-          '- `/always <id>` — 本会话内永久批准该工具',
-          '- `/deny <id>` — 拒绝本次请求',
-          '- `/abort <id>` — 中止本次请求',
-        ].join('\n'),
+        text: buildBridgeCommandHelpMarkdown(),
       });
       return;
     }
@@ -321,6 +364,7 @@ export class MessageRouter {
     }
 
     if (command.kind === 'new_session') {
+      await this.preemptActiveGeneration(chatId);
       const providerId = command.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
       const cwd = command.cwd
         ?? this.conversation.getCurrent()?.cwd
@@ -341,6 +385,7 @@ export class MessageRouter {
     }
 
     if (command.kind === 'use_provider') {
+      await this.preemptActiveGeneration(chatId);
       const current = this.conversation.getCurrent();
       const cwd = current?.cwd ?? '/tmp/project';
       this.conversation.create({
@@ -413,6 +458,7 @@ export class MessageRouter {
         await this.options.channel.sendMessage({ chatId, kind: 'status', text: '用法：/resume <编号> 或 /resume <id>（先用 /sessions 查看列表）' });
         return;
       }
+      await this.preemptActiveGeneration(chatId);
       let providerId = this.conversation.getCurrent()?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
       const previousCwd = this.conversation.getCurrent()?.cwd;
       let sessionId = ref;
@@ -498,6 +544,7 @@ export class MessageRouter {
         return;
       }
       const isCurrent = current?.providerSessionId === providerSessionId;
+      if (isCurrent) await this.preemptActiveGeneration(chatId);
       try {
         if (isCurrent && current) await provider.stopSession(current.id);
         await provider.archiveSession(providerSessionId);
@@ -517,6 +564,7 @@ export class MessageRouter {
         await this.options.channel.sendMessage({ chatId, kind: 'status', text: 'No active session to stop' });
         return;
       }
+      await this.preemptActiveGeneration(chatId);
       await this.providers.get(session.providerId)?.stopSession(session.id);
       this.conversation.clear();
       await this.options.channel.sendMessage({
@@ -535,6 +583,7 @@ export class MessageRouter {
       }
       const provider = this.providers.get(session.providerId);
       if (!provider) throw new Error(`provider_not_registered:${session.providerId}`);
+      await this.preemptActiveGeneration(chatId);
       await provider.stopSession(session.id);
       const reloaded = await provider.startSession({
         bridgeSessionId: session.id,
@@ -544,11 +593,11 @@ export class MessageRouter {
           ...(session.resumeTitle ? { sessionName: session.resumeTitle } : {}),
         },
       });
-      const updated = this.conversation.update({
+      this.conversation.update({
         providerSessionId: reloaded.providerSessionId,
         status: reloaded.status,
         lastActivityAt: Date.now(),
-      });
+      }, session.id);
       await this.options.channel.sendMessage({
         chatId,
         kind: 'status',

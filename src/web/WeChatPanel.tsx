@@ -1,6 +1,7 @@
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { subscribeBridgeEvents } from './bridgeEventsSocket';
+import { BRIDGE_COMMAND_HELP_GROUPS, BRIDGE_COMMAND_HELP_INTRO } from '../shared/bridgeCommandHelp';
 import {
   type ActiveWeChatUserEventView,
   type ActiveWeChatUserView,
@@ -24,7 +25,7 @@ import {
 } from './apiClient';
 
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
-type SessionTab = 'new' | 'defaults' | 'claude-native' | 'codex-native';
+type SessionTab = 'new' | 'defaults' | 'claude-native' | 'codex-native' | 'help';
 
 function isPluginConnected(plugin: ChannelPluginView | null): boolean {
   return plugin?.enabled === true && plugin.connected === true;
@@ -514,11 +515,40 @@ export function WeChatPanel(input: {
             会话默认值
           </button>
         </li>
+        <li className="nav-item">
+          <button
+            type="button"
+            className={`nav-link ${activeTab === 'help' ? 'active' : ''}`}
+            onClick={() => setActiveTab('help')}
+          >
+            帮助说明
+          </button>
+        </li>
       </ul>
 
       <div className="soft-card mb-2">
         <div className="card-body">
-          {effectiveTab === 'new' ? (
+          {effectiveTab === 'help' ? (
+            <>
+              <p className="text-muted-soft small mb-3">微信端可发送以下命令；{BRIDGE_COMMAND_HELP_INTRO}</p>
+              {BRIDGE_COMMAND_HELP_GROUPS.map((group) => (
+                <div key={group.title} className="mb-3">
+                  <div className="fw-semibold mb-1">
+                    {group.title}
+                    {group.note ? <span className="text-muted-soft small fw-normal">（{group.note}）</span> : null}
+                  </div>
+                  <ul className="list-unstyled mb-0">
+                    {group.entries.map((entry) => (
+                      <li key={entry.command} className="d-flex flex-column flex-md-row gap-md-2 mb-1">
+                        <code className="flex-shrink-0">{entry.command}</code>
+                        <span className="text-muted-soft small">{entry.desc}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </>
+          ) : effectiveTab === 'new' ? (
             <>
               <p className="text-muted-soft small mb-3">用指定的提供方与目录开启一个新对话，立即成为当前会话，并通知微信。</p>
               <div className="mb-3">

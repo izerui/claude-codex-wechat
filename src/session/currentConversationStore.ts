@@ -75,9 +75,14 @@ export class CurrentConversationStore {
     return record;
   }
 
-  update(patch: Partial<Pick<CurrentConversationBinding, 'chatId' | 'providerId' | 'providerSessionId' | 'resumeTitle' | 'cwd' | 'status' | 'lastActivityAt' | 'recoverySource'>>): CurrentConversationBinding | null {
+  update(
+    patch: Partial<Pick<CurrentConversationBinding, 'chatId' | 'providerId' | 'providerSessionId' | 'resumeTitle' | 'cwd' | 'status' | 'lastActivityAt' | 'recoverySource'>>,
+    expectId?: string,
+  ): CurrentConversationBinding | null {
     const existing = this.getCurrent();
     if (!existing) return null;
+    // 带 expectId 时只更新匹配的会话：被命令抢占（current 已换走）的旧生成写入直接 no-op。
+    if (expectId && existing.id !== expectId) return null;
     const next = { ...existing, ...patch };
     this.writeCurrent(next);
     return next;

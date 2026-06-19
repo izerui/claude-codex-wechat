@@ -544,6 +544,230 @@ describe('MessageRouter', () => {
     expect(sent.at(-1)).toContain('claude-code');
   });
 
+  it('lets /new preempt and bypass a hung generation instead of queueing behind it', async () => {
+    // 复现 bug：一次生成挂住不结束（gated），命令不应被它阻塞。
+    let signalStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    let releaseGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
+    class HungProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      readonly interrupted: string[] = [];
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `claude_hung_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        signalStarted();
+        yield { type: 'text_delta', text: `生成中：${input.text}` };
+        await gate; // 永不自行结束，只有 interruptSession 才放行
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+      async interruptSession(bridgeSessionId: string): Promise<void> {
+        this.interrupted.push(bridgeSessionId);
+        releaseGate();
+      }
+    }
+
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const hung = new HungProvider();
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [hung, new FakeProviderAdapter('codex')],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    // 不 await：让生成处于挂起状态，模拟真实 channel 的非阻塞分发。
+    const generation = router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-hung',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'long task' },
+      timestamp: 1,
+    });
+    await started;
+
+    // /new 必须立即完成，而不是排在挂住的生成后面。
+    await router.handleMessage({
+      id: 'm2',
+      platform: 'weixin',
+      chatId: 'chat-hung',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/new codex' },
+      timestamp: 2,
+    });
+
+    expect(hung.interrupted).toHaveLength(1);
+    expect(sent.some((m) => m.kind === 'status' && m.text.includes('Started new codex session'))).toBe(true);
+    expect(sessions.getActiveSession('chat-hung')?.providerId).toBe('codex');
+
+    await generation;
+  });
+
+  it('discards a queued chat that a later session-mutating command superseded (no wrong-session delivery)', async () => {
+    // Codex P1 回归：一条聊天排在 sessionOpChain 上还没跑，/new 从 commandChain
+    // 插队换掉 current；这条排队聊天不得再投递到新会话。
+    let signalStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    let releaseGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
+    // 故意不实现 steerSession：第二条聊天只能排队，而非被注入。
+    class GatedNoSteerProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      readonly seen: string[] = [];
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `claude_q_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        this.seen.push(input.text);
+        signalStarted();
+        yield { type: 'text_delta', text: `生成中：${input.text}` };
+        await gate;
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+      async interruptSession(): Promise<void> {
+        releaseGate();
+      }
+    }
+
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const gated = new GatedNoSteerProvider();
+    const codex = new FakeProviderAdapter('codex');
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [gated, codex],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    // chat1 在跑（gated）。
+    const gen1 = router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-q',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: 'task one' }, timestamp: 1,
+    });
+    await started;
+
+    // chat2 到达：无 steer，排在 sessionOpChain 上等 chat1。
+    const gen2 = router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-q',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: 'task two' }, timestamp: 2,
+    });
+
+    // /new codex 从 commandChain 插队：换掉 current，并抢占 chat1（释放 gate）。
+    await router.handleMessage({
+      id: 'm3', platform: 'weixin', chatId: 'chat-q',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/new codex' }, timestamp: 3,
+    });
+
+    await Promise.all([gen1, gen2]);
+
+    // chat2 必须作废：从未进入任何 provider 的 sendMessage，也没有它的输出。
+    expect(gated.seen).toEqual(['task one']);
+    expect(sent.some((m) => m.text.includes('task two') || m.text === '生成中：task two')).toBe(false);
+    expect(sessions.getActiveSession('chat-q')?.providerId).toBe('codex');
+  });
+
+  it('frees the generation chain after preempting a provider that cannot be interrupted', async () => {
+    // Codex P1 回归：provider 没有 interruptSession 且永不结束，/new 抢占后
+    // 旧生成必须靠 abort 跳出循环、让出 sessionOpChain，否则之后的聊天永久排队。
+    let signalStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    class UninterruptibleHungProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `claude_stuck_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        signalStarted();
+        yield { type: 'text_delta', text: `生成中：${input.text}` };
+        // 永不结束，且没有 interruptSession：只能靠 abort 信号让消费侧退出。
+        await new Promise<void>(() => {});
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+      // 故意不实现 interruptSession。
+    }
+
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [new UninterruptibleHungProvider(), new FakeProviderAdapter('codex')],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    // 不可中断的生成挂起。
+    void router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-stuck',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: 'forever' }, timestamp: 1,
+    });
+    await started;
+
+    // /new codex 切走 provider 并抢占挂起的生成。
+    await router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-stuck',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/new codex' }, timestamp: 2,
+    });
+    expect(sessions.getActiveSession('chat-stuck')?.providerId).toBe('codex');
+
+    // 关键断言：后续普通聊天必须能跑（sessionOpChain 已释放），否则这里会超时挂死。
+    await router.handleMessage({
+      id: 'm3', platform: 'weixin', chatId: 'chat-stuck',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: 'new task' }, timestamp: 3,
+    });
+    expect(sent).toContainEqual({ kind: 'text', text: '收到：new task' });
+  });
+
   it('stops the active session on /stop', async () => {
     const channel = new MockChannelAdapter();
     const permissions = new PermissionRouter();
