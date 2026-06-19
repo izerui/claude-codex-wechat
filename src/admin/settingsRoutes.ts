@@ -1,10 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import type { ChannelAdapter } from '../channels/types';
-import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { persistBridgeDefaultsToConfigFile } from '../daemon/configPersistence';
 import type { ProviderId } from '../providers/types';
-import type { CurrentConversationStore } from '../session/currentConversationStore';
-import type { ActiveWeChatUserStore } from '../storage/userStore';
 
 export type BridgeSettings = {
   defaultProvider: ProviderId;
@@ -15,9 +11,6 @@ export function registerSettingsRoutes(input: {
   app: FastifyInstance;
   defaults: BridgeSettings;
   configPath: string;
-  users?: ActiveWeChatUserStore;
-  channel?: ChannelAdapter;
-  conversation?: CurrentConversationStore;
 }): void {
   input.app.get('/api/settings', async () => input.defaults);
 
@@ -27,7 +20,6 @@ export function registerSettingsRoutes(input: {
       ...current,
       ...request.body,
     }, current.defaultWorkspace);
-    const currentConversation = input.conversation?.getCurrent();
     input.defaults.defaultProvider = next.defaultProvider;
     input.defaults.defaultWorkspace = next.defaultWorkspace;
     await persistBridgeDefaultsToConfigFile({
@@ -35,19 +27,6 @@ export function registerSettingsRoutes(input: {
       defaultProvider: next.defaultProvider,
       defaultWorkspace: next.defaultWorkspace,
     });
-    if (input.channel && current.defaultProvider !== next.defaultProvider) {
-      const activeUser = input.users?.getActiveUser();
-      const targetUsers = activeUser && activeUser.platform === PRIMARY_WEIXIN_PLATFORM ? [activeUser] : [];
-      const providerLabel = next.defaultProvider === 'codex' ? 'Codex' : 'Claude Code';
-      await Promise.all(targetUsers.map(async (activeUserRecord) => {
-        const cwd = currentConversation?.cwd ?? next.defaultWorkspace;
-        await input.channel?.sendMessage({
-          chatId: activeUserRecord.platformUserId,
-          kind: 'status',
-          text: `对话模型已切换为 ${providerLabel}，项目目录：${cwd}。`,
-        });
-      }));
-    }
     return { ok: true };
   });
 }

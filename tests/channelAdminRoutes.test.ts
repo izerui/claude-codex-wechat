@@ -301,7 +301,7 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
-  it('notifies the active weixin user after switching the provider from the wechat panel setting', async () => {
+  it('does not notify the weixin user when default settings change', async () => {
     const channel = new MockChannelAdapter();
     const sent: Array<{ chatId: string; kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ chatId: message.chatId, kind: message.kind, text: message.text }));
@@ -349,13 +349,10 @@ describe('channel admin routes', () => {
     });
 
     expect(update.statusCode).toBe(200);
-    expect(sent).toEqual([
-      {
-        chatId: 'wx_user_1',
-        kind: 'status',
-        text: '对话模型已切换为 Codex，项目目录：/tmp/active-project。',
-      },
-    ]);
+    expect(sent).toEqual([]);
+
+    const next = await app.inject({ method: 'GET', url: '/api/settings' });
+    expect(next.json()).toMatchObject({ defaultProvider: 'codex', defaultWorkspace: '/tmp/project' });
     await app.close();
   });
 

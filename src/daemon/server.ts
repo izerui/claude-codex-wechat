@@ -164,9 +164,6 @@ export function createDaemonServer(options: {
     app,
     defaults: bridgeDefaults,
     configPath,
-    users: activeUserStore,
-    conversation,
-    ...(channel ? { channel } : {}),
   });
 
   app.get('/api/status', async () => ({
