@@ -273,20 +273,6 @@ export function registerChannelAdminRoutes(input: {
 
   input.app.post<{ Body: {
     providerId: string;
-    providerSessionId: string;
-    platformUserId: string;
-    chatId?: string;
-    cwd?: string;
-  } }>('/api/channel/current-session/attach', async (request, reply) => {
-    return await input.app.inject({
-      method: 'POST',
-      url: '/api/channel/sessions/attach',
-      payload: request.body,
-    }).then((response) => reply.code(response.statusCode).send(response.json()));
-  });
-
-  input.app.post<{ Body: {
-    providerId: string;
     platformUserId: string;
     chatId?: string;
     cwd?: string;

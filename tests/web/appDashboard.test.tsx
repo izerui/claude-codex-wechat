@@ -4,18 +4,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
 
 const okStatus = { ok: true, sessions: [], permissions: [] };
-const checkedAt = 1234567890000;
 
-function formatCheckedAtForLocalTimezone(value: number): string {
-  const date = new Date(value);
-  const yyyy = date.getFullYear();
-  const mm = date.getMonth() + 1;
-  const dd = date.getDate();
-  const hh = String(date.getHours()).padStart(2, '0');
-  const min = String(date.getMinutes()).padStart(2, '0');
-  const ss = String(date.getSeconds()).padStart(2, '0');
-  return `${yyyy}/${mm}/${dd} ${hh}:${min}:${ss}`;
-}
+const channelState = {
+  activeUser: null,
+  plugin: {
+    id: 'weixin',
+    type: 'weixin',
+    name: '微信通道',
+    enabled: false,
+    connected: false,
+    status: 'idle',
+    activeUsers: 0,
+    hasToken: false,
+  },
+  settings: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+  runtimeConfig: null,
+};
 
 describe('App dashboard provider status', () => {
   it('renders the bootstrap dashboard summary with service and provider status', async () => {
@@ -29,6 +33,9 @@ describe('App dashboard provider status', () => {
           claude: { detected: true, version: '2.0.1', command: '/opt/bin/claude', checkedAt: 1234567890000 },
           codex: { detected: false, reason: 'missing_binary', command: '/opt/bin/codex', checkedAt: 1234567890000 },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/state')) {
+        return new Response(JSON.stringify(channelState), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       if (url.endsWith('/api/channel/active-user')) {
         return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -56,12 +63,11 @@ describe('App dashboard provider status', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '本地微信代理桥接' })).toBeTruthy();
-    expect((await screen.findAllByText('桥接')).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('heading', { name: '微信远程控制台' })).toBeTruthy();
     expect((await screen.findAllByText('Claude')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText(/Codex/i)).length).toBeGreaterThan(0);
     expect(await screen.findByText('在线')).toBeTruthy();
-    expect((await screen.findAllByText('已检测 · 2.0.1')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('v2.0.1')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('未找到可执行文件')).length).toBeGreaterThan(0);
     expect(screen.queryByText('5177 页面')).toBeNull();
     expect(screen.queryByText('监控区')).toBeNull();
@@ -80,6 +86,9 @@ describe('App dashboard provider status', () => {
           codex: { detected: false, reason: 'missing_binary', command: '/opt/bin/codex', checkedAt: 1234567890000 },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
+      if (url.endsWith('/api/channel/state')) {
+        return new Response(JSON.stringify(channelState), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       if (url.endsWith('/api/channel/active-user')) {
         return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -106,12 +115,11 @@ describe('App dashboard provider status', () => {
 
     render(<App />);
 
-    const expectedCheckedAt = formatCheckedAtForLocalTimezone(checkedAt);
-
-    expect((await screen.findAllByText('已检测 · 2.0.1')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('v2.0.1')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('未找到可执行文件')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText(`/opt/bin/claude · 检查于 ${expectedCheckedAt}`)).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText(`/opt/bin/codex · 检查于 ${expectedCheckedAt}`)).length).toBeGreaterThan(0);
-    expect(screen.queryByText('/opt/bin/claude · 检查于 1234567890000')).toBeNull();
+    expect((await screen.findAllByText('/opt/bin/claude')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('/opt/bin/codex')).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/检查于/)).toBeNull();
+    expect(screen.queryByText(/1234567890000/)).toBeNull();
   });
 });

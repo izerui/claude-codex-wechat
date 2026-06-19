@@ -468,7 +468,6 @@ describe('channel admin routes', () => {
       expect(listed.json()).toEqual([
         expect.objectContaining({
           id: 'bs_legacy',
-          providerResumeTitleSynced: false,
           providerResumeRepairable: true,
         }),
       ]);

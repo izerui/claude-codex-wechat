@@ -64,19 +64,26 @@ function createFetchStub() {
     if (url.endsWith('/api/channel/active-user')) {
       return new Response(JSON.stringify(state.activeUser), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
+    const connectedPlugin = {
+      id: 'weixin',
+      type: 'weixin',
+      name: 'WeChat channel',
+      enabled: true,
+      connected: true,
+      status: 'connected',
+      activeUsers: state.activeUser ? 1 : 0,
+      hasToken: true,
+    };
     if (url.endsWith('/api/channel/plugins')) {
-      return new Response(JSON.stringify([
-        {
-          id: 'weixin',
-          type: 'weixin',
-          name: 'WeChat channel',
-          enabled: false,
-          connected: false,
-          status: 'disabled',
-          activeUsers: state.activeUser ? 1 : 0,
-          hasToken: false,
-        },
-      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify([connectedPlugin]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.endsWith('/api/channel/state')) {
+      return new Response(JSON.stringify({
+        activeUser: state.activeUser,
+        plugin: connectedPlugin,
+        settings: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+        runtimeConfig: null,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/current-session')) {
       return new Response(JSON.stringify(state.sessions[0] ?? null), { status: 200, headers: { 'Content-Type': 'application/json' } });

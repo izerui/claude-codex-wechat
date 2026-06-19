@@ -54,6 +54,10 @@ export class WeixinDirectApiClient {
     if (!response.ok) {
       throw new Error(`weixin_send_message_failed:${response.status}`);
     }
+    const payload = await response.json() as { ret?: number; errcode?: number; errmsg?: string };
+    if ((payload.errcode ?? 0) !== 0 || (payload.ret ?? 0) !== 0) {
+      throw new Error(`weixin_send_message_failed:${payload.errcode ?? payload.ret ?? -1}:${payload.errmsg ?? 'unknown_error'}`);
+    }
   }
 
   async getUpdates(buffer: string, signal?: AbortSignal): Promise<{

@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react';
 import { within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
@@ -37,6 +37,11 @@ class FakeEventSource {
 
 function createFetchStub() {
   const calls: Array<{ url: string; method: string; body?: string }> = [];
+  let bridgeController: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const encoder = new TextEncoder();
+  const emitBridgeEvent = (payload: unknown) => {
+    bridgeController?.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+  };
   const state: {
     sessions: BridgeSessionView[];
     activeUser: ActiveWeChatUserView | null;
@@ -76,6 +81,31 @@ function createFetchStub() {
 
     if (url.endsWith('/api/status')) {
       return new Response(JSON.stringify({ ok: true, sessions: state.sessions, permissions: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.endsWith('/api/channel/state')) {
+      return new Response(JSON.stringify({
+        activeUser: state.activeUser,
+        plugin: {
+          id: 'weixin',
+          type: 'weixin',
+          name: 'WeChat channel',
+          enabled: false,
+          connected: false,
+          status: 'disabled',
+          activeUsers: state.activeUser ? 1 : 0,
+          hasToken: false,
+        },
+        settings: {
+          defaultProvider: 'claude-code',
+          defaultWorkspace: '/tmp/project',
+        },
+        runtimeConfig: {
+          enabled: true,
+          baseUrl: 'https://ilinkai.weixin.qq.com',
+          token: 'wx-bot-token',
+          accountId: 'wx-account-1',
+        },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/providers/status')) {
       return new Response(JSON.stringify({ claude: { detected: true, version: '2.0.1' }, codex: { detected: false, reason: 'missing_binary' } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -185,6 +215,12 @@ function createFetchStub() {
         },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
+    if (url.endsWith('/api/channel/current-session/attach') && method === 'POST') {
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.endsWith('/api/channel/sessions/new') && method === 'POST') {
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     if (url.endsWith('/api/channel/sessions/auto-attach') && method === 'POST') {
       return new Response(JSON.stringify({
         ok: true,
@@ -222,32 +258,42 @@ function createFetchStub() {
       }];
       return new Response(JSON.stringify({ ok: true, repaired: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
+    if (url.endsWith('/api/bridge-events')) {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          bridgeController = controller;
+        },
+      });
+      return new Response(stream, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    }
     throw new Error(`Unhandled fetch: ${method} ${url}`);
   });
 
-  return { fetchImpl, calls };
+  return { fetchImpl, calls, emitBridgeEvent };
 }
 
-afterEach(() => {
+afterEach(async () => {
+  // Unmount components so the shared bridge-events subscription releases its
+  // listener, then wait past the module's close debounce (500ms) so the next
+  // test gets a fresh stream connection instead of a stale, aborted one.
+  cleanup();
+  await new Promise((resolve) => setTimeout(resolve, 600));
   FakeEventSource.instances = [];
   vi.unstubAllGlobals();
 });
 
 describe('App admin interactions', () => {
-  it('stops the current bridge session from the UI without showing revoke or archive controls', async () => {
+  it('does not render stop, revoke or archive controls and never calls the stop endpoint', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
     render(<App />);
 
-    const stopButton = await screen.findByText('停止');
-    fireEvent.click(stopButton);
-
-    await waitFor(() => {
-    expect(calls.some((call) => call.url.endsWith('/api/channel/current-session/stop') && call.method === 'POST')).toBe(true);
-    });
+    await screen.findAllByText('微信通道');
+    expect(screen.queryByText('停止')).toBeNull();
     expect(screen.queryByText('撤销授权')).toBeNull();
     expect(screen.queryByText('归档')).toBeNull();
+    expect(calls.some((call) => call.url.endsWith('/api/channel/current-session/stop') && call.method === 'POST')).toBe(false);
   });
 
   it('does not render pending pairing controls', async () => {
@@ -256,12 +302,12 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findAllByText('当前活跃用户信息');
+    await screen.findAllByText('当前活跃用户');
     expect(screen.queryByText('待审批配对')).toBeNull();
     expect(fetchImpl.mock.calls.some(([input]) => String(input).endsWith('/api/channel/pairings'))).toBe(false);
   });
 
-  it('defaults to the Claude native session tab and switches to Codex native session tab', async () => {
+  it('switches to the Claude and Codex native session tabs and loads recoverable sessions', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
     vi.stubGlobal('WebSocket', class {
@@ -273,18 +319,19 @@ describe('App admin interactions', () => {
     render(<App />);
 
     const claudeTab = (await screen.findAllByRole('button', { name: 'Claude 会话' })).at(-1)!;
-    expect(claudeTab.getAttribute('aria-pressed')).toBe('true');
-    expect((await screen.findAllByText('平台 ID：wx_user_1')).length).toBeGreaterThan(0);
+    fireEvent.click(claudeTab);
+    expect(claudeTab.className).toContain('active');
+    expect((await screen.findAllByText('wx_user_1')).length).toBeGreaterThan(0);
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions') && call.method === 'GET')).toBe(true);
     });
-    expect((await screen.findAllByText('原生会话 ID：claude-session-1')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('claude-session-1')).length).toBeGreaterThan(0);
 
     fireEvent.click((await screen.findAllByRole('button', { name: 'Codex 会话' })).at(-1)!);
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/providers/codex/recoverable-sessions') && call.method === 'GET')).toBe(true);
     });
-    expect((await screen.findAllByText('原生会话 ID：codex-session-1')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('codex-session-1')).length).toBeGreaterThan(0);
   });
 
   it('renders a simplified bridge sessions table without duplicate recovery columns', async () => {
@@ -293,12 +340,9 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findAllByText('当前活跃用户信息');
-    expect((await screen.findAllByText('当前活跃用户信息')).length).toBeGreaterThan(0);
+    await screen.findAllByText('当前活跃用户');
+    expect((await screen.findAllByText('当前活跃用户')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('当前会话')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('提供方：claude-code')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('工作目录：/tmp/project')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('状态：idle')).length).toBeGreaterThan(0);
     expect(screen.queryByText('提供方会话')).toBeNull();
     expect(screen.queryByText('恢复模式')).toBeNull();
     expect(screen.queryByText('推荐恢复')).toBeNull();
@@ -359,7 +403,8 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    expect((await screen.findAllByText('原生标题：微信 · wx_user_1 · [claude-codex-wechat:test]')).length).toBeGreaterThan(0);
+    await screen.findAllByText('微信通道');
+    expect(screen.queryByText('原生标题：微信 · wx_user_1 · [claude-codex-wechat:test]')).toBeNull();
     expect(screen.queryByRole('button', { name: '修复原生恢复' })).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/bs_1/repair-native-resume'))).toBe(false);
   });
@@ -414,10 +459,10 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findAllByText('原生标题：微信 · wx_user_1 · [claude-codex-wechat:test]');
-    const sessionsHeaders = await screen.findAllByText('当前活跃用户信息');
+    const sessionsHeaders = await screen.findAllByText('当前活跃用户');
     const sessionsSection = sessionsHeaders.at(-1)?.closest('section');
     if (!sessionsSection) throw new Error('sessions_section_not_found');
+    expect(screen.queryByText('原生标题：微信 · wx_user_1 · [claude-codex-wechat:test]')).toBeNull();
     expect(within(sessionsSection).queryByRole('button', { name: '批量修复 Claude 恢复' })).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/api/channel/sessions/repair-native-resume'))).toBe(false);
   });
@@ -468,108 +513,68 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    expect((await screen.findAllByText('网关：https://ilinkai.weixin.qq.com')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('Token：已配置')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('网关')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('https://ilinkai.weixin.qq.com')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Token')).toBeNull();
+    expect(screen.queryByText('已配置')).toBeNull();
   });
 
   it('shows account id when plugin status changes to connected', async () => {
-    const { fetchImpl } = createFetchStub();
+    const { fetchImpl, emitBridgeEvent } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
-
-    class FakeSocket {
-      static instances: FakeSocket[] = [];
-      private readonly listeners = new Map<string, Array<(event: MessageEvent) => void>>();
-
-      constructor(_url: string) {
-        FakeSocket.instances.push(this);
-      }
-
-      addEventListener(type: string, handler: (event: MessageEvent) => void) {
-        const list = this.listeners.get(type) ?? [];
-        list.push(handler);
-        this.listeners.set(type, list);
-      }
-
-      close() {}
-
-      emitMessage(data: unknown) {
-        const event = { data: JSON.stringify(data) } as MessageEvent;
-        for (const handler of this.listeners.get('message') ?? []) handler(event);
-      }
-    }
-
-    vi.stubGlobal('WebSocket', FakeSocket as unknown as typeof WebSocket);
 
     render(<App />);
 
     await screen.findAllByText('未连接');
 
-    FakeSocket.instances[0]?.emitMessage({
-      type: 'channel.plugin-status-changed',
-      plugin_id: 'weixin',
-      status: {
-        id: 'weixin',
-        type: 'weixin',
-        name: 'WeChat channel',
-        enabled: true,
-        connected: true,
-        status: 'configured',
-        activeUsers: 0,
-        hasToken: true,
-        botUsername: 'wx-account-1',
-      },
+    await waitFor(() => {
+      emitBridgeEvent({
+        type: 'channel.plugin-status-changed',
+        plugin_id: 'weixin',
+        status: {
+          id: 'weixin',
+          type: 'weixin',
+          name: 'WeChat channel',
+          enabled: true,
+          connected: true,
+          status: 'configured',
+          activeUsers: 0,
+          hasToken: true,
+          botUsername: 'wx-account-1',
+        },
+      });
+      expect(screen.getAllByText('wx-account-1').length).toBeGreaterThan(0);
     });
 
-    expect(await screen.findByText('wx-account-1')).toBeTruthy();
+    expect((await screen.findAllByText('wx-account-1')).length).toBeGreaterThan(0);
   });
 
   it('shows session timeout state and prompts re-login when plugin health degrades', async () => {
-    const { fetchImpl } = createFetchStub();
+    const { fetchImpl, emitBridgeEvent } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
-
-    class FakeSocket {
-      static instances: FakeSocket[] = [];
-      private readonly listeners = new Map<string, Array<(event: MessageEvent) => void>>();
-
-      constructor(_url: string) {
-        FakeSocket.instances.push(this);
-      }
-
-      addEventListener(type: string, handler: (event: MessageEvent) => void) {
-        const list = this.listeners.get(type) ?? [];
-        list.push(handler);
-        this.listeners.set(type, list);
-      }
-
-      close() {}
-
-      emitMessage(data: unknown) {
-        const event = { data: JSON.stringify(data) } as MessageEvent;
-        for (const handler of this.listeners.get('message') ?? []) handler(event);
-      }
-    }
-
-    vi.stubGlobal('WebSocket', FakeSocket as unknown as typeof WebSocket);
 
     render(<App />);
 
     await screen.findAllByText('未连接');
 
-    FakeSocket.instances[0]?.emitMessage({
-      type: 'channel.plugin-status-changed',
-      plugin_id: 'weixin',
-      status: {
-        id: 'weixin',
-        type: 'weixin',
-        name: 'WeChat channel',
-        enabled: true,
-        connected: false,
-        status: 'session_timeout',
-        lastError: 'weixin_get_updates_failed:-14:session timeout',
-        activeUsers: 0,
-        hasToken: true,
-        botUsername: 'wx-account-1',
-      },
+    await waitFor(() => {
+      emitBridgeEvent({
+        type: 'channel.plugin-status-changed',
+        plugin_id: 'weixin',
+        status: {
+          id: 'weixin',
+          type: 'weixin',
+          name: 'WeChat channel',
+          enabled: true,
+          connected: false,
+          status: 'session_timeout',
+          lastError: 'weixin_get_updates_failed:-14:session timeout',
+          activeUsers: 0,
+          hasToken: true,
+          botUsername: 'wx-account-1',
+        },
+      });
+      return screen.findByText('会话超时');
     });
 
     expect(await screen.findByText('会话超时')).toBeTruthy();
@@ -591,7 +596,7 @@ describe('App admin interactions', () => {
 
     const selectors = await screen.findAllByDisplayValue('Claude Code');
     fireEvent.change(selectors[0]!, { target: { value: 'codex' } });
-    fireEvent.click((await screen.findAllByText('保存配置')).at(-1)!);
+    fireEvent.click((await screen.findAllByText('保存')).at(-1)!);
 
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/settings') && call.method === 'POST')).toBe(true);
@@ -632,6 +637,23 @@ describe('App admin interactions', () => {
       const url = String(input);
       if (url.endsWith('/api/channel/active-user')) {
         return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/state')) {
+        return new Response(JSON.stringify({
+          activeUser: null,
+          plugin: {
+            id: 'weixin',
+            type: 'weixin',
+            name: 'WeChat channel',
+            enabled: false,
+            connected: false,
+            status: 'disabled',
+            activeUsers: 0,
+            hasToken: false,
+          },
+          settings: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+          runtimeConfig: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'wx-bot-token', accountId: 'wx-account-1' },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       return await fetchImpl(input, init);
     });

@@ -252,6 +252,10 @@ export class MessageRouter {
           });
         }
       }
+      if (bufferedText.trim()) {
+        await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
+        bufferedText = '';
+      }
     } finally {
       this.activeGenerations.delete(message.chatId);
       if (typingKeepalive) clearInterval(typingKeepalive);

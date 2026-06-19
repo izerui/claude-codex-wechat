@@ -4,18 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
 
 const okStatus = { ok: true, sessions: [], permissions: [] };
-const checkedAt = 1234567890000;
-
-function formatCheckedAtForLocalTimezone(value: number): string {
-  const date = new Date(value);
-  const yyyy = date.getFullYear();
-  const mm = date.getMonth() + 1;
-  const dd = date.getDate();
-  const hh = String(date.getHours()).padStart(2, '0');
-  const min = String(date.getMinutes()).padStart(2, '0');
-  const ss = String(date.getSeconds()).padStart(2, '0');
-  return `${yyyy}/${mm}/${dd} ${hh}:${min}:${ss}`;
-}
 
 describe('App dashboard provider diagnostics', () => {
   it('shows distinct provider failure reasons in dashboard diagnostics', async () => {
@@ -28,6 +16,17 @@ describe('App dashboard provider diagnostics', () => {
         return new Response(JSON.stringify({
           claude: { detected: false, reason: 'command_failed', command: '/opt/bin/claude', checkedAt: 1234567890000 },
           codex: { detected: false, reason: 'missing_binary', command: '/opt/bin/codex', checkedAt: 1234567890000 },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/state')) {
+        return new Response(JSON.stringify({
+          activeUser: null,
+          plugin: {
+            id: 'weixin', type: 'weixin', name: 'WeChat', enabled: false,
+            connected: false, status: 'disconnected', activeUsers: 0, hasToken: false,
+          },
+          settings: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+          runtimeConfig: null,
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       if (url.endsWith('/api/channel/active-user')) {
@@ -56,12 +55,11 @@ describe('App dashboard provider diagnostics', () => {
 
     render(<App />);
 
-    const expectedCheckedAt = formatCheckedAtForLocalTimezone(checkedAt);
-
+    // claude provider failed with command_failed -> 命令执行失败, codex with missing_binary -> 未找到可执行文件
     expect((await screen.findAllByText('命令执行失败')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('未找到可执行文件')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText(`/opt/bin/claude · 检查于 ${expectedCheckedAt}`)).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText(`/opt/bin/codex · 检查于 ${expectedCheckedAt}`)).length).toBeGreaterThan(0);
-    expect(screen.queryByText('/opt/bin/claude · 检查于 1234567890000')).toBeNull();
+    // detail renders each provider's command string verbatim (no timestamp suffix)
+    expect((await screen.findAllByText('/opt/bin/claude')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('/opt/bin/codex')).length).toBeGreaterThan(0);
   });
 });

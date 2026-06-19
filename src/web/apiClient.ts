@@ -295,7 +295,7 @@ export async function attachProviderSession(input: {
   chatId?: string;
   cwd?: string;
 }): Promise<void> {
-  await requestJson('/api/channel/current-session/attach', {
+  await requestJson('/api/channel/sessions/attach', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),

@@ -52,7 +52,7 @@ export async function listRecoverableCodexSessions(env: NodeJS.ProcessEnv = proc
   }
 
   await walk(root, 0);
-  return candidates;
+  return candidates.sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
 }
 
 export async function findRecoverableCodexSessionPath(

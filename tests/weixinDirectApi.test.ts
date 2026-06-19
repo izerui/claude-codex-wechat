@@ -65,6 +65,50 @@ describe('WeixinDirectApiClient', () => {
     });
   });
 
+  it('throws when sendmessage returns HTTP 200 but ret is non-zero', async () => {
+    const app = Fastify();
+    app.post('/ilink/bot/sendmessage', async (_request, reply) => {
+      return reply.send({ ret: 123, errmsg: 'message too long' });
+    });
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    servers.push(app);
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('fake direct api did not bind tcp');
+
+    const client = new WeixinDirectApiClient({
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      botToken: 'tok_123',
+      wechatUin: 'uin_456',
+    });
+
+    await expect(client.sendTextMessage({
+      toUserId: 'user_1',
+      text: 'hello weixin',
+    })).rejects.toThrow('weixin_send_message_failed:123:message too long');
+  });
+
+  it('throws when sendmessage returns HTTP 200 but errcode is non-zero', async () => {
+    const app = Fastify();
+    app.post('/ilink/bot/sendmessage', async (_request, reply) => {
+      return reply.send({ ret: 0, errcode: -14, errmsg: 'session timeout' });
+    });
+    await app.listen({ host: '127.0.0.1', port: 0 });
+    servers.push(app);
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('fake direct api did not bind tcp');
+
+    const client = new WeixinDirectApiClient({
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      botToken: 'tok_123',
+      wechatUin: 'uin_456',
+    });
+
+    await expect(client.sendTextMessage({
+      toUserId: 'user_1',
+      text: 'hello weixin',
+    })).rejects.toThrow('weixin_send_message_failed:-14:session timeout');
+  });
+
   it('fetches typing ticket with getconfig', async () => {
     let headers: Record<string, string | undefined> | null = null;
     let body: unknown = null;

@@ -72,6 +72,32 @@ class PartialThenErrorProviderAdapter implements NativeProviderAdapter {
   }
 }
 
+class PartialWithoutDoneProviderAdapter implements NativeProviderAdapter {
+  readonly id = 'codex' as const;
+  private readonly sessions = new Map<string, ProviderSession>();
+
+  async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+    const session: ProviderSession = {
+      bridgeSessionId: input.bridgeSessionId,
+      providerId: this.id,
+      providerSessionId: `codex_partial_no_done_${input.bridgeSessionId}`,
+      cwd: input.cwd,
+      status: 'idle',
+    };
+    this.sessions.set(input.bridgeSessionId, session);
+    return session;
+  }
+
+  async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+    if (!this.sessions.has(input.bridgeSessionId)) throw new Error('codex_session_not_found');
+    yield { type: 'text_delta', text: `partial:${input.text}` };
+  }
+
+  async stopSession(bridgeSessionId: string): Promise<void> {
+    this.sessions.delete(bridgeSessionId);
+  }
+}
+
 
 describe('MessageRouter', () => {
   it('routes authorized chat text through a provider and sends output to the channel', async () => {
@@ -103,6 +129,35 @@ describe('MessageRouter', () => {
       { kind: 'permission_request', text: expect.stringContaining('/approve pr_fake_1') },
     ]);
     expect(permissions.getPendingRequests()).toHaveLength(1);
+  });
+
+  it('flushes the final buffered text when a provider stream ends without message_done', async () => {
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [new PartialWithoutDoneProviderAdapter()],
+      sessions,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'codex', defaultWorkspace: '/tmp/project' },
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm-no-done',
+      platform: 'weixin',
+      chatId: 'chat-no-done',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'tail' },
+      timestamp: 1,
+    });
+
+    expect(sent).toEqual([
+      { kind: 'text', text: 'partial:tail' },
+    ]);
   });
 
   it('interrupts an in-flight generation on /cancel and keeps the session', async () => {
@@ -283,6 +338,40 @@ describe('MessageRouter', () => {
     expect(typingStates).toEqual([
       { chatId: 'chat-a', active: true },
       { chatId: 'chat-a', active: false },
+    ]);
+  });
+
+  it('shows typing around command status replies', async () => {
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [new FakeProviderAdapter('claude-code')],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+    const typingStates: Array<{ chatId: string; active: boolean }> = [];
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onTyping((state) => typingStates.push(state));
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm-status',
+      platform: 'weixin',
+      chatId: 'chat-status',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/status' },
+      timestamp: 1,
+    });
+
+    expect(typingStates).toEqual([
+      { chatId: 'chat-status', active: true },
+      { chatId: 'chat-status', active: false },
+    ]);
+    expect(sent).toEqual([
+      { kind: 'status', text: 'No active session' },
     ]);
   });
 

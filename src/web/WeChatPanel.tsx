@@ -349,25 +349,6 @@ export function WeChatPanel(input: {
         </div>
         <div className="card-body">
           <div className="row g-2">
-            {showWeixinIdentity ? (
-              <div className="col-md-6">
-                <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                  <span className="text-muted-soft small">微信 Bot 账号</span>
-                  <span className="d-flex align-items-center gap-2">
-                    <span>{plugin?.botUsername ?? currentUserLabel ?? '-'}</span>
-                    <span className={`badge ${formatPluginBadgeClass(plugin)}`}>{formatPluginBadge(plugin)}</span>
-                  </span>
-                </div>
-              </div>
-            ) : null}
-            {runtimeConfig?.token ? (
-              <div className="col-md-6">
-                <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                  <span className="text-muted-soft small">Token</span>
-                  <span className="badge badge-solid-success">已配置</span>
-                </div>
-              </div>
-            ) : null}
             {runtimeConfig?.baseUrl ? (
               <div className="col-md-6">
                 <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">

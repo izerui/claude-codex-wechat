@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  fetchChannelState,
   fetchProviderStatus,
   fetchStatus,
+  type ChannelPluginView,
   type CurrentSessionView,
   type ProviderStatusView,
   type StatusView,
 } from './apiClient';
+import { subscribeBridgeEvents } from './bridgeEventsSocket';
 import { WeChatPanel } from './WeChatPanel';
 
 export function App() {
   const [status, setStatus] = useState<StatusView | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatusView | null>(null);
+  const [plugin, setPlugin] = useState<ChannelPluginView | null>(null);
   const [currentSession, setCurrentSession] = useState<CurrentSessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -24,12 +28,14 @@ export function App() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [nextStatus, nextProviderStatus] = await Promise.all([
+      const [nextStatus, nextProviderStatus, nextChannelState] = await Promise.all([
         fetchStatus(),
         fetchProviderStatus(),
+        fetchChannelState(),
       ]);
       setStatus(nextStatus);
       setProviderStatus(nextProviderStatus);
+      setPlugin(nextChannelState.plugin);
       setCurrentSession(nextStatus.sessions[0] ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -39,6 +45,14 @@ export function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    return subscribeBridgeEvents((payload) => {
+      if (payload.type === 'channel.plugin-status-changed') {
+        setPlugin(payload.status);
+      }
+    });
+  }, []);
 
   return (
     <div className="app-bg">
@@ -62,7 +76,7 @@ export function App() {
           </div>
         ) : null}
 
-        <StatusCards providerStatus={providerStatus} />
+        <StatusCards providerStatus={providerStatus} plugin={plugin} currentSession={currentSession} />
 
         {error ? (
           <div className="alert alert-danger" role="alert">
@@ -82,6 +96,8 @@ export function App() {
 
 function StatusCards(input: {
   providerStatus: ProviderStatusView | null;
+  plugin: ChannelPluginView | null;
+  currentSession: CurrentSessionView | null;
 }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 12 }}>
@@ -97,12 +113,26 @@ function StatusCards(input: {
         tone={providerTone(input.providerStatus?.codex)}
         value={formatProviderStatus(input.providerStatus?.codex)}
       />
+      <StatusCard
+        detail={input.plugin?.botUsername ?? '-'}
+        title="微信通道"
+        tone={pluginTone(input.plugin)}
+        value={formatPluginStatus(input.plugin)}
+      />
+      <StatusCard
+        detail={input.currentSession?.cwd ?? '-'}
+        title="当前会话"
+        tone={sessionTone(input.currentSession)}
+        value={formatSessionStatus(input.currentSession)}
+      />
     </div>
   );
 }
 
 function StatusCard(input: {
-  detail: string;
+  badgeClassName?: string;
+  badgeText?: string;
+  detail: string | null;
   title: string;
   tone: 'success' | 'warning' | 'neutral';
   value: string;
@@ -112,9 +142,14 @@ function StatusCard(input: {
       <div className="text-muted-soft" style={{ fontSize: 12 }}>{input.title}</div>
       <div style={{ fontSize: 20, marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
         <span className={`status-dot ${statusDotClassName(input.tone)}`} />
-        {input.value}
+        <span>{input.value}</span>
+        {input.badgeText ? (
+          <span className={`badge ${input.badgeClassName ?? 'badge-soft-neutral'}`}>{input.badgeText}</span>
+        ) : null}
       </div>
-      <div className="font-monospace text-muted-soft" style={{ fontSize: 12, marginTop: 6, wordBreak: 'break-all' }}>{input.detail}</div>
+      {input.detail ? (
+        <div className="font-monospace text-muted-soft" style={{ fontSize: 12, marginTop: 6, wordBreak: 'break-all' }}>{input.detail}</div>
+      ) : null}
     </div>
   );
 }
@@ -148,4 +183,38 @@ function providerTone(value: unknown): 'success' | 'warning' | 'neutral' {
   const record = value as Record<string, unknown>;
   if (record.detected === true) return 'success';
   return typeof record.reason === 'string' && record.reason ? 'warning' : 'neutral';
+}
+
+function formatPluginStatus(plugin: ChannelPluginView | null): string {
+  if (!plugin?.enabled) return '未连接';
+  if (plugin.connected) return '已连接';
+  if (plugin.status === 'session_timeout') return '会话超时';
+  if (plugin.status === 'connecting') return '连接中';
+  if (plugin.status === 'poll_error') return '轮询异常';
+  return '未连接';
+}
+
+function formatPluginStatusBadgeClass(plugin: ChannelPluginView | null): string {
+  if (plugin?.enabled === true && plugin.connected === true) return 'badge-solid-success';
+  if (plugin?.status === 'session_timeout' || plugin?.status === 'poll_error') return 'badge-solid-error';
+  if (plugin?.status === 'connecting') return 'badge-soft-accent';
+  return 'badge-soft-neutral';
+}
+
+function pluginTone(plugin: ChannelPluginView | null): 'success' | 'warning' | 'neutral' {
+  if (plugin?.enabled === true && plugin.connected === true) return 'success';
+  if (plugin?.status === 'session_timeout' || plugin?.status === 'poll_error') return 'warning';
+  return 'neutral';
+}
+
+function formatSessionStatus(session: CurrentSessionView | null): string {
+  if (!session) return '无会话';
+  return session.status || '未知';
+}
+
+function sessionTone(session: CurrentSessionView | null): 'success' | 'warning' | 'neutral' {
+  if (!session) return 'neutral';
+  if (session.status === 'running' || session.status === 'active') return 'success';
+  if (session.status === 'error' || session.status === 'failed') return 'warning';
+  return 'neutral';
 }
