@@ -431,31 +431,31 @@ export function WeChatPanel(input: {
         </div>
       </div>
 
+      <ul className="nav nav-accent mb-2">
+        {activeUser && isPluginConnected(plugin) ? (
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link ${sessionConfigTab === 'new' ? 'active' : ''}`}
+              onClick={() => setSessionConfigTab('new')}
+            >
+              新建会话
+            </button>
+          </li>
+        ) : null}
+        <li className="nav-item">
+          <button
+            type="button"
+            className={`nav-link ${sessionConfigTab === 'defaults' || !(activeUser && isPluginConnected(plugin)) ? 'active' : ''}`}
+            onClick={() => setSessionConfigTab('defaults')}
+          >
+            会话默认值
+          </button>
+        </li>
+      </ul>
+
       <div className="soft-card mb-2">
-        <div className="card-header p-0">
-          <ul className="nav nav-accent">
-            {activeUser && isPluginConnected(plugin) ? (
-              <li className="nav-item">
-                <button
-                  type="button"
-                  className={`nav-link ${sessionConfigTab === 'new' ? 'active' : ''}`}
-                  onClick={() => setSessionConfigTab('new')}
-                >
-                  新建会话
-                </button>
-              </li>
-            ) : null}
-            <li className="nav-item">
-              <button
-                type="button"
-                className={`nav-link ${sessionConfigTab === 'defaults' || !(activeUser && isPluginConnected(plugin)) ? 'active' : ''}`}
-                onClick={() => setSessionConfigTab('defaults')}
-              >
-                会话默认值
-              </button>
-            </li>
-          </ul>
-        </div>
+        <div className="card-header">{sessionConfigTab === 'new' && activeUser && isPluginConnected(plugin) ? '新建会话' : '会话默认值'}</div>
         <div className="card-body">
           {sessionConfigTab === 'new' && activeUser && isPluginConnected(plugin) ? (
             <>
