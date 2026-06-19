@@ -80,7 +80,9 @@ export function WeChatPanel(input: {
   const [newSessionCwd, setNewSessionCwd] = useState('');
   const [creatingSession, setCreatingSession] = useState(false);
   const [sessionConfigTab, setSessionConfigTab] = useState<'new' | 'defaults'>('new');
+  const newSessionProviderTouched = useRef(false);
   const newSessionCwdTouched = useRef(false);
+  const lastSessionIdRef = useRef<string | null | undefined>(undefined);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const refresh = useCallback(async () => {
@@ -116,10 +118,23 @@ export function WeChatPanel(input: {
   }, [refresh]);
 
   useEffect(() => {
-    if (settings?.defaultWorkspace && !newSessionCwdTouched.current) {
-      setNewSessionCwd(settings.defaultWorkspace);
+    const sessionId = input.currentSession?.id ?? null;
+    // Re-sync the form to the current session only when it genuinely changes,
+    // so a background refresh of the same session won't clobber the user's edits.
+    if (sessionId !== lastSessionIdRef.current) {
+      lastSessionIdRef.current = sessionId;
+      newSessionProviderTouched.current = false;
+      newSessionCwdTouched.current = false;
     }
-  }, [settings]);
+    if (!newSessionProviderTouched.current) {
+      const provider = input.currentSession?.providerId ?? settings?.defaultProvider;
+      if (provider) setNewSessionProvider(provider === 'codex' ? 'codex' : 'claude-code');
+    }
+    if (!newSessionCwdTouched.current) {
+      const cwd = input.currentSession?.cwd ?? settings?.defaultWorkspace;
+      if (cwd) setNewSessionCwd(cwd);
+    }
+  }, [input.currentSession, settings]);
 
   useEffect(() => {
     if (!activeUser) return;
@@ -467,7 +482,10 @@ export function WeChatPanel(input: {
                     id="new-session-provider"
                     className="form-select"
                     value={newSessionProvider}
-                    onChange={(event) => setNewSessionProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
+                    onChange={(event) => {
+                      newSessionProviderTouched.current = true;
+                      setNewSessionProvider(event.target.value === 'codex' ? 'codex' : 'claude-code');
+                    }}
                   >
                     <option value="claude-code">Claude Code</option>
                     <option value="codex">Codex CLI</option>
