@@ -305,7 +305,8 @@ describe('channel admin routes', () => {
     const channel = new MockChannelAdapter();
     const sent: Array<{ chatId: string; kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ chatId: message.chatId, kind: message.kind, text: message.text }));
-    const store = createRuntimeUserStore('bridge-admin-switch-notify-');
+    // Regression guard: even with an active user and a live conversation (the old bug's trigger), no notification should fire.
+    const store = createRuntimeUserStore('bridge-admin-no-notify-');
     const { app, activeUserStore } = createDaemonServer({
       channel,
       activeUserStore: store.activeUserStore,
