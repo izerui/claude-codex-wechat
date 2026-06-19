@@ -469,7 +469,7 @@ export function WeChatPanel(input: {
               void scanRecoverableSessions('claude-code');
             }}
           >
-            Claude 原生会话
+            Claude 会话
           </button>
         </li>
         <li className="nav-item">
@@ -481,7 +481,7 @@ export function WeChatPanel(input: {
               void scanRecoverableSessions('codex');
             }}
           >
-            Codex 原生会话
+            Codex 会话
           </button>
         </li>
         <li className="nav-item">
@@ -567,7 +567,7 @@ export function WeChatPanel(input: {
               </button>
             </>
           ) : (
-            filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复原生会话。</p> : (
+            filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复会话。</p> : (
               <ul className="list-unstyled mb-0">
                 {filteredRecoverableSessions.map((session) => (
                   <li key={`${session.providerId}:${session.id}`} className="border rounded p-3 mb-2">

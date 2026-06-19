@@ -272,7 +272,7 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    const claudeTab = (await screen.findAllByRole('button', { name: 'Claude 原生会话' })).at(-1)!;
+    const claudeTab = (await screen.findAllByRole('button', { name: 'Claude 会话' })).at(-1)!;
     expect(claudeTab.getAttribute('aria-pressed')).toBe('true');
     expect((await screen.findAllByText('平台 ID：wx_user_1')).length).toBeGreaterThan(0);
     await waitFor(() => {
@@ -280,7 +280,7 @@ describe('App admin interactions', () => {
     });
     expect((await screen.findAllByText('原生会话 ID：claude-session-1')).length).toBeGreaterThan(0);
 
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Codex 原生会话' })).at(-1)!);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Codex 会话' })).at(-1)!);
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/providers/codex/recoverable-sessions') && call.method === 'GET')).toBe(true);
     });
@@ -610,7 +610,7 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 原生会话' });
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 会话' });
     fireEvent.click(claudeTabButtons.at(-1)!);
 
     await waitFor(() => {
@@ -644,7 +644,7 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 原生会话' });
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 会话' });
     fireEvent.click(claudeTabButtons.at(-1)!);
     fireEvent.click((await screen.findAllByRole('button', { name: '接入会话' })).at(-1)!);
 
@@ -683,7 +683,7 @@ describe('App admin interactions', () => {
     });
     vi.stubGlobal('fetch', repairableFetch as typeof fetch);
 
-    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 原生会话' });
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 会话' });
     fireEvent.click(claudeTabButtons.at(-1)!);
 
     expect((await screen.findAllByText('原生恢复状态：待修复')).length).toBeGreaterThan(0);
@@ -720,7 +720,7 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 原生会话' });
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 会话' });
     fireEvent.click(claudeTabButtons.at(-1)!);
     expect((await screen.findAllByText('原生恢复状态：待修复')).length).toBeGreaterThan(0);
 
@@ -739,7 +739,7 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    await screen.findAllByRole('button', { name: 'Claude 原生会话' });
+    await screen.findAllByRole('button', { name: 'Claude 会话' });
     expect(screen.queryByText('自动接入 Claude 会话')).toBeNull();
     expect(screen.queryByText('自动接入 Codex 会话')).toBeNull();
   });
