@@ -463,15 +463,6 @@ export function WeChatPanel(input: {
         <li className="nav-item">
           <button
             type="button"
-            className={`nav-link ${effectiveTab === 'defaults' ? 'active' : ''}`}
-            onClick={() => setActiveTab('defaults')}
-          >
-            会话默认值
-          </button>
-        </li>
-        <li className="nav-item">
-          <button
-            type="button"
             className={`nav-link ${activeTab === 'claude-native' ? 'active' : ''}`}
             onClick={() => {
               setActiveTab('claude-native');
@@ -491,6 +482,15 @@ export function WeChatPanel(input: {
             }}
           >
             Codex 原生会话
+          </button>
+        </li>
+        <li className="nav-item">
+          <button
+            type="button"
+            className={`nav-link ${effectiveTab === 'defaults' ? 'active' : ''}`}
+            onClick={() => setActiveTab('defaults')}
+          >
+            会话默认值
           </button>
         </li>
       </ul>
