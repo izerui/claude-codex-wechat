@@ -4,6 +4,7 @@ import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { PermissionRouter } from '../src/permissions/permissionRouter';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { CurrentConversationStore } from '../src/session/currentConversationStore';
+import { attachProviderSessionToBridge } from '../src/session/providerAutoAttach';
 import { SessionManager } from '../src/session/sessionManager';
 import { MessageRouter } from '../src/session/messageRouter';
 import { LastProviderSessionStore } from '../src/storage/lastProviderSessionStore';
@@ -767,6 +768,144 @@ describe('MessageRouter', () => {
     });
     expect(sent).toContainEqual({ kind: 'text', text: '收到：new task' });
   });
+
+  it('does not block a later chat on a slow/stuck session-mutating command', async () => {
+    // 设计取舍：命令与聊天分属两条链、互不阻塞。即便一条会话变更命令卡在 provider
+    // 工作里，后续聊天也必须照常处理，不会被它堵死。
+    let releaseResume: () => void = () => {};
+    const resumeGate = new Promise<void>((resolve) => { releaseResume = resolve; });
+    class SlowResumeProvider implements NativeProviderAdapter {
+      readonly id = 'codex' as const;
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `codex_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        if (!this.sessions.has(input.bridgeSessionId)) throw new Error('codex_session_not_found');
+        yield { type: 'text_delta', text: `收到：${input.text}` };
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+      async listRecoverableSessions() {
+        return [{ id: 'codex_recoverable_1', providerId: this.id, title: 'recoverable', cwd: '/tmp/project' }];
+      }
+      // 故意让 attach 卡住，模拟一条迟迟不返回的 /resume。
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        await resumeGate;
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: input.candidateId,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+    }
+
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [new SlowResumeProvider()],
+      sessions,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'codex', defaultWorkspace: '/tmp/project' },
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    // /resume 卡在 attachSession（不 await）。
+    void router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-slow',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/resume codex_recoverable_1' }, timestamp: 1,
+    });
+
+    // 关键断言：后续聊天必须能跑完，不被卡住的 /resume 堵死（否则这里超时挂死）。
+    await router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-slow',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: 'still works' }, timestamp: 2,
+    });
+    expect(sent).toContainEqual({ kind: 'text', text: '收到：still works' });
+
+    releaseResume();
+  });
+
+  it('does not let an in-flight auto-attach overwrite a session chosen by a concurrent command', async () => {
+    // Codex P1：auto-attach 在做 provider I/O 期间若有 /new 到达，attach 完成后
+    // 不得用恢复出的会话覆盖 /new 选定的会话（shouldCommit 守卫）。
+    let releaseAttach: () => void = () => {};
+    const attachGate = new Promise<void>((resolve) => { releaseAttach = resolve; });
+    let signalAttachStarted: () => void = () => {};
+    const attachStarted = new Promise<void>((resolve) => { signalAttachStarted = resolve; });
+
+    const conversation = new CurrentConversationStore(
+      createRuntimeUserStore('message-router-autoattach-').configPath,
+      { defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' },
+    );
+    const channel = new MockChannelAdapter();
+    const permissions = new PermissionRouter();
+    const codex = new FakeProviderAdapter('codex');
+    const router = new MessageRouter({
+      channel,
+      permissions,
+      providers: [new FakeProviderAdapter('claude-code'), codex],
+      conversation,
+      resolveUser: () => authorizedUser,
+      // auto-attach 卡在 attach 阶段，期间放行 /new。
+      autoAttachSession: async (_message, user, opts) => {
+        signalAttachStarted();
+        await attachGate;
+        return attachProviderSessionToBridge({
+          conversationStore: conversation,
+          provider: codex,
+          user,
+          providerId: 'codex',
+          providerSessionId: 'codex_recovered_1',
+          chatId: 'chat-aa',
+          cwd: '/tmp/project',
+          recoverySource: 'binding_table',
+          ...(opts?.shouldCommit ? { shouldCommit: opts.shouldCommit } : {}),
+        });
+      },
+    });
+
+    // 触发一条聊天（无 current）→ 进入 auto-attach 并卡住。
+    void router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-aa',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: 'hello' }, timestamp: 1,
+    });
+    await attachStarted;
+
+    // auto-attach 进行中发 /new claude → 选定 claude-code 会话。
+    await router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-aa',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/new claude' }, timestamp: 2,
+    });
+    const afterCommand = conversation.getCurrent();
+    expect(afterCommand?.providerId).toBe('claude-code');
+
+    // 放行迟到的 auto-attach：它不得覆盖 /new 选定的 claude-code 会话。
+    releaseAttach();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const final = conversation.getCurrent();
+    expect(final?.providerId).toBe('claude-code');
+    expect(final?.id).toBe(afterCommand?.id);
+  });
+
 
   it('stops the active session on /stop', async () => {
     const channel = new MockChannelAdapter();

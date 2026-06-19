@@ -112,7 +112,7 @@ export function createDaemonServer(options: {
           });
           return created;
         },
-        autoAttachSession: async (message, user) => {
+        autoAttachSession: async (message, user, opts) => {
           if (conversation.getCurrent()) return null;
           const provider = providerAdapters.find((candidate) => candidate.id === bridgeDefaults.defaultProvider);
           if (!provider?.attachSession || !provider.listRecoverableSessions) return null;
@@ -124,6 +124,7 @@ export function createDaemonServer(options: {
             lastProviderSessions,
             defaultProviderId: bridgeDefaults.defaultProvider,
             defaultCwd: bridgeDefaults.defaultWorkspace,
+            ...(opts?.shouldCommit ? { shouldCommit: opts.shouldCommit } : {}),
           });
           if (attached) {
             sessionBindingMatch.set(attached.session.id, attached.matchedBinding);

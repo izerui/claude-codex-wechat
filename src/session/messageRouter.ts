@@ -43,7 +43,7 @@ export class MessageRouter {
       sessions?: SessionManager;
       resolveUser(message: ChannelIncomingMessage): ActiveWeChatUserRecord | null;
       autoAuthorizeUser?(message: ChannelIncomingMessage): ActiveWeChatUserRecord | null;
-      autoAttachSession?(message: ChannelIncomingMessage, user: ActiveWeChatUserRecord): Promise<CurrentConversationBinding | null>;
+      autoAttachSession?(message: ChannelIncomingMessage, user: ActiveWeChatUserRecord, options?: { shouldCommit: () => boolean }): Promise<CurrentConversationBinding | null>;
       lastProviderSessions?: LastProviderSessionStore;
       events?: BridgeEventHub;
       defaults?: { defaultProvider: ProviderId; defaultWorkspace: string };
@@ -181,11 +181,9 @@ export class MessageRouter {
     if (!active) return;
     this.activeGenerations.delete(chatId);
     active.abort();
-    try {
-      await this.providers.get(active.providerId)?.interruptSession?.(active.bridgeSessionId);
-    } catch {
-      // 中断失败不影响命令本身：abort 已让生成跳出循环、让出生成链。
-    }
+    // 中断 provider 仅作尽力而为的清理，且不等待：abort 已让生成跳出循环、让出
+    // 生成链，而 interruptSession 本身可能在卡死的 CLI 上挂起，绝不能让它拖住命令。
+    void Promise.resolve(this.providers.get(active.providerId)?.interruptSession?.(active.bridgeSessionId)).catch(() => undefined);
   }
 
   private async runChatGeneration(
@@ -194,24 +192,40 @@ export class MessageRouter {
     text: string,
     seq: number,
   ): Promise<void> {
-    // 排队期间若有更晚到达的会话变更命令，这条聊天已被取代：直接放弃，
-    // 不创建会话、不发任何消息，避免投递到被命令换掉的会话（Codex 指出的串话）。
-    if ((this.latestMutatingSeq.get(message.chatId) ?? 0) > seq) return;
+    const superseded = () => (this.latestMutatingSeq.get(message.chatId) ?? 0) > seq;
+    // 若此刻已有更晚到达的会话变更命令，这条聊天已被取代：直接放弃，不创建会话、
+    // 不发任何消息，避免投递到被命令换掉的会话。注意：这里不等待 commandChain——
+    // 命令与聊天分属两条链、互不阻塞，所以一条卡住的命令绝不会堵住后续聊天。
+    // 代价仅是：在同一拍内同时发出 /new 和紧随的 prompt 时，prompt 可能按当下
+    // current 跑（极小概率，真人操作几乎不会触发），但绝不会卡死或写坏状态。
+    if (superseded()) return;
     const sessionResumeTitle = buildSessionBridgeName({
       platform: 'weixin',
       platformUserId: message.user.id,
       chatId: message.chatId,
       summary: summarizeResumeTitle(text),
     });
-    const session = this.conversation.getCurrent()
-      ?? await this.options.autoAttachSession?.(message, user)
-      ?? this.conversation.create({
-        chatId: message.chatId,
-        ownerUserId: user.id,
-        providerId: this.options.defaults?.defaultProvider ?? 'claude-code',
-        cwd: this.options.defaults?.defaultWorkspace ?? '/tmp/project',
-        resumeTitle: sessionResumeTitle,
-      });
+    let session = this.conversation.getCurrent();
+    if (!session) {
+      // auto-attach 自身会写 current（attachProviderSessionToBridge → setCurrent）。
+      // 调用前先判取代，避免在已有命令到达后还启动一次会覆盖其选择的 attach。
+      if (superseded()) return;
+      // 把取代检查下沉到 auto-attach 的写入处：若 attach 进行中有命令到达，
+      // 这次 attach 不再 setCurrent 覆盖命令选定的会话（providerAutoAttach 内执行）。
+      const attached = await this.options.autoAttachSession?.(message, user, { shouldCommit: () => !superseded() });
+      // auto-attach 可能涉及文件系统/provider 工作；其间若有 /new、/resume 到达，
+      // 这条旧聊天必须让位，不能再 attach/create 覆盖新命令选定的会话。
+      if (superseded()) return;
+      session = this.conversation.getCurrent()
+        ?? attached
+        ?? this.conversation.create({
+          chatId: message.chatId,
+          ownerUserId: user.id,
+          providerId: this.options.defaults?.defaultProvider ?? 'claude-code',
+          cwd: this.options.defaults?.defaultWorkspace ?? '/tmp/project',
+          resumeTitle: sessionResumeTitle,
+        });
+    }
     const provider = this.providers.get(session.providerId);
     if (!provider) throw new Error(`provider_not_registered:${session.providerId}`);
 

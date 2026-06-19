@@ -80,6 +80,9 @@ export async function attachProviderSessionToBridge(input: {
   cwd: string;
   recoverySource: CurrentConversationBinding['recoverySource'];
   resumeTitle?: string;
+  // 提交前的最后一道校验：返回 false 时只完成 provider 侧 attach，但不把这次会话
+  // 落为 current（用于避免一次迟到的 auto-attach 覆盖用户刚发的会话变更命令）。
+  shouldCommit?: () => boolean;
 }): Promise<CurrentConversationBinding> {
   const bridgeSessionId = `bs_${nanoid(10)}`;
   const resumeTitle = input.resumeTitle ?? buildSessionBridgeName({
@@ -106,6 +109,8 @@ export async function attachProviderSessionToBridge(input: {
     createdAt: now,
     lastActivityAt: now,
   };
+  // attach 期间可能有更晚到达的命令改了 current；此时不提交，避免覆盖其选择。
+  if (input.shouldCommit && !input.shouldCommit()) return updated;
   input.conversationStore.setCurrent(updated);
   input.lastProviderSessions?.set(input.providerId, {
     providerSessionId: updated.providerSessionId ?? input.providerSessionId,
@@ -135,6 +140,7 @@ export async function autoAttachProviderSessionForMessage(input: {
   lastProviderSessions?: LastProviderSessionStore;
   defaultProviderId: ProviderId;
   defaultCwd: string;
+  shouldCommit?: () => boolean;
 }): Promise<{ session: CurrentConversationBinding; matchedBinding: boolean; bindingSource: CurrentConversationBinding['recoverySource'] } | null> {
   const selection = await selectBestRecoverableSession({
     provider: input.provider,
@@ -156,6 +162,7 @@ export async function autoAttachProviderSessionForMessage(input: {
     cwd: selection.candidate.cwd ?? input.user.currentConversation?.cwd ?? input.defaultCwd,
     recoverySource: selection.bindingSource,
     resumeTitle: selection.candidate.resumeTitle,
+    shouldCommit: input.shouldCommit,
   });
   return { session, matchedBinding: selection.matchedBinding, bindingSource: selection.bindingSource };
 }
