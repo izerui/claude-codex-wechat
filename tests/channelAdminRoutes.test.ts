@@ -1475,4 +1475,55 @@ describe('channel admin routes', () => {
     ]);
     await app.close();
   });
+
+  it('creates a new session with chosen provider and notifies the weixin user', async () => {
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ chatId: string; kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ chatId: message.chatId, kind: message.kind, text: message.text }));
+    const provider = new FakeProviderAdapter('codex');
+    const { app, activeUserStore, sessions } = createDaemonServer({
+      channel,
+      providers: [provider],
+      activeUserStore: createRuntimeUserStore('bridge-admin-new-session-').activeUserStore,
+      bridgeDefaults: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+    });
+    activeUserStore.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/channel/sessions/new',
+      payload: { providerId: 'codex', cwd: '/tmp/my-project', platformUserId: 'wx_user_1' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ ok: true, session: { providerId: 'codex', cwd: '/tmp/my-project' } });
+
+    const current = sessions.getCurrent();
+    expect(current).toMatchObject({ providerId: 'codex', cwd: '/tmp/my-project', chatId: 'wx_user_1' });
+
+    expect(sent).toEqual([
+      { chatId: 'wx_user_1', kind: 'status', text: '已新建 Codex 会话，项目目录：/tmp/my-project。' },
+    ]);
+    await app.close();
+  });
+
+  it('rejects new session creation when there is no active weixin user', async () => {
+    const provider = new FakeProviderAdapter('codex');
+    const { app } = createDaemonServer({
+      channel: new MockChannelAdapter(),
+      providers: [provider],
+      activeUserStore: createRuntimeUserStore('bridge-admin-new-session-nouser-').activeUserStore,
+      bridgeDefaults: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/channel/sessions/new',
+      payload: { providerId: 'codex', cwd: '/tmp/my-project', platformUserId: 'wx_user_1' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ ok: false, error: 'active_wechat_user_not_found' });
+    await app.close();
+  });
 });

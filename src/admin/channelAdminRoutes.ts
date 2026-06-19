@@ -231,6 +231,48 @@ export function registerChannelAdminRoutes(input: {
 
   input.app.post<{ Body: {
     providerId: string;
+    platformUserId: string;
+    cwd?: string;
+    chatId?: string;
+  } }>('/api/channel/sessions/new', async (request, reply) => {
+    if (!input.conversation) {
+      return reply.code(500).send({ ok: false, error: 'current_conversation_store_unavailable' });
+    }
+    const user = input.users.isActiveUser(PRIMARY_WEIXIN_PLATFORM, request.body.platformUserId);
+    if (!user) {
+      return reply.code(404).send({ ok: false, error: 'active_wechat_user_not_found' });
+    }
+    const providerId = request.body.providerId === 'codex' ? 'codex' : 'claude-code';
+    const cwd = typeof request.body.cwd === 'string' && request.body.cwd.trim()
+      ? request.body.cwd
+      : input.defaults?.defaultWorkspace ?? process.cwd();
+    const chatId = request.body.chatId ?? user.platformUserId;
+    const session = input.conversation.create({
+      chatId,
+      ownerUserId: user.id,
+      providerId,
+      cwd,
+    });
+    input.events?.emit({ type: 'channel.current-session-changed' });
+    const providerLabel = providerId === 'codex' ? 'Codex' : 'Claude Code';
+    await input.channel?.sendMessage({
+      chatId,
+      kind: 'status',
+      text: `已新建 ${providerLabel} 会话，项目目录：${cwd}。`,
+    });
+    return {
+      ok: true,
+      session: {
+        id: session.id,
+        providerId: session.providerId,
+        cwd: session.cwd,
+        status: session.status,
+      },
+    };
+  });
+
+  input.app.post<{ Body: {
+    providerId: string;
     providerSessionId: string;
     platformUserId: string;
     chatId?: string;
