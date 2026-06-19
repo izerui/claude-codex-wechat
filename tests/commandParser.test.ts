@@ -3,9 +3,21 @@ import { parseBridgeCommand } from '../src/session/commandParser';
 
 describe('parseBridgeCommand', () => {
   it('parses provider creation commands', () => {
-    expect(parseBridgeCommand('/new')).toEqual({ kind: 'new_session', providerId: null });
-    expect(parseBridgeCommand('/new claude')).toEqual({ kind: 'new_session', providerId: 'claude-code' });
-    expect(parseBridgeCommand('/new codex')).toEqual({ kind: 'new_session', providerId: 'codex' });
+    expect(parseBridgeCommand('/new')).toEqual({ kind: 'new_session', providerId: null, cwd: null });
+    expect(parseBridgeCommand('/new claude')).toEqual({ kind: 'new_session', providerId: 'claude-code', cwd: null });
+    expect(parseBridgeCommand('/new codex')).toEqual({ kind: 'new_session', providerId: 'codex', cwd: null });
+  });
+
+  it('parses /new with an explicit working directory', () => {
+    expect(parseBridgeCommand('/new /home/project')).toEqual({ kind: 'new_session', providerId: null, cwd: '/home/project' });
+    expect(parseBridgeCommand('/new ~/work/app')).toEqual({ kind: 'new_session', providerId: null, cwd: '~/work/app' });
+    expect(parseBridgeCommand('/new claude:/home/project')).toEqual({ kind: 'new_session', providerId: 'claude-code', cwd: '/home/project' });
+    expect(parseBridgeCommand('/new codex:~/work/app')).toEqual({ kind: 'new_session', providerId: 'codex', cwd: '~/work/app' });
+  });
+
+  it('treats malformed /new arguments as plain chat', () => {
+    expect(parseBridgeCommand('/new foo')).toEqual({ kind: 'chat', text: '/new foo' });
+    expect(parseBridgeCommand('/new claude:foo')).toEqual({ kind: 'chat', text: '/new claude:foo' });
   });
 
   it('parses reload command', () => {
@@ -19,8 +31,8 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/always pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'approve_for_session' });
   });
 
-  it('parses cwd and plain text', () => {
-    expect(parseBridgeCommand('/cwd /Users/liuyuhua/github/happier')).toEqual({ kind: 'set_cwd', cwd: '/Users/liuyuhua/github/happier' });
+  it('treats /cwd as plain text now that it is removed', () => {
+    expect(parseBridgeCommand('/cwd /Users/liuyuhua/github/happier')).toEqual({ kind: 'chat', text: '/cwd /Users/liuyuhua/github/happier' });
     expect(parseBridgeCommand('帮我检查这个项目')).toEqual({ kind: 'chat', text: '帮我检查这个项目' });
   });
 

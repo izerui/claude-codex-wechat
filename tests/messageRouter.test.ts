@@ -418,7 +418,7 @@ describe('MessageRouter', () => {
     expect(sent[0]).toEqual({ kind: 'status', text: expect.stringContaining('Started new claude-code session') });
   });
 
-  it('updates cwd and reports session status', async () => {
+  it('creates a session with the given cwd via /new <path> and reports session status', async () => {
     const channel = new MockChannelAdapter();
     const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
@@ -437,7 +437,7 @@ describe('MessageRouter', () => {
       platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '/cwd /tmp/other-project' },
+      content: { type: 'text', text: '/new /tmp/other-project' },
       timestamp: 1,
     });
     expect(sessions.getActiveSession('chat-a')).toMatchObject({ cwd: '/tmp/other-project' });

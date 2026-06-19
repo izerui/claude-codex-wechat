@@ -3,9 +3,8 @@ import type { PermissionChoice, ProviderId } from '../providers/types';
 export type BridgeCommand =
   | { kind: 'help' }
   | { kind: 'status' }
-  | { kind: 'new_session'; providerId: ProviderId | null }
+  | { kind: 'new_session'; providerId: ProviderId | null; cwd: string | null }
   | { kind: 'use_provider'; providerId: ProviderId }
-  | { kind: 'set_cwd'; cwd: string }
   | { kind: 'stop' }
   | { kind: 'reload' }
   | { kind: 'list_sessions'; scope: 'all' | 'mine'; keyword: string | null }
@@ -19,6 +18,10 @@ function parseProvider(value: string | undefined): ProviderId | null {
   if (value === 'claude' || value === 'claude-code') return 'claude-code';
   if (value === 'codex') return 'codex';
   return null;
+}
+
+function looksLikePath(value: string): boolean {
+  return value.startsWith('/') || value.startsWith('~');
 }
 
 export function parseBridgeCommand(input: string): BridgeCommand {
@@ -49,18 +52,23 @@ export function parseBridgeCommand(input: string): BridgeCommand {
   }
 
   if (command === '/new') {
+    if (!first) return { kind: 'new_session', providerId: null, cwd: null };
+    const colonIndex = first.indexOf(':');
+    if (colonIndex !== -1) {
+      const providerId = parseProvider(first.slice(0, colonIndex));
+      const cwd = first.slice(colonIndex + 1);
+      if (providerId && looksLikePath(cwd)) return { kind: 'new_session', providerId, cwd };
+      return { kind: 'chat', text };
+    }
     const providerId = parseProvider(first);
-    return first ? (providerId ? { kind: 'new_session', providerId } : { kind: 'chat', text }) : { kind: 'new_session', providerId: null };
+    if (providerId) return { kind: 'new_session', providerId, cwd: null };
+    if (looksLikePath(first)) return { kind: 'new_session', providerId: null, cwd: first };
+    return { kind: 'chat', text };
   }
 
   if (command === '/use') {
     const providerId = parseProvider(first);
     return providerId ? { kind: 'use_provider', providerId } : { kind: 'chat', text };
-  }
-
-  if (command === '/cwd') {
-    const cwd = text.slice('/cwd'.length).trim();
-    return cwd ? { kind: 'set_cwd', cwd } : { kind: 'chat', text };
   }
 
   if ((command === '/approve' || command === '/deny' || command === '/abort') && first) {

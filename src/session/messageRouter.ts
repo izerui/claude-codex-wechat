@@ -276,9 +276,8 @@ export class MessageRouter {
           '**会话管理**',
           '- `/help` — 显示本帮助',
           '- `/status` — 查看当前会话（provider、工作目录、状态）',
-          '- `/new [claude|codex]` — 新建会话，省略则用默认 provider',
+          '- `/new [claude|codex][:目录]` — 新建会话；省略 provider 用默认，可带目录，例：`/new`、`/new codex`、`/new ~/project`、`/new claude:/home/project`',
           '- `/use claude|codex` — 切换当前 provider',
-          '- `/cwd <path>` — 设置工作目录，例：`/cwd /home/project`',
           '- `/stop` — 停止并清除当前会话',
           '- `/cancel` — 中断当前正在生成的回复（会话保留）',
           '- `/reload` — 重启当前会话（保留 provider 与目录）',
@@ -319,11 +318,15 @@ export class MessageRouter {
 
     if (command.kind === 'new_session') {
       const providerId = command.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
+      const cwd = command.cwd
+        ?? this.conversation.getCurrent()?.cwd
+        ?? this.options.defaults?.defaultWorkspace
+        ?? '/tmp/project';
       const session = this.conversation.create({
         chatId,
         ownerUserId: user.id,
         providerId,
-        cwd: this.conversation.getCurrent()?.cwd ?? this.options.defaults?.defaultWorkspace ?? '/tmp/project',
+        cwd,
       });
       await this.options.channel.sendMessage({
         chatId,
@@ -346,24 +349,6 @@ export class MessageRouter {
         chatId,
         kind: 'status',
         text: `Switched active provider to ${command.providerId}`,
-      });
-      return;
-    }
-
-    if (command.kind === 'set_cwd') {
-      const current = this.conversation.getCurrent();
-      const session = current
-        ? this.conversation.update({ cwd: command.cwd, lastActivityAt: Date.now() })
-        : this.conversation.create({
-            chatId,
-            ownerUserId: user.id,
-            providerId: this.options.defaults?.defaultProvider ?? 'claude-code',
-            cwd: command.cwd,
-          });
-      await this.options.channel.sendMessage({
-        chatId,
-        kind: 'status',
-        text: `Working directory set to ${command.cwd}`,
       });
       return;
     }
@@ -466,7 +451,7 @@ export class MessageRouter {
       });
       const head = `已恢复会话 ${attached.id} · ${attached.providerId}`;
       const text = cwdUnresolved
-        ? `${head}\n⚠️ 无法确定该会话的原始目录，已使用默认目录 ${attached.cwd}，如需请用 /cwd <path> 切换`
+        ? `${head}\n⚠️ 无法确定该会话的原始目录，已使用默认目录 ${attached.cwd}，如需切换请用 /new <目录> 开新会话`
         : previousCwd && previousCwd !== attached.cwd
           ? `${head}\n已切换工作目录到 ${attached.cwd}`
           : `${head} · ${attached.cwd}`;
