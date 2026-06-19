@@ -221,7 +221,7 @@ For a WeChat-driven Claude session to be recoverable through `claude -r` and vis
   - `display` equal to the same bridge title
   - `project` equal to the real session cwd
 
-When repairing or syncing Claude metadata, prefer the bridge sidecar cwd over path-derived guesses. Project directory names under `~/.claude/projects/` are not a reliable reversible encoding for paths that already contain `-`.
+**cwd must come from an authoritative source, never from the project directory name.** A Claude session's real working directory is recorded as the `cwd` field inside the session `.jsonl` records, and is also known directly as `session.cwd` at creation/sync time. Resolve cwd in this order: the known `session.cwd` (pass it through explicitly, e.g. into `ensureClaudeSessionBridgeMetadata({ cwd })`), then the session-file `cwd` field (`readClaudeSessionMetadata`). Never decode it from the `~/.claude/projects/<name>` directory name — that encoding replaces `/` with `-` and is irreversibly ambiguous for any path segment that itself contains `-` (e.g. `claude-codex-wechat` decodes wrongly to `claude/codex/wechat`). A wrong cwd points at a non-existent directory and makes the provider fail with `spawn ... ENOENT` on the next message. Both the recoverable-session listing (`listRecoverableClaudeSessions`) and the `history.jsonl` `project` write must follow this. `tests/claudeNativeSessions.test.ts` and `tests/channelMessageFlow.test.ts` pin the behavior with hyphenated paths — do not regress them back to path-derived expectations.
 
 Bridge-created Claude sessions also need to look like native CLI sessions closely enough for Claude's resume UI to recognize them. In practice this means:
 
