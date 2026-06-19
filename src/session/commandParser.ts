@@ -8,6 +8,8 @@ export type BridgeCommand =
   | { kind: 'set_cwd'; cwd: string }
   | { kind: 'stop' }
   | { kind: 'reload' }
+  | { kind: 'list_sessions'; scope: 'all' | 'mine'; keyword: string | null }
+  | { kind: 'resume_session'; ref: string }
   | { kind: 'permission_decision'; requestId: string; decision: Exclude<PermissionChoice, 'approve_for_session'> }
   | { kind: 'chat'; text: string };
 
@@ -28,6 +30,16 @@ export function parseBridgeCommand(input: string): BridgeCommand {
   if (command === '/status') return { kind: 'status' };
   if (command === '/stop') return { kind: 'stop' };
   if (command === '/reload') return { kind: 'reload' };
+
+  if (command === '/sessions') {
+    if (first === 'mine') return { kind: 'list_sessions', scope: 'mine', keyword: null };
+    const keyword = rest.join(' ').trim();
+    return { kind: 'list_sessions', scope: 'all', keyword: keyword || null };
+  }
+
+  if (command === '/resume') {
+    return { kind: 'resume_session', ref: first ?? '' };
+  }
 
   if (command === '/new') {
     const providerId = parseProvider(first);

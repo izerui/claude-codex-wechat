@@ -394,6 +394,10 @@ describe('channel message flow', () => {
       const { app } = createDaemonServer({
         channel,
         providers: [provider],
+        bridgeDefaults: {
+          defaultProvider: 'claude-code',
+          defaultWorkspace: '/tmp/project',
+        },
       });
 
       await channel.emitIncoming({

@@ -69,6 +69,7 @@ export function createDaemonServer(options: {
       void ensureClaudeSessionBridgeMetadata({
         sessionId: currentConversation.providerSessionId,
         resumeTitle: currentConversation.resumeTitle,
+        cwd: currentConversation.cwd,
       });
     }
     const provider = providerAdapters.find((candidate) => candidate.id === currentConversation.providerId);

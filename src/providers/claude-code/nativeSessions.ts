@@ -28,10 +28,11 @@ export async function listRecoverableClaudeSessions(env: NodeJS.ProcessEnv = pro
         const historyMeta = historyIndex.get(basename(fileName, '.jsonl'));
         const sessionId = basename(fileName, '.jsonl');
         const bridgeTag = historyMeta?.bridgeTag ?? parseSessionBridgeName(parsedMeta?.sessionName);
+        const cwd = parsedMeta?.cwd ?? historyMeta?.project;
         candidates.push({
           id: sessionId,
           providerId: 'claude-code',
-          ...(historyMeta?.project ? { cwd: historyMeta.project } : {}),
+          ...(cwd ? { cwd } : {}),
           title: parsedMeta?.aiTitle ?? parsedMeta?.lastPrompt ?? fileName,
           ...(parsedMeta?.sessionName
             ? { resumeTitle: parsedMeta.sessionName }
@@ -82,6 +83,7 @@ export async function findRecoverableClaudeSessionPath(
 export async function ensureClaudeSessionBridgeMetadata(input: {
   sessionId: string;
   resumeTitle: string;
+  cwd?: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<boolean> {
   const env = input.env ?? process.env;
@@ -102,7 +104,7 @@ export async function ensureClaudeSessionBridgeMetadata(input: {
   changed = await upsertClaudeHistoryDisplay({
     sessionId: input.sessionId,
     resumeTitle: input.resumeTitle,
-    project: deriveClaudeProjectPathFromSessionFile(sessionPath),
+    project: input.cwd ?? metadata?.cwd,
     env,
   }) || changed;
   return changed;
@@ -153,15 +155,19 @@ export async function getClaudeRecoverableSessionById(
   return (await listRecoverableClaudeSessions(env)).find((candidate) => candidate.id === sessionId) ?? null;
 }
 
-async function readClaudeSessionMetadata(filePath: string): Promise<{ aiTitle?: string; lastPrompt?: string; sessionName?: string }> {
+async function readClaudeSessionMetadata(filePath: string): Promise<{ aiTitle?: string; lastPrompt?: string; sessionName?: string; cwd?: string }> {
   const content = await readFile(filePath, 'utf8');
   let aiTitle: string | undefined;
   let lastPrompt: string | undefined;
   let sessionName: string | undefined;
+  let cwd: string | undefined;
   for (const line of content.split(/\r?\n/)) {
     if (!line.trim()) continue;
     try {
       const record = JSON.parse(line) as Record<string, unknown>;
+      if (typeof record.cwd === 'string' && record.cwd.trim()) {
+        cwd = record.cwd.trim();
+      }
       if (record.type === 'ai-title' && typeof record.aiTitle === 'string' && record.aiTitle.trim()) {
         aiTitle = record.aiTitle.trim();
       }
@@ -184,7 +190,7 @@ async function readClaudeSessionMetadata(filePath: string): Promise<{ aiTitle?: 
       // Ignore malformed lines and keep scanning for metadata-bearing records.
     }
   }
-  return { aiTitle, lastPrompt, sessionName };
+  return { aiTitle, lastPrompt, sessionName, cwd };
 }
 
 async function readClaudeHistoryIndex(env: NodeJS.ProcessEnv): Promise<Map<string, {
@@ -318,16 +324,4 @@ async function normalizeClaudeSessionFileForResume(sessionPath: string): Promise
   if (!changed) return false;
   await writeFile(sessionPath, `${nextLines.join('\n')}\n`, 'utf8');
   return true;
-}
-
-function deriveClaudeProjectPathFromSessionFile(sessionPath: string): string | undefined {
-  const normalizedPath = sessionPath.replace(/\\/g, '/');
-  const projectsIndex = normalizedPath.lastIndexOf('/projects/');
-  if (projectsIndex === -1) return undefined;
-  const relativeProjectDir = normalizedPath
-    .slice(projectsIndex + '/projects/'.length)
-    .split('/')[0];
-  if (!relativeProjectDir) return undefined;
-  const withoutPrefix = relativeProjectDir.replace(/^-/, '');
-  return `/${withoutPrefix.replace(/-/g, '/')}`;
 }

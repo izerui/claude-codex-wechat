@@ -101,16 +101,17 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
     expect(history).not.toContain('"display":"旧标题"');
   });
 
-  it('backfills Claude history project from session file path when history entry is missing cwd metadata', async () => {
+  it('backfills Claude history project from the session file cwd field, preserving hyphenated paths', async () => {
     const home = await mkdtemp(join(tmpdir(), 'claude-native-sessions-'));
     tempDirs.push(home);
-    const projectDir = join(home, '.claude', 'projects', '-tmp-project');
+    const projectDir = join(home, '.claude', 'projects', '-tmp-claude-codex-wechat');
     await import('node:fs/promises').then(({ mkdir }) => mkdir(projectDir, { recursive: true }));
     const sessionId = 'history-project-missing';
     const sessionPath = join(projectDir, `${sessionId}.jsonl`);
     const historyPath = join(home, '.claude', 'history.jsonl');
     const resumeTitle = '微信 · wx_user_1 · [claude-codex-wechat:history-project-missing]';
     await writeFile(sessionPath, [
+      JSON.stringify({ type: 'user', cwd: '/tmp/claude-codex-wechat', message: { content: [{ type: 'text', text: 'hi' }] } }),
       JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } }),
       JSON.stringify({ type: 'result', session_id: sessionId }),
     ].join('\n'), 'utf8');
@@ -128,7 +129,7 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
 
     const history = await readFile(historyPath, 'utf8');
     expect(history).toContain(`"display":"${resumeTitle}"`);
-    expect(history).toContain(`"project":"/tmp/project"`);
+    expect(history).toContain(`"project":"/tmp/claude-codex-wechat"`);
   });
 
   it('normalizes bridge-created Claude session files so resume UI can treat them like cli sessions', async () => {
