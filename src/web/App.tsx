@@ -148,7 +148,13 @@ function StatusCard(input: {
         ) : null}
       </div>
       {input.detail ? (
-        <div className="font-monospace text-muted-soft" style={{ fontSize: 12, marginTop: 6, wordBreak: 'break-all' }}>{input.detail}</div>
+        <div
+          className="font-monospace text-muted-soft"
+          style={{ fontSize: 12, marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+          title={input.detail}
+        >
+          {input.detail}
+        </div>
       ) : null}
     </div>
   );

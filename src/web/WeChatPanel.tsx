@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { subscribeBridgeEvents } from './bridgeEventsSocket';
 import {
@@ -52,6 +52,14 @@ function formatSessionStatusBadgeClass(status: string): string {
   return 'badge-soft-neutral';
 }
 
+function formatProviderLabel(providerId: string): string {
+  return providerId === 'codex' ? 'Codex CLI' : 'Claude Code';
+}
+
+function formatProviderBadgeClass(providerId: string): string {
+  return providerId === 'codex' ? 'badge-soft-success' : 'badge-soft-accent';
+}
+
 function formatPluginHint(plugin: ChannelPluginView | null): string | null {
   if (!plugin?.enabled) return null;
   if (plugin.status === 'session_timeout') return '微信 bot 会话已失效，请重新扫码登录以刷新 token。';
@@ -68,6 +76,8 @@ function formatTimestamp(value?: number): string {
     return String(value);
   }
 }
+
+const ELLIPSIS: CSSProperties = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
 export function WeChatPanel(input: {
   currentSession: CurrentSessionView | null;
@@ -366,112 +376,58 @@ export function WeChatPanel(input: {
             {runtimeConfig?.baseUrl ? (
               <div className="col-md-6">
                 <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                  <span className="text-muted-soft small">网关</span>
-                  <span>{runtimeConfig.baseUrl}</span>
+                  <span className="text-muted-soft small flex-shrink-0">网关</span>
+                  <span style={ELLIPSIS} title={runtimeConfig.baseUrl}>{runtimeConfig.baseUrl}</span>
                 </div>
               </div>
             ) : null}
             {runtimeConfig?.accountId ? (
               <div className="col-md-6">
                 <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                  <span className="text-muted-soft small">微信 Account ID</span>
-                  <span>{runtimeConfig.accountId}</span>
+                  <span className="text-muted-soft small flex-shrink-0">微信 Account ID</span>
+                  <span style={ELLIPSIS} title={runtimeConfig.accountId}>{runtimeConfig.accountId}</span>
                 </div>
               </div>
             ) : null}
             {activeUser ? (
               <div className="col-md-6">
                 <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                  <span className="text-muted-soft small">当前活跃用户</span>
-                  <span>{activeUser.displayName ?? activeUser.platformUserId}</span>
+                  <span className="text-muted-soft small flex-shrink-0">当前活跃用户</span>
+                  <span style={ELLIPSIS} title={activeUser.displayName ?? activeUser.platformUserId}>{activeUser.displayName ?? activeUser.platformUserId}</span>
+                </div>
+              </div>
+            ) : null}
+            {plugin?.botUsername ? (
+              <div className="col-md-6">
+                <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                  <span className="text-muted-soft small flex-shrink-0">Bot 账号</span>
+                  <span style={ELLIPSIS} title={plugin.botUsername}>{plugin.botUsername}</span>
                 </div>
               </div>
             ) : null}
             {input.currentSession && isPluginConnected(plugin) ? (
-              <>
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">工作目录</span>
-                    <span>{input.currentSession.cwd}</span>
-                  </div>
-                </div>
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">会话状态</span>
+              <div className="col-12">
+                <div className="weixin-info-item d-flex flex-column gap-2">
+                  <div className="d-flex align-items-center gap-2 flex-wrap">
+                    <span className={`badge ${formatProviderBadgeClass(input.currentSession.providerId)}`}>{formatProviderLabel(input.currentSession.providerId)}</span>
                     <span className={`badge ${formatSessionStatusBadgeClass(input.currentSession.status)}`}>{input.currentSession.status}</span>
+                    {(input.currentSession.nativeTitle ?? input.currentSession.resumeTitle) ? (
+                      <span className="text-muted-soft small text-truncate">{input.currentSession.nativeTitle ?? input.currentSession.resumeTitle}</span>
+                    ) : null}
+                  </div>
+                  <div className="d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small flex-shrink-0">会话 ID</span>
+                    <span style={ELLIPSIS} title={input.currentSession.providerSessionId ?? '-'}>{input.currentSession.providerSessionId ?? '-'}</span>
+                  </div>
+                  <div className="d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small flex-shrink-0">工作目录</span>
+                    <span style={ELLIPSIS} title={input.currentSession.cwd}>{input.currentSession.cwd}</span>
+                  </div>
+                  <div className="text-muted-soft small">
+                    创建 {formatTimestamp(input.currentSession.createdAt)} · 最后活跃 {formatTimestamp(input.currentSession.lastActivityAt)}
                   </div>
                 </div>
-                {(input.currentSession.nativeTitle ?? input.currentSession.resumeTitle) ? (
-                  <div className="col-md-6">
-                    <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                      <span className="text-muted-soft small">会话标题</span>
-                      <span>{input.currentSession.nativeTitle ?? input.currentSession.resumeTitle}</span>
-                    </div>
-                  </div>
-                ) : null}
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">Provider 会话 ID</span>
-                    <span>{input.currentSession.providerSessionId ?? '-'}</span>
-                  </div>
-                </div>
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">创建时间</span>
-                    <span>{formatTimestamp(input.currentSession.createdAt)}</span>
-                  </div>
-                </div>
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">最后活跃时间</span>
-                    <span>{formatTimestamp(input.currentSession.lastActivityAt)}</span>
-                  </div>
-                </div>
-              </>
-            ) : null}
-            {lastProviderSessions['claude-code'] ? (
-              <>
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">Claude 最近 Provider 会话</span>
-                    <span>{lastProviderSessions['claude-code']?.providerSessionId}</span>
-                  </div>
-                </div>
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">Claude 最近工作目录</span>
-                    <span>{lastProviderSessions['claude-code']?.cwd}</span>
-                  </div>
-                </div>
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">Claude 最近更新时间</span>
-                    <span>{formatTimestamp(lastProviderSessions['claude-code']?.updatedAt)}</span>
-                  </div>
-                </div>
-              </>
-            ) : null}
-            {lastProviderSessions.codex ? (
-              <>
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">Codex 最近 Provider 会话</span>
-                    <span>{lastProviderSessions.codex?.providerSessionId}</span>
-                  </div>
-                </div>
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">Codex 最近工作目录</span>
-                    <span>{lastProviderSessions.codex?.cwd}</span>
-                  </div>
-                </div>
-                <div className="col-md-6">
-                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small">Codex 最近更新时间</span>
-                    <span>{formatTimestamp(lastProviderSessions.codex?.updatedAt)}</span>
-                  </div>
-                </div>
-              </>
+              </div>
             ) : null}
             {formatPluginHint(plugin) ? (
               <div className="col-12">
@@ -632,29 +588,44 @@ export function WeChatPanel(input: {
               </button>
             </>
           ) : (
-            filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复会话。</p> : (
-              <ul className="list-unstyled mb-0">
-                {filteredRecoverableSessions.map((session) => (
-                  <li key={`${session.providerId}:${session.id}`} className="border rounded p-3 mb-2">
-                    <div className="fw-semibold">{session.title ?? session.id}</div>
-                    <div className="small text-muted-soft">{session.id}</div>
-                    <div>原生恢复状态：{session.providerResumeTitleSynced === true ? '已同步' : session.providerResumeRepairable === true ? '待修复' : '-'}</div>
-                    {session.preferredResumeCommand ? <div>推荐恢复：{session.preferredResumeCommand}</div> : null}
-                    {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
-                    {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
-                    {session.cwd ? <div className="small text-muted-soft">{session.cwd}</div> : null}
-                    <button
-                      className="btn btn-accent btn-sm mt-2"
-                      disabled={attachingSessionId === session.id}
-                      onClick={() => void attachRecoverableSession(session)}
-                      type="button"
-                    >
-                      {attachingSessionId === session.id ? '接入中...' : '接入会话'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )
+            <>
+              {(() => {
+                const recent = lastProviderSessions[effectiveTab === 'codex-native' ? 'codex' : 'claude-code'];
+                return recent ? (
+                  <div className="weixin-info-item d-flex flex-column gap-1 mb-2">
+                    <div className="text-muted-soft small">最近会话</div>
+                    <div className="d-flex justify-content-between align-items-center gap-3">
+                      <span style={ELLIPSIS} title={recent.providerSessionId}>{recent.providerSessionId}</span>
+                      <span className="text-muted-soft small flex-shrink-0">{formatTimestamp(recent.updatedAt)}</span>
+                    </div>
+                    {recent.cwd ? <div className="text-muted-soft small" style={ELLIPSIS} title={recent.cwd}>{recent.cwd}</div> : null}
+                  </div>
+                ) : null;
+              })()}
+              {filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复会话。</p> : (
+                <ul className="list-unstyled mb-0">
+                  {filteredRecoverableSessions.map((session) => (
+                    <li key={`${session.providerId}:${session.id}`} className="border rounded p-3 mb-2">
+                      <div className="fw-semibold">{session.title ?? session.id}</div>
+                      <div className="small text-muted-soft">{session.id}</div>
+                      <div>原生恢复状态：{session.providerResumeTitleSynced === true ? '已同步' : session.providerResumeRepairable === true ? '待修复' : '-'}</div>
+                      {session.preferredResumeCommand ? <div>推荐恢复：{session.preferredResumeCommand}</div> : null}
+                      {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
+                      {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
+                      {session.cwd ? <div className="small text-muted-soft">{session.cwd}</div> : null}
+                      <button
+                        className="btn btn-accent btn-sm mt-2"
+                        disabled={attachingSessionId === session.id}
+                        onClick={() => void attachRecoverableSession(session)}
+                        type="button"
+                      >
+                        {attachingSessionId === session.id ? '接入中...' : '接入会话'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
         </div>
       </div>
