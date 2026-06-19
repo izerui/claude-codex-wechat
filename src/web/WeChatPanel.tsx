@@ -79,6 +79,7 @@ export function WeChatPanel(input: {
   const [newSessionProvider, setNewSessionProvider] = useState<'claude-code' | 'codex'>('claude-code');
   const [newSessionCwd, setNewSessionCwd] = useState('');
   const [creatingSession, setCreatingSession] = useState(false);
+  const newSessionCwdTouched = useRef(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const refresh = useCallback(async () => {
@@ -114,8 +115,8 @@ export function WeChatPanel(input: {
   }, [refresh]);
 
   useEffect(() => {
-    if (settings?.defaultWorkspace) {
-      setNewSessionCwd((current) => current || settings.defaultWorkspace);
+    if (settings?.defaultWorkspace && !newSessionCwdTouched.current) {
+      setNewSessionCwd(settings.defaultWorkspace);
     }
   }, [settings]);
 
@@ -232,7 +233,7 @@ export function WeChatPanel(input: {
     try {
       await createNewSession({
         providerId: newSessionProvider,
-        cwd: newSessionCwd,
+        cwd: newSessionCwd.trim(),
         platformUserId: activeUser.platformUserId,
         chatId: activeUser.platformUserId,
       });
@@ -453,7 +454,10 @@ export function WeChatPanel(input: {
                   id="new-session-cwd"
                   className="form-control"
                   value={newSessionCwd}
-                  onChange={(event) => setNewSessionCwd(event.target.value)}
+                  onChange={(event) => {
+                    newSessionCwdTouched.current = true;
+                    setNewSessionCwd(event.target.value);
+                  }}
                   type="text"
                 />
               </div>
