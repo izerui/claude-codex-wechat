@@ -105,6 +105,18 @@ function createFetchStub() {
           token: 'wx-bot-token',
           accountId: 'wx-account-1',
         },
+        lastProviderSessions: {
+          'claude-code': {
+            providerSessionId: 'claude-session-1',
+            cwd: '/tmp/project',
+            updatedAt: 2,
+          },
+          codex: {
+            providerSessionId: 'codex-session-1',
+            cwd: '/tmp/project',
+            updatedAt: 3,
+          },
+        },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/providers/status')) {

@@ -15,6 +15,7 @@ import {
   fetchChannelState,
   fetchCurrentSession,
   fetchRecoverableProviderSessions,
+  type LastProviderSessionView,
   resolveApiUrl,
   type RecoverableProviderSessionView,
   syncWeixinChannelSettings,
@@ -59,6 +60,15 @@ function formatPluginHint(plugin: ChannelPluginView | null): string | null {
   return null;
 }
 
+function formatTimestamp(value?: number): string {
+  if (!value) return '-';
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return String(value);
+  }
+}
+
 export function WeChatPanel(input: {
   currentSession: CurrentSessionView | null;
   onRefreshCurrentSession?(session: CurrentSessionView | null): void;
@@ -68,6 +78,7 @@ export function WeChatPanel(input: {
   const [plugin, setPlugin] = useState<ChannelPluginView | null>(null);
   const [runtimeConfig, setRuntimeConfig] = useState<WeixinRuntimeConfigView | null>(null);
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
+  const [lastProviderSessions, setLastProviderSessions] = useState<Partial<Record<'claude-code' | 'codex', LastProviderSessionView>>>({});
   const [recoverableSessions, setRecoverableSessions] = useState<RecoverableProviderSessionView[]>([]);
   const [activeTab, setActiveTab] = useState<SessionTab>('new');
   const [loginState, setLoginState] = useState<LoginState>('idle');
@@ -91,6 +102,7 @@ export function WeChatPanel(input: {
       setActiveUser(state.activeUser);
       setSettings(state.settings);
       setRuntimeConfig(state.runtimeConfig);
+      setLastProviderSessions(state.lastProviderSessions ?? {});
       setPlugin(state.plugin);
       if (isPluginConnected(state.plugin)) {
         setLoginState('connected');
@@ -165,6 +177,7 @@ export function WeChatPanel(input: {
         }
         if (!payload.status.enabled) {
           setRuntimeConfig(null);
+          setLastProviderSessions({});
           setActiveUser(null);
         }
         if (!payload.status.connected) {
@@ -180,6 +193,7 @@ export function WeChatPanel(input: {
       await disableWeixinPlugin();
       setPlugin((current) => current ? { ...current, enabled: false, connected: false, hasToken: false, status: 'disabled' } : current);
       setRuntimeConfig(null);
+      setLastProviderSessions({});
       setActiveUser(null);
       input.onRefreshCurrentSession?.(null);
       setLoginState('idle');
@@ -357,6 +371,14 @@ export function WeChatPanel(input: {
                 </div>
               </div>
             ) : null}
+            {runtimeConfig?.accountId ? (
+              <div className="col-md-6">
+                <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                  <span className="text-muted-soft small">微信 Account ID</span>
+                  <span>{runtimeConfig.accountId}</span>
+                </div>
+              </div>
+            ) : null}
             {activeUser ? (
               <div className="col-md-6">
                 <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
@@ -387,6 +409,68 @@ export function WeChatPanel(input: {
                     </div>
                   </div>
                 ) : null}
+                <div className="col-md-6">
+                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small">Provider 会话 ID</span>
+                    <span>{input.currentSession.providerSessionId ?? '-'}</span>
+                  </div>
+                </div>
+                <div className="col-md-6">
+                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small">创建时间</span>
+                    <span>{formatTimestamp(input.currentSession.createdAt)}</span>
+                  </div>
+                </div>
+                <div className="col-md-6">
+                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small">最后活跃时间</span>
+                    <span>{formatTimestamp(input.currentSession.lastActivityAt)}</span>
+                  </div>
+                </div>
+              </>
+            ) : null}
+            {lastProviderSessions['claude-code'] ? (
+              <>
+                <div className="col-md-6">
+                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small">Claude 最近 Provider 会话</span>
+                    <span>{lastProviderSessions['claude-code']?.providerSessionId}</span>
+                  </div>
+                </div>
+                <div className="col-md-6">
+                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small">Claude 最近工作目录</span>
+                    <span>{lastProviderSessions['claude-code']?.cwd}</span>
+                  </div>
+                </div>
+                <div className="col-md-6">
+                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small">Claude 最近更新时间</span>
+                    <span>{formatTimestamp(lastProviderSessions['claude-code']?.updatedAt)}</span>
+                  </div>
+                </div>
+              </>
+            ) : null}
+            {lastProviderSessions.codex ? (
+              <>
+                <div className="col-md-6">
+                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small">Codex 最近 Provider 会话</span>
+                    <span>{lastProviderSessions.codex?.providerSessionId}</span>
+                  </div>
+                </div>
+                <div className="col-md-6">
+                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small">Codex 最近工作目录</span>
+                    <span>{lastProviderSessions.codex?.cwd}</span>
+                  </div>
+                </div>
+                <div className="col-md-6">
+                  <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
+                    <span className="text-muted-soft small">Codex 最近更新时间</span>
+                    <span>{formatTimestamp(lastProviderSessions.codex?.updatedAt)}</span>
+                  </div>
+                </div>
               </>
             ) : null}
             {formatPluginHint(plugin) ? (

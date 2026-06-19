@@ -46,6 +46,7 @@ export function registerChannelAdminRoutes(input: {
     plugin: toWechatPluginStatus(wechat, input.users, input.channel),
     settings: input.defaults ?? { defaultProvider: 'claude-code', defaultWorkspace: process.cwd() },
     runtimeConfig: wechat ?? null,
+    lastProviderSessions: input.lastProviderSessions?.list() ?? {},
   }));
 
   input.app.post<{ Body: { plugin_id: string; config?: Record<string, unknown> } }>('/api/channel/plugins/enable', async (request, reply) => {

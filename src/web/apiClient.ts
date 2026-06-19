@@ -232,11 +232,18 @@ export async function fetchWeixinRuntimeConfig(): Promise<WeixinRuntimeConfigVie
   return await requestJsonOptional('/api/channel/wechat/runtime-config');
 }
 
+export type LastProviderSessionView = {
+  providerSessionId: string;
+  cwd: string;
+  updatedAt: number;
+};
+
 export type ChannelStateView = {
   activeUser: ActiveWeChatUserView | null;
   plugin: ChannelPluginView;
   settings: BridgeSettingsView;
   runtimeConfig: WeixinRuntimeConfigView | null;
+  lastProviderSessions?: Partial<Record<'claude-code' | 'codex', LastProviderSessionView>>;
 };
 
 export async function fetchChannelState(): Promise<ChannelStateView> {
