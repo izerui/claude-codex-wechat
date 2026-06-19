@@ -235,12 +235,12 @@ export function registerChannelAdminRoutes(input: {
     cwd?: string;
     chatId?: string;
   } }>('/api/channel/sessions/new', async (request, reply) => {
-    if (!input.conversation) {
-      return reply.code(500).send({ ok: false, error: 'current_conversation_store_unavailable' });
-    }
     const user = input.users.isActiveUser(PRIMARY_WEIXIN_PLATFORM, request.body.platformUserId);
     if (!user) {
       return reply.code(404).send({ ok: false, error: 'active_wechat_user_not_found' });
+    }
+    if (!input.conversation) {
+      return reply.code(500).send({ ok: false, error: 'current_conversation_store_unavailable' });
     }
     const providerId = request.body.providerId === 'codex' ? 'codex' : 'claude-code';
     const cwd = typeof request.body.cwd === 'string' && request.body.cwd.trim()
