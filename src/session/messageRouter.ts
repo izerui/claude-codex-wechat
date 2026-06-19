@@ -232,6 +232,7 @@ export class MessageRouter {
           '- `/sessions mine` — 只看通过微信创建的会话',
           '- `/resume <编号>` — 按列表编号恢复',
           '- `/resume <id>` — 按会话 id 恢复',
+          '- `/archive [编号]` — 归档会话（仅 Codex；省略则归档当前会话）',
           '',
           '**权限审批**（AI 请求工具授权时使用，`<id>` 见请求消息）',
           '- `/approve <id>` — 批准本次请求',
@@ -396,6 +397,54 @@ export class MessageRouter {
           ? `${head}\n已切换工作目录到 ${attached.cwd}`
           : `${head} · ${attached.cwd}`;
       await this.options.channel.sendMessage({ chatId, kind: 'status', text });
+      return;
+    }
+
+    if (command.kind === 'archive_session') {
+      const ref = command.ref.trim();
+      const current = this.conversation.getCurrent();
+      let providerId: ProviderId;
+      let providerSessionId: string;
+      if (!ref) {
+        if (!current?.providerSessionId) {
+          await this.options.channel.sendMessage({ chatId, kind: 'status', text: '当前没有可归档的会话' });
+          return;
+        }
+        providerId = current.providerId;
+        providerSessionId = current.providerSessionId;
+      } else if (/^\d+$/.test(ref)) {
+        const cached = this.sessionListCache.get(chatId);
+        if (!cached) {
+          await this.options.channel.sendMessage({ chatId, kind: 'status', text: '请先用 /sessions 查看列表，再用编号归档' });
+          return;
+        }
+        const index = Number.parseInt(ref, 10);
+        if (index < 1 || index > cached.ids.length) {
+          await this.options.channel.sendMessage({ chatId, kind: 'status', text: `编号 ${ref} 超出范围，请重新 /sessions 查看` });
+          return;
+        }
+        providerId = cached.providerId;
+        providerSessionId = cached.ids[index - 1];
+      } else {
+        providerId = current?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
+        providerSessionId = ref;
+      }
+      const provider = this.providers.get(providerId);
+      if (!provider?.archiveSession) {
+        await this.options.channel.sendMessage({ chatId, kind: 'status', text: `${providerId} 无原生归档命令，暂不支持归档（可用 /stop 停止，会话仍可 resume）` });
+        return;
+      }
+      const isCurrent = current?.providerSessionId === providerSessionId;
+      try {
+        if (isCurrent && current) await provider.stopSession(current.id);
+        await provider.archiveSession(providerSessionId);
+      } catch (error) {
+        await this.options.channel.sendMessage({ chatId, kind: 'status', text: `归档失败：${error instanceof Error ? error.message : String(error)}` });
+        return;
+      }
+      if (isCurrent) this.conversation.clear();
+      this.sessionListCache.delete(chatId);
+      await this.options.channel.sendMessage({ chatId, kind: 'status', text: `已归档会话 ${providerSessionId}` });
       return;
     }
 

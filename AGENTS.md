@@ -211,6 +211,13 @@ The repository already contains opt-in real CLI tests. Keep these principles in 
 
 These rules are easy to break and must be preserved when changing WeChat bridge, provider, or recovery code.
 
+**Session continuity is the whole point: WeChat-driven turns MUST land in the same native session transcript a human resumes from the CLI — never a fork, never a different file.** This is a non-negotiable invariant; violating it breaks two-way sync between WeChat and the local Claude/Codex CLI, which is the core purpose of this bridge. Concretely, every bridge turn for a session must:
+
+1. **Continue the native session via its real resume mechanism, not a new one.** Claude turns go through `claude -p --resume <id>` (Codex via its equivalent resume). Do NOT pass `--fork-session` and do NOT let the provider mint a new session id mid-conversation. `claude -p --resume <id>` appends to the same `<id>.jsonl` by default (confirmed via `claude --help`: `--fork-session` is the only thing that changes the id, and it is opt-in). The id you resume with must be the same id a human sees in the CLI resume picker.
+2. **Run with the session's correct, stable cwd on every single turn.** Claude writes each transcript to `~/.claude/projects/<cwd-slug>/<id>.jsonl`, keyed by the cwd the process runs in. A wrong cwd makes the next message fail with `spawn ... ENOENT` (non-existent dir) or silently route the turn into a different project bucket — either way the CLI sees nothing. A cwd that changes between turns of the same session splits the conversation across files. Resolve cwd authoritatively (see the cwd rule below), and reuse the session's persisted cwd for the whole session.
+
+Litmus test: after several WeChat turns, opening `claude --resume <id>` (or the Codex picker) in the session's real cwd must show those exact WeChat turns and Claude/Codex replies. If WeChat and the CLI ever show different histories for the same session id, this invariant has been violated.
+
 ### Claude resume invariants
 
 For a WeChat-driven Claude session to be recoverable through `claude -r` and visible in Claude resume flows, all of the following must stay aligned:

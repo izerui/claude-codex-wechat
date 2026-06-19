@@ -73,4 +73,5 @@ export interface NativeProviderAdapter {
     bridgeSessionId: string;
     cwd: string;
   }): Promise<ProviderSession>;
+  archiveSession?(providerSessionId: string): Promise<void>;
 }

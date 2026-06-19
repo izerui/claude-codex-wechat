@@ -22,4 +22,22 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/cwd /Users/liuyuhua/github/happier')).toEqual({ kind: 'set_cwd', cwd: '/Users/liuyuhua/github/happier' });
     expect(parseBridgeCommand('帮我检查这个项目')).toEqual({ kind: 'chat', text: '帮我检查这个项目' });
   });
+
+  it('parses session listing commands', () => {
+    expect(parseBridgeCommand('/sessions')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: null });
+    expect(parseBridgeCommand('/sessions mine')).toEqual({ kind: 'list_sessions', scope: 'mine', keyword: null });
+    expect(parseBridgeCommand('/sessions 登录 重构')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: '登录 重构' });
+  });
+
+  it('parses resume commands by index or id', () => {
+    expect(parseBridgeCommand('/resume 3')).toEqual({ kind: 'resume_session', ref: '3' });
+    expect(parseBridgeCommand('/resume bs_abc')).toEqual({ kind: 'resume_session', ref: 'bs_abc' });
+    expect(parseBridgeCommand('/resume')).toEqual({ kind: 'resume_session', ref: '' });
+  });
+
+  it('parses archive commands with optional target', () => {
+    expect(parseBridgeCommand('/archive')).toEqual({ kind: 'archive_session', ref: '' });
+    expect(parseBridgeCommand('/archive 2')).toEqual({ kind: 'archive_session', ref: '2' });
+    expect(parseBridgeCommand('/archive sess_xyz')).toEqual({ kind: 'archive_session', ref: 'sess_xyz' });
+  });
 });

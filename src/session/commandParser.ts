@@ -10,6 +10,7 @@ export type BridgeCommand =
   | { kind: 'reload' }
   | { kind: 'list_sessions'; scope: 'all' | 'mine'; keyword: string | null }
   | { kind: 'resume_session'; ref: string }
+  | { kind: 'archive_session'; ref: string }
   | { kind: 'permission_decision'; requestId: string; decision: Exclude<PermissionChoice, 'approve_for_session'> }
   | { kind: 'chat'; text: string };
 
@@ -39,6 +40,10 @@ export function parseBridgeCommand(input: string): BridgeCommand {
 
   if (command === '/resume') {
     return { kind: 'resume_session', ref: first ?? '' };
+  }
+
+  if (command === '/archive') {
+    return { kind: 'archive_session', ref: first ?? '' };
   }
 
   if (command === '/new') {
