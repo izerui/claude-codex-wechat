@@ -79,6 +79,7 @@ export function WeChatPanel(input: {
   const [newSessionProvider, setNewSessionProvider] = useState<'claude-code' | 'codex'>('claude-code');
   const [newSessionCwd, setNewSessionCwd] = useState('');
   const [creatingSession, setCreatingSession] = useState(false);
+  const [sessionConfigTab, setSessionConfigTab] = useState<'new' | 'defaults'>('new');
   const newSessionCwdTouched = useRef(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -430,85 +431,107 @@ export function WeChatPanel(input: {
         </div>
       </div>
 
-      {activeUser && isPluginConnected(plugin) ? (
-        <div className="soft-card mb-2">
-          <div className="card-header">新建会话</div>
-          <div className="card-body">
-            <p className="text-muted-soft small mb-3">用指定的提供方与目录开启一个新对话，立即成为当前会话，并通知微信。</p>
-            <div className="row g-3 align-items-end">
-              <div className="col-md-4">
-                <label className="form-label" htmlFor="new-session-provider">提供方</label>
-                <select
-                  id="new-session-provider"
-                  className="form-select"
-                  value={newSessionProvider}
-                  onChange={(event) => setNewSessionProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
-                >
-                  <option value="claude-code">Claude Code</option>
-                  <option value="codex">Codex CLI</option>
-                </select>
-              </div>
-              <div className="col-md-5">
-                <label className="form-label" htmlFor="new-session-cwd">工作目录</label>
-                <input
-                  id="new-session-cwd"
-                  className="form-control"
-                  value={newSessionCwd}
-                  onChange={(event) => {
-                    newSessionCwdTouched.current = true;
-                    setNewSessionCwd(event.target.value);
-                  }}
-                  type="text"
-                />
-              </div>
-              <div className="col-md-3">
-                <button
-                  className="btn btn-accent w-100"
-                  disabled={creatingSession || !newSessionCwd.trim()}
-                  onClick={() => void submitNewSession()}
-                  type="button"
-                >
-                  {creatingSession ? '新建中...' : '新建会话'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <div className="soft-card mb-2">
-        <div className="card-header">会话默认值</div>
-        <div className="card-body">
-          <p className="text-muted-soft small mb-3">仅在未指定时生效：新用户首次对话、或无当前会话自动接入时按此默认值新建。</p>
-          <div className="row g-3 align-items-end">
-            <div className="col-md-4">
-              <label className="form-label" htmlFor="default-provider">提供方</label>
-              <select
-                id="default-provider"
-                className="form-select"
-                value={settings?.defaultProvider ?? 'claude-code'}
-                onChange={(event) => changeDefaultProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
+        <div className="card-header p-0">
+          <ul className="nav nav-accent">
+            {activeUser && isPluginConnected(plugin) ? (
+              <li className="nav-item">
+                <button
+                  type="button"
+                  className={`nav-link ${sessionConfigTab === 'new' ? 'active' : ''}`}
+                  onClick={() => setSessionConfigTab('new')}
+                >
+                  新建会话
+                </button>
+              </li>
+            ) : null}
+            <li className="nav-item">
+              <button
+                type="button"
+                className={`nav-link ${sessionConfigTab === 'defaults' || !(activeUser && isPluginConnected(plugin)) ? 'active' : ''}`}
+                onClick={() => setSessionConfigTab('defaults')}
               >
-                <option value="claude-code">Claude Code</option>
-                <option value="codex">Codex CLI</option>
-              </select>
-            </div>
-            <div className="col-md-5">
-              <label className="form-label" htmlFor="default-workspace">工作目录</label>
-              <input
-                id="default-workspace"
-                className="form-control"
-                value={settings?.defaultWorkspace ?? ''}
-                onChange={(event) => setSettings((current) => current ? { ...current, defaultWorkspace: event.target.value } : current)}
-                type="text"
-              />
-            </div>
-            <div className="col-md-3">
-              <button className="btn btn-accent w-100" disabled={!settings || savingSettings} onClick={() => void saveDefaultSettings()} type="button">
-                {savingSettings ? '保存中...' : '保存'}
+                会话默认值
               </button>
-            </div>
-          </div>
+            </li>
+          </ul>
+        </div>
+        <div className="card-body">
+          {sessionConfigTab === 'new' && activeUser && isPluginConnected(plugin) ? (
+            <>
+              <p className="text-muted-soft small mb-3">用指定的提供方与目录开启一个新对话，立即成为当前会话，并通知微信。</p>
+              <div className="row g-3 align-items-end">
+                <div className="col-md-4">
+                  <label className="form-label" htmlFor="new-session-provider">提供方</label>
+                  <select
+                    id="new-session-provider"
+                    className="form-select"
+                    value={newSessionProvider}
+                    onChange={(event) => setNewSessionProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
+                  >
+                    <option value="claude-code">Claude Code</option>
+                    <option value="codex">Codex CLI</option>
+                  </select>
+                </div>
+                <div className="col-md-5">
+                  <label className="form-label" htmlFor="new-session-cwd">工作目录</label>
+                  <input
+                    id="new-session-cwd"
+                    className="form-control"
+                    value={newSessionCwd}
+                    onChange={(event) => {
+                      newSessionCwdTouched.current = true;
+                      setNewSessionCwd(event.target.value);
+                    }}
+                    type="text"
+                  />
+                </div>
+                <div className="col-md-3">
+                  <button
+                    className="btn btn-accent w-100"
+                    disabled={creatingSession || !newSessionCwd.trim()}
+                    onClick={() => void submitNewSession()}
+                    type="button"
+                  >
+                    {creatingSession ? '新建中...' : '新建会话'}
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-muted-soft small mb-3">仅在未指定时生效：新用户首次对话、或无当前会话自动接入时按此默认值新建。</p>
+              <div className="row g-3 align-items-end">
+                <div className="col-md-4">
+                  <label className="form-label" htmlFor="default-provider">提供方</label>
+                  <select
+                    id="default-provider"
+                    className="form-select"
+                    value={settings?.defaultProvider ?? 'claude-code'}
+                    onChange={(event) => changeDefaultProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
+                  >
+                    <option value="claude-code">Claude Code</option>
+                    <option value="codex">Codex CLI</option>
+                  </select>
+                </div>
+                <div className="col-md-5">
+                  <label className="form-label" htmlFor="default-workspace">工作目录</label>
+                  <input
+                    id="default-workspace"
+                    className="form-control"
+                    value={settings?.defaultWorkspace ?? ''}
+                    onChange={(event) => setSettings((current) => current ? { ...current, defaultWorkspace: event.target.value } : current)}
+                    type="text"
+                  />
+                </div>
+                <div className="col-md-3">
+                  <button className="btn btn-accent w-100" disabled={!settings || savingSettings} onClick={() => void saveDefaultSettings()} type="button">
+                    {savingSettings ? '保存中...' : '保存'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
