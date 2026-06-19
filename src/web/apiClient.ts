@@ -302,6 +302,19 @@ export async function attachProviderSession(input: {
   });
 }
 
+export async function createNewSession(input: {
+  providerId: 'claude-code' | 'codex';
+  cwd: string;
+  platformUserId: string;
+  chatId?: string;
+}): Promise<void> {
+  await requestJson('/api/channel/sessions/new', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
 export async function autoAttachProviderSession(input: {
   providerId: 'claude-code' | 'codex';
   platformUserId: string;
