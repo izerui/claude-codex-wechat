@@ -23,7 +23,7 @@ import {
 } from './apiClient';
 
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
-type SessionTab = 'claude-native' | 'codex-native';
+type SessionTab = 'new' | 'defaults' | 'claude-native' | 'codex-native';
 
 function isPluginConnected(plugin: ChannelPluginView | null): boolean {
   return plugin?.enabled === true && plugin.connected === true;
@@ -69,7 +69,7 @@ export function WeChatPanel(input: {
   const [runtimeConfig, setRuntimeConfig] = useState<WeixinRuntimeConfigView | null>(null);
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
   const [recoverableSessions, setRecoverableSessions] = useState<RecoverableProviderSessionView[]>([]);
-  const [activeSessionTab, setActiveSessionTab] = useState<SessionTab>('claude-native');
+  const [activeTab, setActiveTab] = useState<SessionTab>('new');
   const [loginState, setLoginState] = useState<LoginState>('idle');
   const [qrcodeData, setQrcodeData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +79,6 @@ export function WeChatPanel(input: {
   const [newSessionProvider, setNewSessionProvider] = useState<'claude-code' | 'codex'>('claude-code');
   const [newSessionCwd, setNewSessionCwd] = useState('');
   const [creatingSession, setCreatingSession] = useState(false);
-  const [sessionConfigTab, setSessionConfigTab] = useState<'new' | 'defaults'>('new');
   const newSessionProviderTouched = useRef(false);
   const newSessionCwdTouched = useRef(false);
   const lastSessionIdRef = useRef<string | null | undefined>(undefined);
@@ -106,7 +105,6 @@ export function WeChatPanel(input: {
 
   const scanRecoverableSessions = useCallback(async (providerId: 'claude-code' | 'codex') => {
     try {
-      setActiveSessionTab(providerId === 'claude-code' ? 'claude-native' : 'codex-native');
       setRecoverableSessions(await fetchRecoverableProviderSessions(providerId));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -138,8 +136,9 @@ export function WeChatPanel(input: {
 
   useEffect(() => {
     if (!activeUser) return;
-    void scanRecoverableSessions(activeSessionTab === 'codex-native' ? 'codex' : 'claude-code');
-  }, [activeSessionTab, activeUser, scanRecoverableSessions]);
+    if (activeTab === 'claude-native') void scanRecoverableSessions('claude-code');
+    else if (activeTab === 'codex-native') void scanRecoverableSessions('codex');
+  }, [activeTab, activeUser, scanRecoverableSessions]);
 
   useEffect(() => {
     return subscribeBridgeEvents((payload) => {
@@ -325,8 +324,11 @@ export function WeChatPanel(input: {
   const currentUserLabel = activeUser?.displayName ?? activeUser?.platformUserId;
   const showWeixinIdentity = isPluginConnected(plugin);
   const filteredRecoverableSessions = recoverableSessions.filter((session) => (
-    activeSessionTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
+    activeTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
   ));
+
+  const canCreateSession = Boolean(activeUser && isPluginConnected(plugin));
+  const effectiveTab = activeTab === 'new' && !canCreateSession ? 'defaults' : activeTab;
 
   return (
     <section>
@@ -447,12 +449,12 @@ export function WeChatPanel(input: {
       </div>
 
       <ul className="nav nav-accent mb-2">
-        {activeUser && isPluginConnected(plugin) ? (
+        {canCreateSession ? (
           <li className="nav-item">
             <button
               type="button"
-              className={`nav-link ${sessionConfigTab === 'new' ? 'active' : ''}`}
-              onClick={() => setSessionConfigTab('new')}
+              className={`nav-link ${effectiveTab === 'new' ? 'active' : ''}`}
+              onClick={() => setActiveTab('new')}
             >
               新建会话
             </button>
@@ -461,17 +463,41 @@ export function WeChatPanel(input: {
         <li className="nav-item">
           <button
             type="button"
-            className={`nav-link ${sessionConfigTab === 'defaults' || !(activeUser && isPluginConnected(plugin)) ? 'active' : ''}`}
-            onClick={() => setSessionConfigTab('defaults')}
+            className={`nav-link ${effectiveTab === 'defaults' ? 'active' : ''}`}
+            onClick={() => setActiveTab('defaults')}
           >
             会话默认值
+          </button>
+        </li>
+        <li className="nav-item">
+          <button
+            type="button"
+            className={`nav-link ${activeTab === 'claude-native' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('claude-native');
+              void scanRecoverableSessions('claude-code');
+            }}
+          >
+            Claude 原生会话
+          </button>
+        </li>
+        <li className="nav-item">
+          <button
+            type="button"
+            className={`nav-link ${activeTab === 'codex-native' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('codex-native');
+              void scanRecoverableSessions('codex');
+            }}
+          >
+            Codex 原生会话
           </button>
         </li>
       </ul>
 
       <div className="soft-card mb-2">
         <div className="card-body">
-          {sessionConfigTab === 'new' && activeUser && isPluginConnected(plugin) ? (
+          {effectiveTab === 'new' ? (
             <>
               <p className="text-muted-soft small mb-3">用指定的提供方与目录开启一个新对话，立即成为当前会话，并通知微信。</p>
               <div className="row g-3 align-items-end">
@@ -515,7 +541,7 @@ export function WeChatPanel(input: {
                 </div>
               </div>
             </>
-          ) : (
+          ) : effectiveTab === 'defaults' ? (
             <>
               <p className="text-muted-soft small mb-3">仅在未指定时生效：新用户首次对话、或无当前会话自动接入时按此默认值新建。</p>
               <div className="row g-3 align-items-end">
@@ -548,56 +574,30 @@ export function WeChatPanel(input: {
                 </div>
               </div>
             </>
-          )}
-        </div>
-      </div>
-
-      <ul className="nav nav-accent mb-2">
-        <li className="nav-item">
-          <button
-            type="button"
-            className={`nav-link ${activeSessionTab === 'claude-native' ? 'active' : ''}`}
-            onClick={() => void scanRecoverableSessions('claude-code')}
-          >
-            Claude 原生会话
-          </button>
-        </li>
-        <li className="nav-item">
-          <button
-            type="button"
-            className={`nav-link ${activeSessionTab === 'codex-native' ? 'active' : ''}`}
-            onClick={() => void scanRecoverableSessions('codex')}
-          >
-            Codex 原生会话
-          </button>
-        </li>
-      </ul>
-
-      <div className="soft-card">
-        <div className="card-header">可恢复原生会话</div>
-        <div className="card-body">
-          {filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复原生会话。</p> : (
-            <ul className="list-unstyled mb-0">
-              {filteredRecoverableSessions.map((session) => (
-                <li key={`${session.providerId}:${session.id}`} className="border rounded p-3 mb-2">
-                  <div className="fw-semibold">{session.title ?? session.id}</div>
-                  <div className="small text-muted-soft">{session.id}</div>
-                  <div>原生恢复状态：{session.providerResumeTitleSynced === true ? '已同步' : session.providerResumeRepairable === true ? '待修复' : '-'}</div>
-                  {session.preferredResumeCommand ? <div>推荐恢复：{session.preferredResumeCommand}</div> : null}
-                  {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
-                  {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
-                  {session.cwd ? <div className="small text-muted-soft">{session.cwd}</div> : null}
-                  <button
-                    className="btn btn-accent btn-sm mt-2"
-                    disabled={attachingSessionId === session.id}
-                    onClick={() => void attachRecoverableSession(session)}
-                    type="button"
-                  >
-                    {attachingSessionId === session.id ? '接入中...' : '接入会话'}
-                  </button>
-                </li>
-              ))}
-            </ul>
+          ) : (
+            filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复原生会话。</p> : (
+              <ul className="list-unstyled mb-0">
+                {filteredRecoverableSessions.map((session) => (
+                  <li key={`${session.providerId}:${session.id}`} className="border rounded p-3 mb-2">
+                    <div className="fw-semibold">{session.title ?? session.id}</div>
+                    <div className="small text-muted-soft">{session.id}</div>
+                    <div>原生恢复状态：{session.providerResumeTitleSynced === true ? '已同步' : session.providerResumeRepairable === true ? '待修复' : '-'}</div>
+                    {session.preferredResumeCommand ? <div>推荐恢复：{session.preferredResumeCommand}</div> : null}
+                    {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
+                    {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
+                    {session.cwd ? <div className="small text-muted-soft">{session.cwd}</div> : null}
+                    <button
+                      className="btn btn-accent btn-sm mt-2"
+                      disabled={attachingSessionId === session.id}
+                      onClick={() => void attachRecoverableSession(session)}
+                      type="button"
+                    >
+                      {attachingSessionId === session.id ? '接入中...' : '接入会话'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )
           )}
         </div>
       </div>
