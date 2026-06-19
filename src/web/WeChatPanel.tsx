@@ -5,6 +5,7 @@ import {
   type ActiveWeChatUserEventView,
   type ActiveWeChatUserView,
   attachProviderSession,
+  createNewSession,
   disableWeixinPlugin,
   enableWeixinPlugin,
   type BridgeSettingsView,
@@ -75,6 +76,9 @@ export function WeChatPanel(input: {
   const [busy, setBusy] = useState(false);
   const [attachingSessionId, setAttachingSessionId] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [newSessionProvider, setNewSessionProvider] = useState<'claude-code' | 'codex'>('claude-code');
+  const [newSessionCwd, setNewSessionCwd] = useState('');
+  const [creatingSession, setCreatingSession] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const refresh = useCallback(async () => {
@@ -108,6 +112,12 @@ export function WeChatPanel(input: {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (settings?.defaultWorkspace) {
+      setNewSessionCwd((current) => current || settings.defaultWorkspace);
+    }
+  }, [settings]);
 
   useEffect(() => {
     if (!activeUser) return;
@@ -208,6 +218,32 @@ export function WeChatPanel(input: {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const submitNewSession = async () => {
+    if (!activeUser?.platformUserId) {
+      setError('no_active_wechat_user');
+      return;
+    }
+    if (creatingSession) return;
+    setError(null);
+    setCreatingSession(true);
+    try {
+      await createNewSession({
+        providerId: newSessionProvider,
+        cwd: newSessionCwd,
+        platformUserId: activeUser.platformUserId,
+        chatId: activeUser.platformUserId,
+      });
+      const nextCurrentSession = await fetchCurrentSession();
+      input.onRefreshCurrentSession?.(nextCurrentSession);
+      await refresh();
+      input.onNotice?.('已新建会话');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreatingSession(false);
     }
   };
 
@@ -393,9 +429,53 @@ export function WeChatPanel(input: {
         </div>
       </div>
 
+      {activeUser && isPluginConnected(plugin) ? (
+        <div className="soft-card mb-2">
+          <div className="card-header">新建会话</div>
+          <div className="card-body">
+            <p className="text-muted-soft small mb-3">用指定的提供方与目录开启一个新对话，立即成为当前会话，并通知微信。</p>
+            <div className="row g-3 align-items-end">
+              <div className="col-md-4">
+                <label className="form-label" htmlFor="new-session-provider">提供方</label>
+                <select
+                  id="new-session-provider"
+                  className="form-select"
+                  value={newSessionProvider}
+                  onChange={(event) => setNewSessionProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
+                >
+                  <option value="claude-code">Claude Code</option>
+                  <option value="codex">Codex CLI</option>
+                </select>
+              </div>
+              <div className="col-md-5">
+                <label className="form-label" htmlFor="new-session-cwd">工作目录</label>
+                <input
+                  id="new-session-cwd"
+                  className="form-control"
+                  value={newSessionCwd}
+                  onChange={(event) => setNewSessionCwd(event.target.value)}
+                  type="text"
+                />
+              </div>
+              <div className="col-md-3">
+                <button
+                  className="btn btn-accent w-100"
+                  disabled={creatingSession || !newSessionCwd.trim()}
+                  onClick={() => void submitNewSession()}
+                  type="button"
+                >
+                  {creatingSession ? '新建中...' : '新建会话'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="soft-card mb-2">
-        <div className="card-header">默认会话设置</div>
+        <div className="card-header">会话默认值</div>
         <div className="card-body">
+          <p className="text-muted-soft small mb-3">仅在未指定时生效：新用户首次对话、或无当前会话自动接入时按此默认值新建。</p>
           <div className="row g-3 align-items-end">
             <div className="col-md-4">
               <label className="form-label" htmlFor="default-provider">提供方</label>
