@@ -22,6 +22,7 @@ export function formatPermissionMessage(request: PermissionRequest): string {
   if (command) lines.push('', '命令:', command);
   lines.push('', '请直接在微信里回复以下任一命令完成选择:');
   if (request.choices.includes('approve')) lines.push(`/approve ${request.id}`);
+  if (request.choices.includes('approve_for_session')) lines.push(`/always ${request.id}（本会话内永久批准）`);
   if (request.choices.includes('deny')) lines.push(`/deny ${request.id}`);
   if (request.choices.includes('abort')) lines.push(`/abort ${request.id}`);
   return lines.join('\n');

@@ -1,7 +1,7 @@
 import type { ChannelAdapter, ChannelIncomingMessage } from '../channels/types';
 import { formatPermissionMessage } from '../permissions/formatPermissionMessage';
 import type { PermissionRouter } from '../permissions/permissionRouter';
-import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate } from '../providers/types';
+import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, PermissionChoice } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { parseBridgeCommand } from './commandParser';
 import { CurrentConversationStore, type CurrentConversationBinding } from './currentConversationStore';
@@ -236,6 +236,7 @@ export class MessageRouter {
           '',
           '**权限审批**（AI 请求工具授权时使用，`<id>` 见请求消息）',
           '- `/approve <id>` — 批准本次请求',
+          '- `/always <id>` — 本会话内永久批准该工具',
           '- `/deny <id>` — 拒绝本次请求',
           '- `/abort <id>` — 中止本次请求',
         ].join('\n'),
@@ -494,16 +495,19 @@ export class MessageRouter {
     }
   }
 
-  async decidePermission(input: { requestId: string; userId: string; decision: 'approve' | 'deny' | 'abort' }): Promise<
+  async decidePermission(input: { requestId: string; userId: string; decision: PermissionChoice }): Promise<
     { ok: true } | { ok: false; error: string }
   > {
     const request = this.options.permissions.getRequest(input.requestId);
     const result = this.options.permissions.decide(input);
     if (!result.ok) return result;
     if (request) {
+      // Providers have no native per-session approval, so map approve_for_session
+      // down to a plain approve when handing the decision to the CLI.
+      const providerDecision = input.decision === 'approve_for_session' ? 'approve' : input.decision;
       await this.providers.get(request.providerId)?.decidePermission?.({
         requestId: input.requestId,
-        decision: input.decision,
+        decision: providerDecision,
       });
     }
     return result;

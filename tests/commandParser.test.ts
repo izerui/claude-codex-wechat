@@ -16,6 +16,7 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/approve pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'approve' });
     expect(parseBridgeCommand('/deny pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'deny' });
     expect(parseBridgeCommand('/abort pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'abort' });
+    expect(parseBridgeCommand('/always pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'approve_for_session' });
   });
 
   it('parses cwd and plain text', () => {

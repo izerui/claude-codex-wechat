@@ -1,6 +1,6 @@
 import type { PermissionChoice, PermissionRequest } from '../providers/types';
 
-export type PermissionDecision = Exclude<PermissionChoice, 'approve_for_session'>;
+export type PermissionDecision = PermissionChoice;
 
 export type StoredPermissionRequest = PermissionRequest & {
   status: 'pending' | 'decided';

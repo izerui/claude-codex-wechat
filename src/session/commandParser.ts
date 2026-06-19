@@ -11,7 +11,7 @@ export type BridgeCommand =
   | { kind: 'list_sessions'; scope: 'all' | 'mine'; keyword: string | null }
   | { kind: 'resume_session'; ref: string }
   | { kind: 'archive_session'; ref: string }
-  | { kind: 'permission_decision'; requestId: string; decision: Exclude<PermissionChoice, 'approve_for_session'> }
+  | { kind: 'permission_decision'; requestId: string; decision: PermissionChoice }
   | { kind: 'chat'; text: string };
 
 function parseProvider(value: string | undefined): ProviderId | null {
@@ -64,6 +64,10 @@ export function parseBridgeCommand(input: string): BridgeCommand {
   if ((command === '/approve' || command === '/deny' || command === '/abort') && first) {
     const decision = command.slice(1) as 'approve' | 'deny' | 'abort';
     return { kind: 'permission_decision', requestId: first, decision };
+  }
+
+  if (command === '/always' && first) {
+    return { kind: 'permission_decision', requestId: first, decision: 'approve_for_session' };
   }
 
   return { kind: 'chat', text };
