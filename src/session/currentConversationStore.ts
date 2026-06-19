@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { nanoid } from 'nanoid';
 import type { ProviderId, ProviderSessionStatus } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
+import { expandTilde } from '../shared/expandTilde';
 
 export type CurrentConversationBinding = {
   id: string;
@@ -99,20 +100,23 @@ export class CurrentConversationStore {
   }
 
   private writeCurrent(record: CurrentConversationBinding): void {
+    // 持久化前统一展开 cwd 的 `~`,确保存进配置的就是绝对路径,
+    // 后续 spawn 直接可用(避免字面 `~` 触发 ENOENT)。
+    const normalized: CurrentConversationBinding = { ...record, cwd: expandTilde(record.cwd) ?? record.cwd };
     const state = this.readState();
     const activeWeChatUser = state.bridge?.activeWeChatUser;
     state.bridge = {
       ...(state.bridge ?? {}),
       activeWeChatUser: activeWeChatUser
-        ? { ...activeWeChatUser, currentConversation: record }
+        ? { ...activeWeChatUser, currentConversation: normalized }
         : {
             id: `user_${nanoid(10)}`,
             platform: 'weixin',
-            platformUserId: record.chatId,
+            platformUserId: normalized.chatId,
             role: 'user',
-            createdAt: record.createdAt,
-            updatedAt: record.lastActivityAt,
-            currentConversation: record,
+            createdAt: normalized.createdAt,
+            updatedAt: normalized.lastActivityAt,
+            currentConversation: normalized,
           },
     };
     this.writeState(state);

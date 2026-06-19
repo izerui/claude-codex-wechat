@@ -99,10 +99,21 @@ export class MessageRouter {
       // /cancel and read-only commands run immediately (concurrent with an
       // in-flight generation, which is exactly what /cancel needs). Every
       // session-mutating command is serialized behind the active generation.
+      // setTyping toggles inside the run callback (not before runExclusive) so a
+      // queued command's typing isn't cleared by the preceding generation's
+      // finally-block setTyping(false).
+      const runWithTyping = async () => {
+        await this.options.channel.setTyping?.(message.chatId, true);
+        try {
+          await this.handleCommand(message.chatId, user, command);
+        } finally {
+          await this.options.channel.setTyping?.(message.chatId, false);
+        }
+      };
       if (isImmediateCommand(command.kind)) {
-        await this.handleCommand(message.chatId, user, command);
+        await runWithTyping();
       } else {
-        await this.runExclusive(() => this.handleCommand(message.chatId, user, command));
+        await this.runExclusive(runWithTyping);
       }
       return { status: 'accepted' };
     }

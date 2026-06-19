@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { expandTilde } from '../../shared/expandTilde';
 import type { PermissionRequest, ProviderEvent, ProviderSession } from '../types';
 
 export type CodexProcessCall = {
@@ -228,7 +229,7 @@ function wrapProcessRunner(processRunner: CodexProcessRunner): CodexLineStreamer
 }
 
 async function* defaultCodexLineStreamer(call: CodexProcessCall): AsyncIterable<CodexStreamChunk> {
-  const child = spawn(call.command, call.args, { cwd: call.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
   child.stdin.end(call.input);
 
   let stderr = '';
