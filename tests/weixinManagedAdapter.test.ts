@@ -1,11 +1,25 @@
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ManagedWeixinDirectAdapter } from '../src/channels/weixin-direct/managedAdapter';
+import { ManagedWeixinDirectAdapter, buildTransientWeixinUin } from '../src/channels/weixin-direct/managedAdapter';
 
 const servers: Array<{ close: () => Promise<unknown> }> = [];
 
 afterEach(async () => {
   while (servers.length) await servers.pop()!.close();
+});
+
+describe('buildTransientWeixinUin', () => {
+  it('encodes X-WECHAT-UIN as base64 of a uint32 decimal string', () => {
+    for (let i = 0; i < 50; i += 1) {
+      const uin = buildTransientWeixinUin();
+      const decoded = Buffer.from(uin, 'base64').toString('utf8');
+      expect(decoded).toMatch(/^\d+$/);
+      const n = Number(decoded);
+      expect(Number.isInteger(n)).toBe(true);
+      expect(n).toBeGreaterThanOrEqual(0);
+      expect(n).toBeLessThanOrEqual(4_294_967_295);
+    }
+  });
 });
 
 describe('ManagedWeixinDirectAdapter', () => {

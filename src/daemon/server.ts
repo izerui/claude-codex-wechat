@@ -7,6 +7,7 @@ import { registerSettingsRoutes } from '../admin/settingsRoutes';
 import type { ChannelAdapter } from '../channels/types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { ManagedWeixinDirectAdapter } from '../channels/weixin-direct/managedAdapter';
+import { FileWeixinStateStore } from '../channels/weixin-direct/weixinStateStore';
 import { PermissionRouter } from '../permissions/permissionRouter';
 import { createDefaultProviders } from '../providers/defaultProviders';
 import type { NativeProviderAdapter } from '../providers/types';
@@ -79,7 +80,8 @@ export function createDaemonServer(options: {
       options: currentConversation.providerSessionId ? { providerSessionId: currentConversation.providerSessionId } : undefined,
     });
   }
-  const managedWechatChannel = options.channel ? null : new ManagedWeixinDirectAdapter(options.wechat);
+  const weixinStateStore = configPath ? new FileWeixinStateStore(configPath) : undefined;
+  const managedWechatChannel = options.channel ? null : new ManagedWeixinDirectAdapter(options.wechat, weixinStateStore);
   const channel = options.channel ?? managedWechatChannel;
   const messageRouter = channel
     ? new MessageRouter({

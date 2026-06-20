@@ -4,17 +4,20 @@ export class WeixinDirectApiClient {
   private readonly baseUrl: string;
   private readonly botToken: string;
   private readonly wechatUin: string;
+  private readonly channelVersion: string;
   private readonly fetchImpl: typeof fetch;
 
   constructor(input: {
     baseUrl: string;
     botToken: string;
     wechatUin: string;
+    channelVersion?: string;
     fetchImpl?: typeof fetch;
   }) {
     this.baseUrl = input.baseUrl.replace(/\/+$/, '');
     this.botToken = input.botToken;
     this.wechatUin = input.wechatUin;
+    this.channelVersion = input.channelVersion ?? '0.1.0';
     this.fetchImpl = input.fetchImpl ?? fetch;
   }
 
@@ -47,7 +50,7 @@ export class WeixinDirectApiClient {
           ],
           ...(input.contextToken ? { context_token: input.contextToken } : {}),
         },
-        base_info: {},
+        base_info: { channel_version: this.channelVersion },
       }),
     });
 
@@ -80,7 +83,7 @@ export class WeixinDirectApiClient {
       },
       body: JSON.stringify({
         get_updates_buf: buffer,
-        base_info: {},
+        base_info: { channel_version: this.channelVersion },
       }),
       ...(signal ? { signal } : {}),
     });
@@ -150,7 +153,7 @@ export class WeixinDirectApiClient {
       body: JSON.stringify({
         ilink_user_id: input.ilinkUserId,
         ...(input.contextToken ? { context_token: input.contextToken } : {}),
-        base_info: {},
+        base_info: { channel_version: this.channelVersion },
       }),
     });
     if (!response.ok) {
@@ -187,7 +190,7 @@ export class WeixinDirectApiClient {
         ilink_user_id: input.ilinkUserId,
         typing_ticket: input.typingTicket,
         status: input.status,
-        base_info: {},
+        base_info: { channel_version: this.channelVersion },
       }),
     });
     if (!response.ok) {

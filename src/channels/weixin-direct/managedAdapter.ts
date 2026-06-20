@@ -2,6 +2,7 @@ import type { WeixinConfig } from '../../daemon/config';
 import type { ChannelAdapter, ChannelMessageHandler, ChannelOutgoingMessage, ChannelStartOptions } from '../types';
 import { WeixinDirectApiClient } from './apiClient';
 import { WeixinDirectAdapter } from './adapter';
+import type { WeixinStateStore } from './weixinStateStore';
 
 export class ManagedWeixinDirectAdapter implements ChannelAdapter {
   readonly id = 'weixin-managed';
@@ -11,9 +12,11 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
   private running = false;
   private operation = Promise.resolve();
   private healthListeners = new Set<() => void>();
+  private readonly stateStore?: WeixinStateStore;
 
-  constructor(initialConfig?: WeixinConfig) {
-    this.adapter = createWeixinAdapter(initialConfig);
+  constructor(initialConfig?: WeixinConfig, stateStore?: WeixinStateStore) {
+    this.stateStore = stateStore;
+    this.adapter = createWeixinAdapter(initialConfig, stateStore);
   }
 
   onMessage(handler: ChannelMessageHandler): void {
@@ -52,7 +55,7 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
       if (this.adapter) {
         await this.adapter.stop();
       }
-      this.adapter = createWeixinAdapter(config);
+      this.adapter = createWeixinAdapter(config, this.stateStore);
       if (this.adapter && this.handler) {
         this.adapter.onMessage(this.handler);
       }
@@ -84,7 +87,7 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
   }
 }
 
-function createWeixinAdapter(config: WeixinConfig | undefined): ChannelAdapter | null {
+function createWeixinAdapter(config: WeixinConfig | undefined, stateStore?: WeixinStateStore): ChannelAdapter | null {
   if (config?.enabled !== true) return null;
   if (!config.baseUrl || !config.token) return null;
   const wechatUin = buildTransientWeixinUin();
@@ -94,11 +97,13 @@ function createWeixinAdapter(config: WeixinConfig | undefined): ChannelAdapter |
       botToken: config.token,
       wechatUin,
     }),
+    stateStore,
   });
 }
 
-function buildTransientWeixinUin(): string {
-  const bytes = new Uint8Array(4);
-  crypto.getRandomValues(bytes);
-  return Buffer.from(bytes).toString('base64');
+export function buildTransientWeixinUin(): string {
+  // Official iLink contract: X-WECHAT-UIN = base64(String(randomUint32)).
+  const value = new Uint32Array(1);
+  crypto.getRandomValues(value);
+  return Buffer.from(String(value[0])).toString('base64');
 }

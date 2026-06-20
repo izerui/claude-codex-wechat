@@ -1,5 +1,12 @@
-import type { ChannelAdapter, ChannelIncomingMessage, ChannelMessageHandler, ChannelOutgoingMessage } from '../types';
+import { setTimeout as delay } from 'node:timers/promises';
+import type { ChannelAdapter, ChannelMessageHandler, ChannelOutgoingMessage } from '../types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../platforms';
+import type { WeixinStateStore } from './weixinStateStore';
+
+const MAX_TEXT_LENGTH = 4_000;
+const DEFAULT_CHUNK_DELAY_MS = 300;
+const DEDUP_WINDOW_MS = 5 * 60_000;
+const MAX_RETRY_DELAY_MS = 30_000;
 
 type WeixinDirectApi = {
   getUpdates(buffer: string, signal?: AbortSignal): Promise<{
@@ -24,6 +31,8 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   private stopped = true;
   private buffer = '';
   private contextTokens = new Map<string, string>();
+  private seenMessageIds = new Map<string, number>();
+  private retryDelayMs = 0;
   private typingTickets = new Map<string, string>();
   private typingChain = new Map<string, Promise<void>>();
   private runningTask: Promise<void> | null = null;
@@ -37,6 +46,8 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   constructor(private readonly options: {
     api: WeixinDirectApi;
     pollIntervalMs?: number;
+    chunkDelayMs?: number;
+    stateStore?: WeixinStateStore;
   }) {}
 
   onMessage(handler: ChannelMessageHandler): void {
@@ -56,6 +67,13 @@ export class WeixinDirectAdapter implements ChannelAdapter {
 
   async start(input?: { background?: boolean }): Promise<void> {
     if (!this.handler) throw new Error('weixin_direct_handler_not_registered');
+    if (this.options.stateStore) {
+      const persisted = this.options.stateStore.load();
+      for (const [userId, token] of Object.entries(persisted.contextTokens)) {
+        this.contextTokens.set(userId, token);
+      }
+      if (persisted.cursor) this.buffer = persisted.cursor;
+    }
     this.stopped = false;
     const loop = this.runLoop();
     this.runningTask = loop;
@@ -72,11 +90,23 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   }
 
   async sendMessage(message: ChannelOutgoingMessage): Promise<void> {
-    await this.options.api.sendTextMessage({
-      toUserId: message.chatId,
-      text: message.text,
-      contextToken: this.contextTokens.get(message.chatId),
-    });
+    const contextToken = this.contextTokens.get(message.chatId);
+    if (!contextToken) {
+      // iLink reply/proactive-send requires a fresh context_token from the user's
+      // latest inbound message. Without it the gateway rejects with -3; fail loudly
+      // instead of firing a doomed request.
+      throw new Error(`weixin_no_context_token:${message.chatId}`);
+    }
+    const chunks = chunkText(message.text ?? '', MAX_TEXT_LENGTH);
+    const chunkDelayMs = this.options.chunkDelayMs ?? DEFAULT_CHUNK_DELAY_MS;
+    for (let i = 0; i < chunks.length; i += 1) {
+      if (i > 0 && chunkDelayMs > 0) await delay(chunkDelayMs);
+      await this.options.api.sendTextMessage({
+        toUserId: message.chatId,
+        text: chunks[i]!,
+        contextToken,
+      });
+    }
   }
 
   async setTyping(chatId: string, active: boolean): Promise<void> {
@@ -144,6 +174,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
         this.healthy = true;
         this.lastError = null;
         this.consecutiveSessionTimeouts = 0;
+        this.retryDelayMs = 0;
         this.notifyHealthChange();
       } catch (error) {
         if (this.stopped) break;
@@ -152,13 +183,22 @@ export class WeixinDirectAdapter implements ChannelAdapter {
         if (this.lastError.includes('session timeout')) this.consecutiveSessionTimeouts += 1;
         else this.consecutiveSessionTimeouts = 0;
         this.notifyHealthChange();
-        await new Promise((resolve) => setTimeout(resolve, this.options.pollIntervalMs ?? 1_000));
+        // Exponential backoff: start at pollIntervalMs, double each consecutive
+        // failure, cap at MAX_RETRY_DELAY_MS. Reset to 0 on the next success.
+        const base = this.options.pollIntervalMs ?? 1_000;
+        this.retryDelayMs = this.retryDelayMs === 0
+          ? base
+          : Math.min(this.retryDelayMs * 2, MAX_RETRY_DELAY_MS);
+        await delay(this.retryDelayMs);
         continue;
       }
       this.buffer = updates.nextBuffer;
+      this.options.stateStore?.setCursor(this.buffer);
       for (const message of updates.messages) {
+        if (this.isDuplicate(message.id)) continue;
         if (message.contextToken) {
           this.contextTokens.set(message.chatId, message.contextToken);
+          this.options.stateStore?.setContextToken(message.chatId, message.contextToken);
         }
         // Dispatch without awaiting the full turn so the long-poll loop stays
         // responsive while a generation streams — this is what lets /cancel and
@@ -179,8 +219,19 @@ export class WeixinDirectAdapter implements ChannelAdapter {
         if (this.stopped) break;
       }
       if (this.stopped) break;
-      await new Promise((resolve) => setTimeout(resolve, this.options.pollIntervalMs ?? 1_000));
+      await delay(this.options.pollIntervalMs ?? 1_000);
     }
+  }
+
+  private isDuplicate(id: string): boolean {
+    if (!id) return false;
+    const now = Date.now();
+    for (const [seenId, ts] of this.seenMessageIds) {
+      if (now - ts > DEDUP_WINDOW_MS) this.seenMessageIds.delete(seenId);
+    }
+    if (this.seenMessageIds.has(id)) return true;
+    this.seenMessageIds.set(id, now);
+    return false;
   }
 
   private async getTypingTicket(chatId: string): Promise<string> {
@@ -195,4 +246,36 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     if (ticket) this.typingTickets.set(chatId, ticket);
     return ticket;
   }
+}
+
+/**
+ * Split text into <=limit chunks at natural boundaries.
+ * Priority: paragraph break → line break → space → hard cut.
+ */
+function chunkText(text: string, limit: number): string[] {
+  if (text.length <= limit) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= limit) {
+      chunks.push(remaining);
+      break;
+    }
+    let splitAt = -1;
+    const win = remaining.slice(0, limit);
+    const para = win.lastIndexOf('\n\n');
+    if (para > limit * 0.3) splitAt = para + 2;
+    if (splitAt === -1) {
+      const line = win.lastIndexOf('\n');
+      if (line > limit * 0.3) splitAt = line + 1;
+    }
+    if (splitAt === -1) {
+      const space = win.lastIndexOf(' ');
+      if (space > limit * 0.3) splitAt = space + 1;
+    }
+    if (splitAt === -1) splitAt = limit;
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt);
+  }
+  return chunks.length > 0 ? chunks : [''];
 }

@@ -61,7 +61,7 @@ describe('WeixinDirectApiClient', () => {
         ],
         context_token: 'ctx_abc',
       },
-      base_info: {},
+      base_info: { channel_version: '0.1.0' },
     });
   });
 
@@ -148,7 +148,7 @@ describe('WeixinDirectApiClient', () => {
     expect(body).toEqual({
       ilink_user_id: 'user_1',
       context_token: 'ctx_abc',
-      base_info: {},
+      base_info: { channel_version: '0.1.0' },
     });
   });
 
@@ -181,7 +181,7 @@ describe('WeixinDirectApiClient', () => {
       ilink_user_id: 'user_1',
       typing_ticket: 'ticket_123',
       status: 1,
-      base_info: {},
+      base_info: { channel_version: '0.1.0' },
     });
   });
 });

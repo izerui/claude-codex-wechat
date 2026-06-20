@@ -357,4 +357,147 @@ describe('WeixinDirectAdapter', () => {
 
     await adapter.stop();
   });
+
+  it('refuses to send (and does not call the api) when no context token exists for the chat', async () => {
+    const api = {
+      getUpdates: vi.fn().mockResolvedValue({ nextBuffer: 'buf_1', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
+    adapter.onMessage(async () => {});
+    await adapter.start({ background: true });
+
+    await expect(
+      adapter.sendMessage({ chatId: 'unknown_user', kind: 'text', text: 'hi' }),
+    ).rejects.toThrow('weixin_no_context_token');
+    expect(api.sendTextMessage).not.toHaveBeenCalled();
+
+    await adapter.stop();
+  });
+
+  it('splits long outbound text into <=4000 char chunks, each carrying the context token', async () => {
+    const api = {
+      getUpdates: vi.fn()
+        .mockResolvedValueOnce({
+          nextBuffer: 'buf_1',
+          messages: [{ id: 'm1', chatId: 'user_a', userId: 'user_a', text: 'hi', contextToken: 'ctx_123' }],
+        })
+        .mockResolvedValue({ nextBuffer: 'buf_1', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, chunkDelayMs: 0 });
+    adapter.onMessage(async () => {});
+    await adapter.start({ background: true });
+    await vi.waitFor(() => expect(api.getUpdates).toHaveBeenCalled());
+
+    const longText = 'A'.repeat(4500); // no natural boundary → hard cut at 4000
+    await adapter.sendMessage({ chatId: 'user_a', kind: 'text', text: longText });
+
+    expect(api.sendTextMessage).toHaveBeenCalledTimes(2);
+    const calls = api.sendTextMessage.mock.calls;
+    expect(calls[0][0].text.length).toBe(4000);
+    expect(calls[1][0].text.length).toBe(500);
+    expect(calls[0][0]).toMatchObject({ toUserId: 'user_a', contextToken: 'ctx_123' });
+    expect(calls[1][0]).toMatchObject({ toUserId: 'user_a', contextToken: 'ctx_123' });
+
+    await adapter.stop();
+  });
+
+  it('prefers paragraph boundaries when chunking long text', async () => {
+    const api = {
+      getUpdates: vi.fn()
+        .mockResolvedValueOnce({
+          nextBuffer: 'buf_1',
+          messages: [{ id: 'm1', chatId: 'user_a', userId: 'user_a', text: 'hi', contextToken: 'ctx_123' }],
+        })
+        .mockResolvedValue({ nextBuffer: 'buf_1', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, chunkDelayMs: 0 });
+    adapter.onMessage(async () => {});
+    await adapter.start({ background: true });
+    await vi.waitFor(() => expect(api.getUpdates).toHaveBeenCalled());
+
+    const head = 'A'.repeat(3500);
+    const tail = 'B'.repeat(2000);
+    await adapter.sendMessage({ chatId: 'user_a', kind: 'text', text: `${head}\n\n${tail}` });
+
+    const calls = api.sendTextMessage.mock.calls;
+    expect(calls.length).toBe(2);
+    // First chunk ends at the paragraph break (head only, no trailing B's).
+    expect(calls[0][0].text).toBe(`${head}\n\n`);
+    expect(calls[1][0].text).toBe(tail);
+
+    await adapter.stop();
+  });
+
+  it('deduplicates inbound messages by msg_id within the dedup window', async () => {
+    const dup = { id: 'dup_1', chatId: 'user_a', userId: 'user_a', text: 'once', contextToken: 'ctx_1' };
+    const api = {
+      getUpdates: vi.fn()
+        .mockResolvedValueOnce({ nextBuffer: 'b1', messages: [dup] })
+        .mockResolvedValueOnce({ nextBuffer: 'b2', messages: [dup] }) // same msg_id redelivered
+        .mockResolvedValue({ nextBuffer: 'b2', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
+    const received: string[] = [];
+    adapter.onMessage(async (m) => { received.push(m.id); });
+    await adapter.start({ background: true });
+
+    await vi.waitFor(() => expect(api.getUpdates.mock.calls.length).toBeGreaterThanOrEqual(3));
+    expect(received).toEqual(['dup_1']); // delivered once despite two poll deliveries
+
+    await adapter.stop();
+  });
+
+  it('loads persisted context tokens and cursor on start', async () => {
+    const store = {
+      load: vi.fn().mockReturnValue({ contextTokens: { user_a: 'ctx_loaded' }, cursor: 'buf_loaded' }),
+      setContextToken: vi.fn(),
+      setCursor: vi.fn(),
+      clear: vi.fn(),
+    };
+    const api = {
+      getUpdates: vi.fn().mockResolvedValue({ nextBuffer: 'buf_loaded', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, stateStore: store });
+    adapter.onMessage(async () => {});
+    await adapter.start({ background: true });
+    await vi.waitFor(() => expect(api.getUpdates).toHaveBeenCalled());
+
+    // first long-poll resumes from the persisted cursor
+    expect(api.getUpdates.mock.calls[0][0]).toBe('buf_loaded');
+    // persisted token lets us reply without a fresh inbound message this run
+    await adapter.sendMessage({ chatId: 'user_a', kind: 'text', text: 'hi' });
+    expect(api.sendTextMessage).toHaveBeenCalledWith({ toUserId: 'user_a', text: 'hi', contextToken: 'ctx_loaded' });
+
+    await adapter.stop();
+  });
+
+  it('persists context token and cursor as messages arrive', async () => {
+    const store = {
+      load: vi.fn().mockReturnValue({ contextTokens: {}, cursor: '' }),
+      setContextToken: vi.fn(),
+      setCursor: vi.fn(),
+      clear: vi.fn(),
+    };
+    const api = {
+      getUpdates: vi.fn()
+        .mockResolvedValueOnce({ nextBuffer: 'buf_1', messages: [{ id: 'm1', chatId: 'user_a', userId: 'user_a', text: 'hi', contextToken: 'ctx_new' }] })
+        .mockResolvedValue({ nextBuffer: 'buf_1', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, stateStore: store });
+    adapter.onMessage(async () => {});
+    await adapter.start({ background: true });
+
+    await vi.waitFor(() => {
+      expect(store.setContextToken).toHaveBeenCalledWith('user_a', 'ctx_new');
+      expect(store.setCursor).toHaveBeenCalledWith('buf_1');
+    });
+
+    await adapter.stop();
+  });
 });
