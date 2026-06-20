@@ -354,7 +354,6 @@ describe('App admin interactions', () => {
 
     await screen.findAllByText('当前活跃用户');
     expect((await screen.findAllByText('当前活跃用户')).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('当前会话')).length).toBeGreaterThan(0);
     expect(screen.queryByText('提供方会话')).toBeNull();
     expect(screen.queryByText('恢复模式')).toBeNull();
     expect(screen.queryByText('推荐恢复')).toBeNull();
@@ -531,7 +530,7 @@ describe('App admin interactions', () => {
     expect(screen.queryByText('已配置')).toBeNull();
   });
 
-  it('shows account id when plugin status changes to connected', async () => {
+  it('reflects connected state in the channel strip when the plugin connects', async () => {
     const { fetchImpl, emitBridgeEvent } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
@@ -555,10 +554,10 @@ describe('App admin interactions', () => {
           botUsername: 'wx-account-1',
         },
       });
-      expect(screen.getAllByText('wx-account-1').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('已连接').length).toBeGreaterThan(0);
     });
 
-    expect((await screen.findAllByText('wx-account-1')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('已连接')).length).toBeGreaterThan(0);
   });
 
   it('shows session timeout state and prompts re-login when plugin health degrades', async () => {

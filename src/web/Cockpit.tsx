@@ -54,7 +54,7 @@ export function ChannelStrip(input: {
           </span>
         ) : null}
         <span className="ms-auto">
-          {input.plugin?.enabled ? (
+          {connected ? (
             <button className="btn btn-sm btn-outline-danger" disabled={input.busy} onClick={input.onDisconnect} type="button">
               {input.busy ? '断开中...' : '断开连接'}
             </button>
