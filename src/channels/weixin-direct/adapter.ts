@@ -1,23 +1,21 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import type { ChannelAdapter, ChannelMessageHandler, ChannelOutgoingMessage } from '../types';
+import { join } from 'node:path';
+import type { ChannelAdapter, ChannelAttachment, ChannelIncomingMessage, ChannelMessageHandler, ChannelOutgoingMessage } from '../types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../platforms';
 import type { WeixinStateStore } from './weixinStateStore';
+import type { InboundAttachmentMeta, InboundWeixinMessage } from './apiClient';
+import type { WeixinMediaDownloader } from './mediaDownloader';
 
 const MAX_TEXT_LENGTH = 4_000;
 const DEFAULT_CHUNK_DELAY_MS = 300;
 const DEDUP_WINDOW_MS = 5 * 60_000;
 const MAX_RETRY_DELAY_MS = 30_000;
+const VIDEO_MAX_BYTES = 25 * 1024 * 1024;
 
 type WeixinDirectApi = {
   getUpdates(buffer: string, signal?: AbortSignal): Promise<{
     nextBuffer: string;
-    messages: Array<{
-      id: string;
-      chatId: string;
-      userId: string;
-      text: string;
-      contextToken?: string;
-    }>;
+    messages: InboundWeixinMessage[];
   }>;
   sendTextMessage(input: { toUserId: string; text: string; contextToken?: string }): Promise<void>;
   getConfig?(input: { ilinkUserId: string; contextToken?: string }): Promise<{ typingTicket: string }>;
@@ -48,6 +46,8 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     pollIntervalMs?: number;
     chunkDelayMs?: number;
     stateStore?: WeixinStateStore;
+    mediaDownloader?: WeixinMediaDownloader;
+    mediaDir?: string;
   }) {}
 
   onMessage(handler: ChannelMessageHandler): void {
@@ -208,19 +208,21 @@ export class WeixinDirectAdapter implements ChannelAdapter {
           this.options.stateStore?.setContextToken(message.chatId, message.contextToken);
         }
         // Dispatch without awaiting the full turn so the long-poll loop stays
-        // responsive while a generation streams — this is what lets /cancel and
-        // follow-up messages reach the router mid-generation. Per-chat generation
-        // ordering is enforced inside MessageRouter (its serialization chain is
-        // established synchronously, before any await).
-        void this.handler?.({
-          id: message.id,
-          platform: PRIMARY_WEIXIN_PLATFORM,
-          chatId: message.chatId,
-          user: { id: message.userId },
-          content: { type: 'text', text: message.text },
-          timestamp: Date.now(),
-          raw: message,
-        })?.catch((error) => {
+        // responsive while a generation streams. Media download happens inside the
+        // dispatched task (off the poll loop) so a slow CDN can't stall polling.
+        const inbound = message;
+        void (async () => {
+          const content = await this.buildIncomingContent(inbound);
+          await this.handler?.({
+            id: inbound.id,
+            platform: PRIMARY_WEIXIN_PLATFORM,
+            chatId: inbound.chatId,
+            user: { id: inbound.userId },
+            content,
+            timestamp: Date.now(),
+            raw: inbound,
+          });
+        })().catch((error) => {
           console.error('[weixin] message handler failed:', error);
         });
         if (this.stopped) break;
@@ -228,6 +230,51 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       if (this.stopped) break;
       await delay(this.options.pollIntervalMs ?? 1_000);
     }
+  }
+
+  private async buildIncomingContent(message: InboundWeixinMessage): Promise<ChannelIncomingMessage['content']> {
+    const attachments = await this.downloadAttachments(message.attachments, message.id);
+    let quoted: ChannelIncomingMessage['content']['quoted'];
+    if (message.quoted) {
+      const quotedAttachments = await this.downloadAttachments(message.quoted.attachments, `${message.id}_q`);
+      quoted = {
+        ...(message.quoted.text ? { text: message.quoted.text } : {}),
+        ...(quotedAttachments.length ? { attachments: quotedAttachments } : {}),
+      };
+    }
+    const type: ChannelIncomingMessage['content']['type'] = attachments.length === 0
+      ? 'text'
+      : message.text ? 'mixed' : (attachments[0]?.kind ?? 'mixed');
+    return {
+      type,
+      ...(message.text ? { text: message.text } : {}),
+      ...(attachments.length ? { attachments } : {}),
+      ...(quoted ? { quoted } : {}),
+    };
+  }
+
+  private async downloadAttachments(metas: InboundAttachmentMeta[] | undefined, idPrefix: string): Promise<ChannelAttachment[]> {
+    if (!metas?.length) return [];
+    const downloader = this.options.mediaDownloader;
+    const mediaDir = this.options.mediaDir;
+    const out: ChannelAttachment[] = [];
+    for (let i = 0; i < metas.length; i += 1) {
+      const meta = metas[i]!;
+      if (!downloader || !mediaDir) {
+        out.push({ kind: meta.kind, ...(meta.fileName ? { fileName: meta.fileName } : {}), failed: true, failReason: 'downloader_unavailable' });
+        continue;
+      }
+      const { ext, mimeType } = mediaExtAndMime(meta);
+      const destPath = join(mediaDir, `${idPrefix}_${i}${ext}`);
+      const maxBytes = meta.kind === 'video' ? VIDEO_MAX_BYTES : undefined;
+      const result = await downloader.download(meta.media ?? {}, { destPath, aeskeyOverride: meta.aeskey, maxBytes });
+      if (result.ok) {
+        out.push({ kind: meta.kind, localPath: result.localPath, ...(meta.fileName ? { fileName: meta.fileName } : {}), ...(mimeType ? { mimeType } : {}) });
+      } else {
+        out.push({ kind: meta.kind, ...(meta.fileName ? { fileName: meta.fileName } : {}), failed: true, failReason: result.reason });
+      }
+    }
+    return out;
   }
 
   private isDuplicate(id: string): boolean {
@@ -253,6 +300,16 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     if (ticket) this.typingTickets.set(chatId, ticket);
     return ticket;
   }
+}
+
+function mediaExtAndMime(meta: InboundAttachmentMeta): { ext: string; mimeType?: string } {
+  if (meta.fileName) {
+    const dot = meta.fileName.lastIndexOf('.');
+    if (dot > 0) return { ext: meta.fileName.slice(dot) };
+  }
+  if (meta.kind === 'image') return { ext: '.jpg', mimeType: 'image/jpeg' };
+  if (meta.kind === 'video') return { ext: '.mp4', mimeType: 'video/mp4' };
+  return { ext: '.bin' };
 }
 
 /**

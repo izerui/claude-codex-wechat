@@ -1,9 +1,10 @@
-import type { ChannelAdapter, ChannelIncomingMessage } from '../channels/types';
+import type { ChannelAdapter, ChannelAttachment, ChannelIncomingMessage, ChannelOutgoingMessage } from '../channels/types';
 import { formatPermissionMessage } from '../permissions/formatPermissionMessage';
 import type { PermissionRouter } from '../permissions/permissionRouter';
 import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, PermissionChoice } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { parseBridgeCommand, type BridgeCommand } from './commandParser';
+import type { OutboundDeliveryGate } from './outboundGate';
 import { buildBridgeCommandHelpMarkdown } from '../shared/bridgeCommandHelp';
 import { CurrentConversationStore, type CurrentConversationBinding } from './currentConversationStore';
 import { attachProviderSessionToBridge, listUnattachedRecoverableSessions } from './providerAutoAttach';
@@ -47,6 +48,7 @@ export class MessageRouter {
       lastProviderSessions?: LastProviderSessionStore;
       events?: BridgeEventHub;
       defaults?: { defaultProvider: ProviderId; defaultWorkspace: string };
+      outboundGate?: OutboundDeliveryGate;
     },
   ) {
     for (const provider of options.providers) this.providers.set(provider.id, provider);
@@ -63,6 +65,18 @@ export class MessageRouter {
 
   private get conversation(): CurrentConversationStore {
     return this.options.conversation as CurrentConversationStore;
+  }
+
+  /**
+   * Single outbound exit. With a quota gate (WeChat), messages flow through it
+   * (sent now, hinted, or queued). Without a gate, sent directly.
+   */
+  private async sendToChat(message: ChannelOutgoingMessage): Promise<void> {
+    if (this.options.outboundGate) {
+      await this.options.outboundGate.deliver(message.chatId, { kind: message.kind, text: message.text });
+    } else {
+      await this.options.channel.sendMessage(message);
+    }
   }
 
   private conversationSignature(): string {
@@ -98,9 +112,22 @@ export class MessageRouter {
     if (!user) {
       return { status: 'pairing_required', code: 'pairing_required' };
     }
-    if (message.content.type !== 'text' || !message.content.text) return { status: 'accepted' };
+    // 若有积压的待发消息(配额耗尽时排队的),用户这条消息已刷新 token+配额:
+    // 用它续发队列,这条消息本身不进 AI(纯刷新 + drain)。
+    if (this.options.outboundGate?.hasPending(message.chatId)) {
+      await this.options.outboundGate.drain(message.chatId);
+      return { status: 'accepted' };
+    }
+    const composedText = composeInboundText(message.content);
+    if (!composedText) return { status: 'accepted' };
 
-    const command = parseBridgeCommand(message.content.text);
+    // 媒体/引用消息按普通对话处理(不解析为 bridge 命令);纯文本仍可触发命令。
+    const isPlainText = message.content.type === 'text'
+      && !message.content.attachments?.length
+      && !message.content.quoted;
+    const command = isPlainText
+      ? parseBridgeCommand(message.content.text ?? '')
+      : { kind: 'chat' as const, text: composedText };
     if (command.kind === 'permission_decision') {
       await this.decidePermission({ requestId: command.requestId, userId: user.id, decision: command.decision });
       return { status: 'accepted' };
@@ -290,16 +317,16 @@ export class MessageRouter {
           bufferedText += event.text;
         }
         if (event.type === 'message_done' && bufferedText.trim()) {
-          await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
+          await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
           bufferedText = '';
         }
         if (event.type === 'permission_request') {
           if (bufferedText.trim()) {
-            await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
+            await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
             bufferedText = '';
           }
           this.options.permissions.addRequest(event.request);
-          await this.options.channel.sendMessage({
+          await this.sendToChat({
             chatId: message.chatId,
             kind: 'permission_request',
             text: formatPermissionMessage(event.request),
@@ -321,11 +348,11 @@ export class MessageRouter {
         }
         if (event.type === 'error' && event.error) {
           if (bufferedText.trim()) {
-            await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
+            await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
             bufferedText = '';
           }
           const errorText = `Provider error: ${event.error}`;
-          await this.options.channel.sendMessage({
+          await this.sendToChat({
             chatId: message.chatId,
             kind: 'status',
             text: errorText,
@@ -333,7 +360,7 @@ export class MessageRouter {
         }
       }
       if (isLive() && bufferedText.trim()) {
-        await this.options.channel.sendMessage({ chatId: message.chatId, kind: 'text', text: bufferedText });
+        await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
         bufferedText = '';
       }
     } finally {
@@ -353,7 +380,7 @@ export class MessageRouter {
     command: Exclude<ReturnType<typeof parseBridgeCommand>, { kind: 'chat' } | { kind: 'permission_decision' }>,
   ): Promise<void> {
     if (command.kind === 'help') {
-      await this.options.channel.sendMessage({
+      await this.sendToChat({
         chatId,
         kind: 'markdown',
         text: buildBridgeCommandHelpMarkdown(),
@@ -364,16 +391,16 @@ export class MessageRouter {
     if (command.kind === 'cancel_generation') {
       const active = this.activeGenerations.get(chatId);
       if (!active) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: '当前没有正在进行的生成' });
+        await this.sendToChat({ chatId, kind: 'status', text: '当前没有正在进行的生成' });
         return;
       }
       const provider = this.providers.get(active.providerId);
       if (!provider?.interruptSession) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: `${active.providerId} 暂不支持中断` });
+        await this.sendToChat({ chatId, kind: 'status', text: `${active.providerId} 暂不支持中断` });
         return;
       }
       await provider.interruptSession(active.bridgeSessionId);
-      await this.options.channel.sendMessage({ chatId, kind: 'status', text: '已中断当前生成，会话保留' });
+      await this.sendToChat({ chatId, kind: 'status', text: '已中断当前生成，会话保留' });
       return;
     }
 
@@ -390,7 +417,7 @@ export class MessageRouter {
         providerId,
         cwd,
       });
-      await this.options.channel.sendMessage({
+      await this.sendToChat({
         chatId,
         kind: 'status',
         text: `Started new ${providerId} session: ${session.id}`,
@@ -408,7 +435,7 @@ export class MessageRouter {
         providerId: command.providerId,
         cwd,
       });
-      await this.options.channel.sendMessage({
+      await this.sendToChat({
         chatId,
         kind: 'status',
         text: `Switched active provider to ${command.providerId}`,
@@ -418,7 +445,7 @@ export class MessageRouter {
 
     if (command.kind === 'status') {
       const session = this.conversation.getCurrent();
-      await this.options.channel.sendMessage({
+      await this.sendToChat({
         chatId,
         kind: 'status',
         text: session
@@ -433,7 +460,7 @@ export class MessageRouter {
       const providerId = current?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
       const provider = this.providers.get(providerId);
       if (!provider?.listRecoverableSessions) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: `当前 provider（${providerId}）不支持会话列表` });
+        await this.sendToChat({ chatId, kind: 'status', text: `当前 provider（${providerId}）不支持会话列表` });
         return;
       }
       let candidates = await listUnattachedRecoverableSessions({ provider, providerId, currentSession: current });
@@ -450,7 +477,7 @@ export class MessageRouter {
       candidates.sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
       const shown = candidates.slice(0, MessageRouter.SESSION_LIST_LIMIT);
       if (shown.length === 0) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: '没有可恢复的会话' });
+        await this.sendToChat({ chatId, kind: 'status', text: '没有可恢复的会话' });
         return;
       }
       this.sessionListCache.set(chatId, { providerId, ids: shown.map((candidate) => candidate.id) });
@@ -462,14 +489,14 @@ export class MessageRouter {
         lines.push('', `（还有 ${candidates.length - shown.length} 条，用 \`/sessions <关键词>\` 筛选）`);
       }
       lines.push('', '回复 `/resume <编号>` 恢复，或 `/resume <id>` 指定');
-      await this.options.channel.sendMessage({ chatId, kind: 'markdown', text: lines.join('\n') });
+      await this.sendToChat({ chatId, kind: 'markdown', text: lines.join('\n') });
       return;
     }
 
     if (command.kind === 'resume_session') {
       const ref = command.ref.trim();
       if (!ref) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: '用法：/resume <编号> 或 /resume <id>（先用 /sessions 查看列表）' });
+        await this.sendToChat({ chatId, kind: 'status', text: '用法：/resume <编号> 或 /resume <id>（先用 /sessions 查看列表）' });
         return;
       }
       await this.preemptActiveGeneration(chatId);
@@ -479,12 +506,12 @@ export class MessageRouter {
       if (/^\d+$/.test(ref)) {
         const cached = this.sessionListCache.get(chatId);
         if (!cached) {
-          await this.options.channel.sendMessage({ chatId, kind: 'status', text: '请先用 /sessions 查看列表，再用编号恢复' });
+          await this.sendToChat({ chatId, kind: 'status', text: '请先用 /sessions 查看列表，再用编号恢复' });
           return;
         }
         const index = Number.parseInt(ref, 10);
         if (index < 1 || index > cached.ids.length) {
-          await this.options.channel.sendMessage({ chatId, kind: 'status', text: `编号 ${ref} 超出范围，请重新 /sessions 查看` });
+          await this.sendToChat({ chatId, kind: 'status', text: `编号 ${ref} 超出范围，请重新 /sessions 查看` });
           return;
         }
         providerId = cached.providerId;
@@ -492,12 +519,12 @@ export class MessageRouter {
       }
       const provider = this.providers.get(providerId);
       if (!provider?.attachSession || !provider.listRecoverableSessions) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: `当前 provider（${providerId}）不支持会话恢复` });
+        await this.sendToChat({ chatId, kind: 'status', text: `当前 provider（${providerId}）不支持会话恢复` });
         return;
       }
       const candidate = (await provider.listRecoverableSessions()).find((item) => item.id === sessionId);
       if (!candidate) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: `找不到会话 ${sessionId}` });
+        await this.sendToChat({ chatId, kind: 'status', text: `找不到会话 ${sessionId}` });
         return;
       }
       const cwdUnresolved = !candidate.cwd;
@@ -519,7 +546,7 @@ export class MessageRouter {
         : previousCwd && previousCwd !== attached.cwd
           ? `${head}\n已切换工作目录到 ${attached.cwd}`
           : `${head} · ${attached.cwd}`;
-      await this.options.channel.sendMessage({ chatId, kind: 'status', text });
+      await this.sendToChat({ chatId, kind: 'status', text });
       return;
     }
 
@@ -530,7 +557,7 @@ export class MessageRouter {
       let providerSessionId: string;
       if (!ref) {
         if (!current?.providerSessionId) {
-          await this.options.channel.sendMessage({ chatId, kind: 'status', text: '当前没有可归档的会话' });
+          await this.sendToChat({ chatId, kind: 'status', text: '当前没有可归档的会话' });
           return;
         }
         providerId = current.providerId;
@@ -538,12 +565,12 @@ export class MessageRouter {
       } else if (/^\d+$/.test(ref)) {
         const cached = this.sessionListCache.get(chatId);
         if (!cached) {
-          await this.options.channel.sendMessage({ chatId, kind: 'status', text: '请先用 /sessions 查看列表，再用编号归档' });
+          await this.sendToChat({ chatId, kind: 'status', text: '请先用 /sessions 查看列表，再用编号归档' });
           return;
         }
         const index = Number.parseInt(ref, 10);
         if (index < 1 || index > cached.ids.length) {
-          await this.options.channel.sendMessage({ chatId, kind: 'status', text: `编号 ${ref} 超出范围，请重新 /sessions 查看` });
+          await this.sendToChat({ chatId, kind: 'status', text: `编号 ${ref} 超出范围，请重新 /sessions 查看` });
           return;
         }
         providerId = cached.providerId;
@@ -554,7 +581,7 @@ export class MessageRouter {
       }
       const provider = this.providers.get(providerId);
       if (!provider?.archiveSession) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: `${providerId} 无原生归档命令，暂不支持归档（可用 /stop 停止，会话仍可 resume）` });
+        await this.sendToChat({ chatId, kind: 'status', text: `${providerId} 无原生归档命令，暂不支持归档（可用 /stop 停止，会话仍可 resume）` });
         return;
       }
       const isCurrent = current?.providerSessionId === providerSessionId;
@@ -563,25 +590,25 @@ export class MessageRouter {
         if (isCurrent && current) await provider.stopSession(current.id);
         await provider.archiveSession(providerSessionId);
       } catch (error) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: `归档失败：${error instanceof Error ? error.message : String(error)}` });
+        await this.sendToChat({ chatId, kind: 'status', text: `归档失败：${error instanceof Error ? error.message : String(error)}` });
         return;
       }
       if (isCurrent) this.conversation.clear();
       this.sessionListCache.delete(chatId);
-      await this.options.channel.sendMessage({ chatId, kind: 'status', text: `已归档会话 ${providerSessionId}` });
+      await this.sendToChat({ chatId, kind: 'status', text: `已归档会话 ${providerSessionId}` });
       return;
     }
 
     if (command.kind === 'stop') {
       const session = this.conversation.getCurrent();
       if (!session) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: 'No active session to stop' });
+        await this.sendToChat({ chatId, kind: 'status', text: 'No active session to stop' });
         return;
       }
       await this.preemptActiveGeneration(chatId);
       await this.providers.get(session.providerId)?.stopSession(session.id);
       this.conversation.clear();
-      await this.options.channel.sendMessage({
+      await this.sendToChat({
         chatId,
         kind: 'status',
         text: `Stopped session ${session.id}`,
@@ -592,7 +619,7 @@ export class MessageRouter {
     if (command.kind === 'reload') {
       const session = this.conversation.getCurrent();
       if (!session) {
-        await this.options.channel.sendMessage({ chatId, kind: 'status', text: 'No active session to reload' });
+        await this.sendToChat({ chatId, kind: 'status', text: 'No active session to reload' });
         return;
       }
       const provider = this.providers.get(session.providerId);
@@ -612,7 +639,7 @@ export class MessageRouter {
         status: reloaded.status,
         lastActivityAt: Date.now(),
       }, session.id);
-      await this.options.channel.sendMessage({
+      await this.sendToChat({
         chatId,
         kind: 'status',
         text: `Reloaded active ${session.providerId} session ${session.id}`,
@@ -687,4 +714,31 @@ function formatRelativeTime(ts: number): string {
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}天前`;
   return `${Math.floor(days / 30)}个月前`;
+}
+
+/** Format one attachment for the prompt: `[图片] name @/abs/path` or a failure note. */
+function formatAttachment(att: ChannelAttachment): string {
+  const label = att.kind === 'image' ? '图片' : att.kind === 'video' ? '视频' : '文件';
+  const name = att.fileName ? `${att.fileName} ` : '';
+  if (att.failed) return `[${label}] ${name}[下载失败${att.failReason ? `:${att.failReason}` : ''}]`;
+  if (att.localPath) return `[${label}] ${name}@${att.localPath}`;
+  return `[${label}] ${name}[无法获取]`;
+}
+
+/**
+ * Compose the prompt text sent to the provider from an inbound message:
+ * original text + each media attachment as `@/abs/path` + a quoted block.
+ * Returns '' when there is nothing actionable.
+ */
+export function composeInboundText(content: ChannelIncomingMessage['content']): string {
+  const parts: string[] = [];
+  if (content.text) parts.push(content.text);
+  for (const att of content.attachments ?? []) parts.push(formatAttachment(att));
+  if (content.quoted) {
+    const quotedParts: string[] = [];
+    if (content.quoted.text) quotedParts.push(content.quoted.text);
+    for (const att of content.quoted.attachments ?? []) quotedParts.push(formatAttachment(att));
+    if (quotedParts.length) parts.push(`[引用] ${quotedParts.join(' ')}`);
+  }
+  return parts.join('\n');
 }

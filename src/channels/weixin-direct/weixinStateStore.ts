@@ -19,6 +19,12 @@ export type WeixinQuota = {
   expired: boolean;
 };
 
+/** A logical outbound message held in the per-chat queue while waiting for quota. */
+export type OutboundQueueItem = {
+  kind: string;
+  text: string;
+};
+
 /**
  * Persists the WeChat channel's recovery + quota state so the bridge survives restarts.
  *
@@ -37,6 +43,14 @@ export interface WeixinStateStore {
   /** Count one sent message against the current token's quota. */
   recordSent(userId: string): void;
   getQuota(userId: string): WeixinQuota;
+  /** Append a logical message to the chat's pending outbound queue. */
+  enqueueOutbound(chatId: string, item: OutboundQueueItem): void;
+  /** Read (without removing) the chat's pending queue. */
+  peekOutbound(chatId: string): OutboundQueueItem[];
+  /** Remove the first item from the chat's pending queue. */
+  shiftOutbound(chatId: string): void;
+  hasPendingOutbound(chatId: string): boolean;
+  clearOutbound(chatId: string): void;
   /** Drop everything (e.g. on session expiry / re-login). */
   clear(): void;
 }
@@ -50,6 +64,7 @@ type UserState = {
 type WeixinChannelState = {
   cursor?: string;
   users?: Record<string, UserState>;
+  outbox?: Record<string, OutboundQueueItem[]>;
 };
 
 type RuntimeStateFile = {
@@ -118,10 +133,48 @@ export class FileWeixinStateStore implements WeixinStateStore {
     return { remaining, sentCount: user.sentCount, windowStartAt: user.windowStartAt, expired };
   }
 
+  enqueueOutbound(chatId: string, item: OutboundQueueItem): void {
+    if (!chatId) return;
+    const state = this.readState();
+    const channel = state.bridge?.weixinChannel ?? {};
+    const outbox = { ...(channel.outbox ?? {}) };
+    outbox[chatId] = [...(outbox[chatId] ?? []), item];
+    this.writeChannel(state, { ...channel, outbox });
+  }
+
+  peekOutbound(chatId: string): OutboundQueueItem[] {
+    return this.readChannel().outbox?.[chatId] ?? [];
+  }
+
+  shiftOutbound(chatId: string): void {
+    const state = this.readState();
+    const channel = state.bridge?.weixinChannel ?? {};
+    const list = channel.outbox?.[chatId];
+    if (!list?.length) return;
+    const outbox = { ...channel.outbox };
+    const rest = list.slice(1);
+    if (rest.length) outbox[chatId] = rest;
+    else delete outbox[chatId];
+    this.writeChannel(state, { ...channel, outbox });
+  }
+
+  hasPendingOutbound(chatId: string): boolean {
+    return (this.readChannel().outbox?.[chatId]?.length ?? 0) > 0;
+  }
+
+  clearOutbound(chatId: string): void {
+    const state = this.readState();
+    const channel = state.bridge?.weixinChannel ?? {};
+    if (!channel.outbox?.[chatId]) return;
+    const outbox = { ...channel.outbox };
+    delete outbox[chatId];
+    this.writeChannel(state, { ...channel, outbox });
+  }
+
   clear(): void {
     const state = this.readState();
     if (!state.bridge?.weixinChannel) return;
-    this.writeChannel(state, { cursor: '', users: {} });
+    this.writeChannel(state, { cursor: '', users: {}, outbox: {} });
   }
 
   private readChannel(): WeixinChannelState {

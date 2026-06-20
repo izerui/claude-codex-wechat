@@ -1,3 +1,13 @@
+export type ChannelAttachment = {
+  kind: 'image' | 'file' | 'video';
+  /** Local path of the downloaded+decrypted file; absent when download failed. */
+  localPath?: string;
+  fileName?: string;
+  mimeType?: string;
+  failed?: boolean;
+  failReason?: string;
+};
+
 export type ChannelIncomingMessage = {
   id: string;
   platform: 'weixin' | 'mock-wechat';
@@ -7,9 +17,12 @@ export type ChannelIncomingMessage = {
     displayName?: string;
   };
   content: {
-    type: 'text' | 'image' | 'file';
+    type: 'text' | 'image' | 'file' | 'video' | 'mixed';
     text?: string;
+    /** @deprecated single-file path; prefer `attachments`. Kept for back-compat. */
     localPath?: string;
+    attachments?: ChannelAttachment[];
+    quoted?: { text?: string; attachments?: ChannelAttachment[] };
   };
   timestamp: number;
   raw?: unknown;

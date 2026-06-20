@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { WeixinDirectAdapter } from '../src/channels/weixin-direct/adapter';
+import type { ChannelIncomingMessage } from '../src/channels/types';
 
 describe('WeixinDirectAdapter', () => {
   it('polls updates and forwards inbound text messages to the registered handler', async () => {
@@ -460,6 +461,11 @@ describe('WeixinDirectAdapter', () => {
       recordSent: vi.fn(),
       getQuota: vi.fn().mockReturnValue({ remaining: 10, sentCount: 0, windowStartAt: Date.now(), expired: false }),
       clear: vi.fn(),
+      enqueueOutbound: vi.fn(),
+      peekOutbound: vi.fn().mockReturnValue([]),
+      shiftOutbound: vi.fn(),
+      hasPendingOutbound: vi.fn().mockReturnValue(false),
+      clearOutbound: vi.fn(),
     };
     const api = {
       getUpdates: vi.fn().mockResolvedValue({ nextBuffer: 'buf_loaded', messages: [] }),
@@ -488,6 +494,11 @@ describe('WeixinDirectAdapter', () => {
       recordSent: vi.fn(),
       getQuota: vi.fn().mockReturnValue({ remaining: 10, sentCount: 0, windowStartAt: Date.now(), expired: false }),
       clear: vi.fn(),
+      enqueueOutbound: vi.fn(),
+      peekOutbound: vi.fn().mockReturnValue([]),
+      shiftOutbound: vi.fn(),
+      hasPendingOutbound: vi.fn().mockReturnValue(false),
+      clearOutbound: vi.fn(),
     };
     const api = {
       getUpdates: vi.fn()
@@ -516,6 +527,11 @@ describe('WeixinDirectAdapter', () => {
       recordSent: vi.fn(),
       getQuota: vi.fn().mockReturnValue({ remaining: 0, sentCount: 10, windowStartAt: Date.now(), expired: false }),
       clear: vi.fn(),
+      enqueueOutbound: vi.fn(),
+      peekOutbound: vi.fn().mockReturnValue([]),
+      shiftOutbound: vi.fn(),
+      hasPendingOutbound: vi.fn().mockReturnValue(false),
+      clearOutbound: vi.fn(),
     };
     const api = {
       getUpdates: vi.fn().mockResolvedValue({ nextBuffer: '', messages: [] }),
@@ -543,6 +559,11 @@ describe('WeixinDirectAdapter', () => {
       recordSent: vi.fn(),
       getQuota: vi.fn().mockReturnValue({ remaining: 10, sentCount: 0, windowStartAt: Date.now(), expired: false }),
       clear: vi.fn(),
+      enqueueOutbound: vi.fn(),
+      peekOutbound: vi.fn().mockReturnValue([]),
+      shiftOutbound: vi.fn(),
+      hasPendingOutbound: vi.fn().mockReturnValue(false),
+      clearOutbound: vi.fn(),
     };
     const api = {
       getUpdates: vi.fn().mockResolvedValue({ nextBuffer: '', messages: [] }),
@@ -558,6 +579,91 @@ describe('WeixinDirectAdapter', () => {
     expect(store.recordSent).toHaveBeenCalledTimes(2);
     expect(store.recordSent).toHaveBeenCalledWith('user_a');
 
+    await adapter.stop();
+  });
+
+  it('downloads inbound media and exposes attachments with local paths', async () => {
+    const downloader = { download: vi.fn().mockResolvedValue({ ok: true, localPath: '/media/m1_0.jpg', bytes: 100 }) };
+    const api = {
+      getUpdates: vi.fn()
+        .mockResolvedValueOnce({
+          nextBuffer: 'b',
+          messages: [{
+            id: 'm1', chatId: 'user_a', userId: 'user_a', text: '看图', contextToken: 'ctx',
+            attachments: [{ kind: 'image', media: { encrypt_query_param: 'q', aes_key: 'k' }, aeskey: '00112233445566778899aabbccddeeff' }],
+          }],
+        })
+        .mockResolvedValue({ nextBuffer: 'b', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const received: ChannelIncomingMessage[] = [];
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, mediaDownloader: downloader as never, mediaDir: '/media' });
+    adapter.onMessage(async (m) => { received.push(m as ChannelIncomingMessage); });
+    await adapter.start({ background: true });
+
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]!.content).toMatchObject({
+      type: 'mixed',
+      text: '看图',
+      attachments: [{ kind: 'image', localPath: '/media/m1_0.jpg' }],
+    });
+    expect(downloader.download).toHaveBeenCalledWith(
+      { encrypt_query_param: 'q', aes_key: 'k' },
+      expect.objectContaining({ aeskeyOverride: '00112233445566778899aabbccddeeff', destPath: '/media/m1_0.jpg' }),
+    );
+    await adapter.stop();
+  });
+
+  it('marks an attachment failed when download fails, without dropping the message', async () => {
+    const downloader = { download: vi.fn().mockResolvedValue({ ok: false, reason: 'too_large' }) };
+    const api = {
+      getUpdates: vi.fn()
+        .mockResolvedValueOnce({
+          nextBuffer: 'b',
+          messages: [{ id: 'm2', chatId: 'user_a', userId: 'user_a', text: '', contextToken: 'ctx', attachments: [{ kind: 'video', media: { encrypt_query_param: 'q', aes_key: 'k' } }] }],
+        })
+        .mockResolvedValue({ nextBuffer: 'b', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const received: ChannelIncomingMessage[] = [];
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, mediaDownloader: downloader as never, mediaDir: '/media' });
+    adapter.onMessage(async (m) => { received.push(m as ChannelIncomingMessage); });
+    await adapter.start({ background: true });
+
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]!.content).toMatchObject({
+      type: 'video',
+      attachments: [{ kind: 'video', failed: true, failReason: 'too_large' }],
+    });
+    // video gets the 25MB cap passed through
+    expect(downloader.download.mock.calls[0][1]).toMatchObject({ maxBytes: 25 * 1024 * 1024 });
+    await adapter.stop();
+  });
+
+  it('downloads quoted-message attachments too', async () => {
+    const downloader = { download: vi.fn().mockResolvedValue({ ok: true, localPath: '/media/m3_q_0.jpg', bytes: 1 }) };
+    const api = {
+      getUpdates: vi.fn()
+        .mockResolvedValueOnce({
+          nextBuffer: 'b',
+          messages: [{
+            id: 'm3', chatId: 'user_a', userId: 'user_a', text: '这个怎么改', contextToken: 'ctx',
+            quoted: { text: '原始内容', attachments: [{ kind: 'image', media: { encrypt_query_param: 'q', aes_key: 'k' } }] },
+          }],
+        })
+        .mockResolvedValue({ nextBuffer: 'b', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const received: ChannelIncomingMessage[] = [];
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, mediaDownloader: downloader as never, mediaDir: '/media' });
+    adapter.onMessage(async (m) => { received.push(m as ChannelIncomingMessage); });
+    await adapter.start({ background: true });
+
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]!.content.quoted).toMatchObject({
+      text: '原始内容',
+      attachments: [{ kind: 'image', localPath: '/media/m3_q_0.jpg' }],
+    });
     await adapter.stop();
   });
 });

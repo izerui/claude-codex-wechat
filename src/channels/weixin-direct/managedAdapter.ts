@@ -2,6 +2,7 @@ import type { WeixinConfig } from '../../daemon/config';
 import type { ChannelAdapter, ChannelMessageHandler, ChannelOutgoingMessage, ChannelStartOptions } from '../types';
 import { WeixinDirectApiClient } from './apiClient';
 import { WeixinDirectAdapter } from './adapter';
+import { WeixinMediaDownloader } from './mediaDownloader';
 import type { WeixinStateStore } from './weixinStateStore';
 
 export class ManagedWeixinDirectAdapter implements ChannelAdapter {
@@ -13,10 +14,12 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
   private operation = Promise.resolve();
   private healthListeners = new Set<() => void>();
   private readonly stateStore?: WeixinStateStore;
+  private readonly mediaDir?: string;
 
-  constructor(initialConfig?: WeixinConfig, stateStore?: WeixinStateStore) {
+  constructor(initialConfig?: WeixinConfig, stateStore?: WeixinStateStore, mediaDir?: string) {
     this.stateStore = stateStore;
-    this.adapter = createWeixinAdapter(initialConfig, stateStore);
+    this.mediaDir = mediaDir;
+    this.adapter = createWeixinAdapter(initialConfig, stateStore, mediaDir);
   }
 
   onMessage(handler: ChannelMessageHandler): void {
@@ -55,7 +58,7 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
       if (this.adapter) {
         await this.adapter.stop();
       }
-      this.adapter = createWeixinAdapter(config, this.stateStore);
+      this.adapter = createWeixinAdapter(config, this.stateStore, this.mediaDir);
       if (this.adapter && this.handler) {
         this.adapter.onMessage(this.handler);
       }
@@ -87,7 +90,7 @@ export class ManagedWeixinDirectAdapter implements ChannelAdapter {
   }
 }
 
-function createWeixinAdapter(config: WeixinConfig | undefined, stateStore?: WeixinStateStore): ChannelAdapter | null {
+function createWeixinAdapter(config: WeixinConfig | undefined, stateStore?: WeixinStateStore, mediaDir?: string): ChannelAdapter | null {
   if (config?.enabled !== true) return null;
   if (!config.baseUrl || !config.token) return null;
   const wechatUin = buildTransientWeixinUin();
@@ -98,6 +101,7 @@ function createWeixinAdapter(config: WeixinConfig | undefined, stateStore?: Weix
       wechatUin,
     }),
     stateStore,
+    ...(mediaDir ? { mediaDownloader: new WeixinMediaDownloader(), mediaDir } : {}),
   });
 }
 

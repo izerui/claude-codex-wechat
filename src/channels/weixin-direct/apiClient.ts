@@ -1,4 +1,59 @@
 import { randomUUID } from 'node:crypto';
+import type { CDNMedia } from './mediaDownloader';
+
+export type InboundAttachmentMeta = {
+  kind: 'image' | 'file' | 'video';
+  media?: CDNMedia;
+  aeskey?: string;
+  fileName?: string;
+};
+
+export type InboundWeixinMessage = {
+  id: string;
+  chatId: string;
+  userId: string;
+  text: string;
+  contextToken?: string;
+  attachments?: InboundAttachmentMeta[];
+  quoted?: { text?: string; attachments?: InboundAttachmentMeta[] };
+};
+
+type WireItem = {
+  type?: number;
+  text_item?: { text?: string };
+  voice_item?: { text?: string };
+  image_item?: { media?: CDNMedia; aeskey?: string };
+  file_item?: { media?: CDNMedia; file_name?: string };
+  video_item?: { media?: CDNMedia };
+  ref_msg?: { title?: string; message_item?: WireItem };
+};
+
+/** Walk a message's item_list, splitting it into texts, media attachments, and a quoted ref. */
+function collectInboundItems(itemList: WireItem[] | undefined): {
+  texts: string[];
+  attachments: InboundAttachmentMeta[];
+  quoted?: { text?: string; attachments?: InboundAttachmentMeta[] };
+} {
+  const texts: string[] = [];
+  const attachments: InboundAttachmentMeta[] = [];
+  let quoted: { text?: string; attachments?: InboundAttachmentMeta[] } | undefined;
+  for (const item of itemList ?? []) {
+    if (item.type === 1 && item.text_item?.text?.trim()) texts.push(item.text_item.text.trim());
+    else if (item.type === 3 && item.voice_item?.text?.trim()) texts.push(item.voice_item.text.trim());
+    else if (item.type === 2 && item.image_item) attachments.push({ kind: 'image', media: item.image_item.media, aeskey: item.image_item.aeskey });
+    else if (item.type === 4 && item.file_item) attachments.push({ kind: 'file', media: item.file_item.media, fileName: item.file_item.file_name });
+    else if (item.type === 5 && item.video_item) attachments.push({ kind: 'video', media: item.video_item.media });
+    if (item.ref_msg?.message_item) {
+      const inner = collectInboundItems([item.ref_msg.message_item]);
+      const text = [item.ref_msg.title, ...inner.texts].filter(Boolean).join(' ') || undefined;
+      quoted = {
+        ...(text ? { text } : {}),
+        ...(inner.attachments.length ? { attachments: inner.attachments } : {}),
+      };
+    }
+  }
+  return { texts, attachments, quoted };
+}
 
 export class WeixinDirectApiClient {
   private readonly baseUrl: string;
@@ -65,13 +120,7 @@ export class WeixinDirectApiClient {
 
   async getUpdates(buffer: string, signal?: AbortSignal): Promise<{
     nextBuffer: string;
-    messages: Array<{
-      id: string;
-      chatId: string;
-      userId: string;
-      text: string;
-      contextToken?: string;
-    }>;
+    messages: InboundWeixinMessage[];
   }> {
     const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/getupdates`, {
       method: 'POST',
@@ -98,11 +147,7 @@ export class WeixinDirectApiClient {
         from_user_id?: string;
         context_token?: string;
         msg_id?: string;
-        item_list?: Array<{
-          type?: number;
-          text_item?: { text?: string };
-          voice_item?: { text?: string };
-        }>;
+        item_list?: WireItem[];
       }>;
       get_updates_buf?: string;
     };
@@ -112,25 +157,22 @@ export class WeixinDirectApiClient {
     }
 
     const messages = (payload.msgs ?? [])
-      .map((message) => {
-        const text = (message.item_list ?? [])
-          .flatMap((item) => {
-            if (item.type === 1) return [item.text_item?.text?.trim() ?? ''];
-            if (item.type === 3) return [item.voice_item?.text?.trim() ?? ''];
-            return [];
-          })
-          .filter(Boolean)
-          .join('\n\n');
-        if (!message.from_user_id || !text) return null;
+      .map((message): InboundWeixinMessage | null => {
+        if (!message.from_user_id) return null;
+        const { texts, attachments, quoted } = collectInboundItems(message.item_list);
+        const text = texts.join('\n\n');
+        if (!text && attachments.length === 0 && !quoted) return null;
         return {
           id: message.msg_id ?? '',
           chatId: message.from_user_id,
           userId: message.from_user_id,
           text,
           ...(message.context_token ? { contextToken: message.context_token } : {}),
+          ...(attachments.length ? { attachments } : {}),
+          ...(quoted ? { quoted } : {}),
         };
       })
-      .filter((value): value is NonNullable<typeof value> => value !== null);
+      .filter((value): value is InboundWeixinMessage => value !== null);
 
     return {
       nextBuffer: payload.get_updates_buf ?? '',

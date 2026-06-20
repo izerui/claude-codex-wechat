@@ -7,6 +7,7 @@ import { CurrentConversationStore } from '../src/session/currentConversationStor
 import { attachProviderSessionToBridge } from '../src/session/providerAutoAttach';
 import { SessionManager } from '../src/session/sessionManager';
 import { MessageRouter } from '../src/session/messageRouter';
+import type { OutboundDeliveryGate } from '../src/session/outboundGate';
 import { LastProviderSessionStore } from '../src/storage/lastProviderSessionStore';
 import type { ActiveWeChatUserRecord } from '../src/storage/userStore';
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../src/providers/types';
@@ -1193,5 +1194,65 @@ describe('MessageRouter', () => {
       { kind: 'text', text: 'partial:news' },
       { kind: 'status', text: 'Provider error: provider_failed:news' },
     ]);
+  });
+});
+
+describe('MessageRouter outbound gate', () => {
+  function makeFakeGate(pending: boolean) {
+    const delivered: Array<{ chatId: string; kind: string; text: string }> = [];
+    let drainCount = 0;
+    const gate: OutboundDeliveryGate = {
+      hasPending: () => pending,
+      deliver: async (chatId, msg) => { delivered.push({ chatId, kind: msg.kind, text: msg.text }); },
+      drain: async () => { drainCount += 1; },
+    };
+    return { gate, delivered, getDrainCount: () => drainCount };
+  }
+
+  it('drains the outbound queue and skips AI when messages are pending', async () => {
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const { gate, getDrainCount } = makeFakeGate(true);
+    const router = new MessageRouter({
+      channel: new MockChannelAdapter(),
+      permissions: new PermissionRouter(),
+      providers: [new FakeProviderAdapter('claude-code')],
+      sessions,
+      resolveUser: () => authorizedUser,
+      outboundGate: gate,
+    });
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '继续' }, timestamp: 1,
+    });
+
+    expect(getDrainCount()).toBe(1);
+    // pending → message consumed for drain, never reaches the provider
+    expect(sessions.listSessions()).toHaveLength(0);
+  });
+
+  it('routes outbound messages through the gate instead of the channel', async () => {
+    const channel = new MockChannelAdapter();
+    const directlySent: string[] = [];
+    channel.onSent((m) => directlySent.push(m.text));
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const { gate, delivered } = makeFakeGate(false);
+    const router = new MessageRouter({
+      channel,
+      permissions: new PermissionRouter(),
+      providers: [new FakeProviderAdapter('claude-code')],
+      sessions,
+      resolveUser: () => authorizedUser,
+      outboundGate: gate,
+    });
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'run tests' }, timestamp: 1,
+    });
+
+    // outbound flows through the gate, not directly to the channel
+    expect(delivered.map((d) => d.text)).toContain('收到：run tests');
+    expect(directlySent).toEqual([]);
   });
 });

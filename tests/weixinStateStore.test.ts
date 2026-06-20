@@ -130,3 +130,49 @@ describe('FileWeixinStateStore — proactive quota & 24h window', () => {
     expect(store.getQuota('user_a').remaining).toBe(0);
   });
 });
+
+describe('FileWeixinStateStore — outbound queue', () => {
+  it('enqueues, peeks, shifts and reports pending across instances', () => {
+    const path = tempConfigPath();
+    const store = new FileWeixinStateStore(path);
+    expect(store.hasPendingOutbound('user_a')).toBe(false);
+
+    store.enqueueOutbound('user_a', { kind: 'text', text: 'm1' });
+    store.enqueueOutbound('user_a', { kind: 'text', text: 'm2' });
+
+    const reopened = new FileWeixinStateStore(path);
+    expect(reopened.hasPendingOutbound('user_a')).toBe(true);
+    expect(reopened.peekOutbound('user_a')).toEqual([
+      { kind: 'text', text: 'm1' },
+      { kind: 'text', text: 'm2' },
+    ]);
+
+    reopened.shiftOutbound('user_a');
+    expect(reopened.peekOutbound('user_a')).toEqual([{ kind: 'text', text: 'm2' }]);
+    reopened.shiftOutbound('user_a');
+    expect(reopened.hasPendingOutbound('user_a')).toBe(false);
+  });
+
+  it('isolates queues per chat and clears one chat', () => {
+    const path = tempConfigPath();
+    const store = new FileWeixinStateStore(path);
+    store.enqueueOutbound('a', { kind: 'text', text: 'a1' });
+    store.enqueueOutbound('b', { kind: 'text', text: 'b1' });
+    store.clearOutbound('a');
+    expect(store.hasPendingOutbound('a')).toBe(false);
+    expect(store.peekOutbound('b')).toEqual([{ kind: 'text', text: 'b1' }]);
+  });
+
+  it('preserves context tokens / quota when mutating the outbox', () => {
+    const path = tempConfigPath();
+    const store = new FileWeixinStateStore(path);
+    store.setContextToken('user_a', 'ctx_1');
+    store.recordSent('user_a');
+    store.enqueueOutbound('user_a', { kind: 'text', text: 'm1' });
+
+    const reopened = new FileWeixinStateStore(path);
+    expect(reopened.load().contextTokens.user_a).toBe('ctx_1');
+    expect(reopened.getQuota('user_a').sentCount).toBe(1);
+    expect(reopened.peekOutbound('user_a')).toEqual([{ kind: 'text', text: 'm1' }]);
+  });
+});

@@ -1,13 +1,14 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import Fastify from 'fastify';
 import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
 import { registerSettingsRoutes } from '../admin/settingsRoutes';
-import type { ChannelAdapter } from '../channels/types';
+import type { ChannelAdapter, ChannelOutgoingMessage } from '../channels/types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { ManagedWeixinDirectAdapter } from '../channels/weixin-direct/managedAdapter';
 import { FileWeixinStateStore } from '../channels/weixin-direct/weixinStateStore';
+import { WeixinOutboundGate } from '../channels/weixin-direct/outboundGate';
 import { PermissionRouter } from '../permissions/permissionRouter';
 import { createDefaultProviders } from '../providers/defaultProviders';
 import type { NativeProviderAdapter } from '../providers/types';
@@ -81,14 +82,25 @@ export function createDaemonServer(options: {
     });
   }
   const weixinStateStore = configPath ? new FileWeixinStateStore(configPath) : undefined;
-  const managedWechatChannel = options.channel ? null : new ManagedWeixinDirectAdapter(options.wechat, weixinStateStore);
+  const weixinMediaDir = configPath ? join(dirname(configPath), 'media') : undefined;
+  const managedWechatChannel = options.channel ? null : new ManagedWeixinDirectAdapter(options.wechat, weixinStateStore, weixinMediaDir);
   const channel = options.channel ?? managedWechatChannel;
+  // Quota-aware outbound gate only for the real WeChat channel (it has the 10/24h limit).
+  const weixinOutboundGate = managedWechatChannel && weixinStateStore
+    ? new WeixinOutboundGate({
+        store: weixinStateStore,
+        send: async (chatId, msg) => {
+          await managedWechatChannel.sendMessage({ chatId, kind: msg.kind as ChannelOutgoingMessage['kind'], text: msg.text });
+        },
+      })
+    : undefined;
   const messageRouter = channel
     ? new MessageRouter({
         channel,
         permissions,
         providers: providerAdapters,
         conversation,
+        outboundGate: weixinOutboundGate,
         resolveUser: (message) => activeUserStore.isActiveUser(PRIMARY_WEIXIN_PLATFORM, message.user.id),
         autoAuthorizeUser: (message) => {
           const existing = activeUserStore.isActiveUser(PRIMARY_WEIXIN_PLATFORM, message.user.id);
