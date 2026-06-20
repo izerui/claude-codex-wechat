@@ -207,6 +207,8 @@ Most bridge actions update both, and regressions usually come from them drifting
 
 ### Channel / WeChat model
 
+> **Required reading before any WeChat / iLink API work.** Before touching `src/channels/**`, the `weixin-direct` adapter, or anything that calls the WeChat (iLink Bot) API, read **[`docs/wechatbot-usage-guide.md`](docs/wechatbot-usage-guide.md)** first. It is the authoritative, cross-verified guide to the iLink Bot API — endpoints, required headers, message fields/enums, `context_token` rules, rate/size limits, error codes, and the known gaps between this repo's implementation and the official protocol. Do **not** guess WeChat API behavior or invent endpoints/fields; consult that guide and follow its constraints (especially the `context_token` requirement for every outbound message and the "proactive push cannot bypass token expiry" rule).
+
 The bridge assumes an existing WeChat clawbot speaks HTTP.
 
 Relevant files:
