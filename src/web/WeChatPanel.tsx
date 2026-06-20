@@ -18,8 +18,6 @@ import {
   type LastProviderSessionView,
   resolveApiUrl,
   type RecoverableProviderSessionView,
-  syncWeixinChannelSettings,
-  updateSettings,
   type ProviderStatusView,
   type WeixinRuntimeConfigView,
 } from './apiClient';
@@ -30,7 +28,7 @@ import {
 } from './statusFormat';
 
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
-type SessionTab = 'defaults' | 'claude-native' | 'codex-native' | 'help';
+type SessionTab = 'claude-native' | 'codex-native' | 'help';
 
 export function WeChatPanel(input: {
   providerStatus: ProviderStatusView | null;
@@ -50,7 +48,6 @@ export function WeChatPanel(input: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [attachingSessionId, setAttachingSessionId] = useState<string | null>(null);
-  const [savingSettings, setSavingSettings] = useState(false);
   const [creatingProvider, setCreatingProvider] = useState<'claude-code' | 'codex' | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -145,10 +142,6 @@ export function WeChatPanel(input: {
     }
   };
 
-  const changeDefaultProvider = (provider: 'claude-code' | 'codex') => {
-    setSettings((current) => current ? { ...current, defaultProvider: provider } : current);
-  };
-
   const attachRecoverableSession = async (session: RecoverableProviderSessionView) => {
     if (!activeUser?.platformUserId) {
       setError('no_active_wechat_user');
@@ -172,22 +165,6 @@ export function WeChatPanel(input: {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setAttachingSessionId(null);
-    }
-  };
-
-  const saveDefaultSettings = async () => {
-    if (!settings || savingSettings) return;
-    setError(null);
-    setSavingSettings(true);
-    try {
-      await updateSettings(settings);
-      await syncWeixinChannelSettings();
-      await refresh();
-      input.onNotice?.('配置已同步');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingSettings(false);
     }
   };
 
@@ -329,6 +306,15 @@ export function WeChatPanel(input: {
         <li className="nav-item">
           <button
             type="button"
+            className={`nav-link ${activeTab === 'help' ? 'active' : ''}`}
+            onClick={() => setActiveTab('help')}
+          >
+            帮助说明
+          </button>
+        </li>
+        <li className="nav-item">
+          <button
+            type="button"
             className={`nav-link ${activeTab === 'claude-native' ? 'active' : ''}`}
             onClick={() => {
               setActiveTab('claude-native');
@@ -348,24 +334,6 @@ export function WeChatPanel(input: {
             }}
           >
             Codex 会话
-          </button>
-        </li>
-        <li className="nav-item">
-          <button
-            type="button"
-            className={`nav-link ${activeTab === 'defaults' ? 'active' : ''}`}
-            onClick={() => setActiveTab('defaults')}
-          >
-            会话默认值
-          </button>
-        </li>
-        <li className="nav-item">
-          <button
-            type="button"
-            className={`nav-link ${activeTab === 'help' ? 'active' : ''}`}
-            onClick={() => setActiveTab('help')}
-          >
-            帮助说明
           </button>
         </li>
       </ul>
@@ -391,35 +359,6 @@ export function WeChatPanel(input: {
                   </ul>
                 </div>
               ))}
-            </>
-          ) : activeTab === 'defaults' ? (
-            <>
-              <p className="text-muted-soft small mb-3">仅在未指定时生效：新用户首次对话、或无当前会话自动接入时按此默认值新建。</p>
-              <div className="mb-3">
-                <label className="form-label" htmlFor="default-provider">提供方</label>
-                <select
-                  id="default-provider"
-                  className="form-select"
-                  value={settings?.defaultProvider ?? 'claude-code'}
-                  onChange={(event) => changeDefaultProvider(event.target.value === 'codex' ? 'codex' : 'claude-code')}
-                >
-                  <option value="claude-code">Claude Code</option>
-                  <option value="codex">Codex CLI</option>
-                </select>
-              </div>
-              <div className="mb-3">
-                <label className="form-label" htmlFor="default-workspace">工作目录</label>
-                <input
-                  id="default-workspace"
-                  className="form-control"
-                  value={settings?.defaultWorkspace ?? ''}
-                  onChange={(event) => setSettings((current) => current ? { ...current, defaultWorkspace: event.target.value } : current)}
-                  type="text"
-                />
-              </div>
-              <button className="btn btn-accent" disabled={!settings || savingSettings} onClick={() => void saveDefaultSettings()} type="button">
-                {savingSettings ? '保存中...' : '保存'}
-              </button>
             </>
           ) : (
             <>

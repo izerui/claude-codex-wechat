@@ -594,28 +594,6 @@ describe('App admin interactions', () => {
     expect(await screen.findByText('错误：weixin_get_updates_failed:-14:session timeout')).toBeTruthy();
   });
 
-  it('syncs weixin channel settings after changing default provider', async () => {
-    const { fetchImpl, calls } = createFetchStub();
-    vi.stubGlobal('fetch', fetchImpl as typeof fetch);
-    vi.stubGlobal('WebSocket', class {
-      addEventListener() {}
-      close() {}
-      constructor(_url: string) {}
-    } as unknown as typeof WebSocket);
-
-    render(<App />);
-
-    fireEvent.click((await screen.findAllByRole('button', { name: '会话默认值' })).at(-1)!);
-    const selectors = await screen.findAllByDisplayValue('Claude Code');
-    fireEvent.change(selectors[0]!, { target: { value: 'codex' } });
-    fireEvent.click((await screen.findAllByText('保存')).at(-1)!);
-
-    await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/settings') && call.method === 'POST')).toBe(true);
-      expect(calls.some((call) => call.url.endsWith('/api/channel/settings/sync') && call.method === 'POST')).toBe(true);
-    });
-  });
-
   it('loads recoverable Claude sessions for the active wechat user flow', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
