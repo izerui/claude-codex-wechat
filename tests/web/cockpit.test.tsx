@@ -87,4 +87,38 @@ describe('EngineBays', () => {
     expect(screen.queryByText('当前会话')).toBeNull();
     expect(screen.getAllByText('待命').length).toBe(2);
   });
+
+  it('shows the last session on the inactive engine, not on the active one', () => {
+    render(
+      <EngineBays
+        providerStatus={{ claude: { detected: true, version: '2.0.1' }, codex: { detected: true, version: '0.9.0' } }}
+        plugin={connectedPlugin}
+        currentSession={claudeSession}
+        lastProviderSessions={{
+          'claude-code': { providerSessionId: 'sess_claude_old', cwd: '/old/claude', updatedAt: 1700000000000 },
+          codex: { providerSessionId: 'sess_codex_old', cwd: '/old/codex', updatedAt: 1700000000000 },
+        }}
+      />,
+    );
+    // active (claude) shows current session, not its last session
+    expect(screen.getByText('当前会话')).toBeTruthy();
+    expect(screen.queryByText('sess_claude_old')).toBeNull();
+    // inactive (codex) shows the last session
+    expect(screen.getByText('最近会话')).toBeTruthy();
+    expect(screen.getByText('sess_codex_old')).toBeTruthy();
+    expect(screen.getByText('/old/codex')).toBeTruthy();
+  });
+
+  it('keeps the inactive engine on standby when it has no last session', () => {
+    render(
+      <EngineBays
+        providerStatus={{ claude: { detected: true, version: '2.0.1' }, codex: { detected: true, version: '0.9.0' } }}
+        plugin={connectedPlugin}
+        currentSession={claudeSession}
+        lastProviderSessions={{}}
+      />,
+    );
+    expect(screen.queryByText('最近会话')).toBeNull();
+    expect(screen.getByText('待命')).toBeTruthy();
+  });
 });

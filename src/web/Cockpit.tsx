@@ -1,4 +1,4 @@
-import type { ChannelPluginView, CurrentSessionView, ActiveWeChatUserView, ProviderStatusView } from './apiClient';
+import type { ChannelPluginView, CurrentSessionView, ActiveWeChatUserView, ProviderStatusView, LastProviderSessionView } from './apiClient';
 import {
   ELLIPSIS,
   formatPluginBadge,
@@ -74,6 +74,7 @@ function EngineBay(input: {
   providerInfo: unknown;
   active: boolean;
   session: CurrentSessionView | null;
+  lastSession: LastProviderSessionView | null;
 }) {
   const tone = input.active && input.session ? sessionDotTone(input.session) : providerTone(input.providerInfo);
   const command = readProviderCommand(input.providerInfo);
@@ -119,6 +120,21 @@ function EngineBay(input: {
             创建 {formatTimestamp(input.session.createdAt)} · 最后活跃 {formatTimestamp(input.session.lastActivityAt)}
           </div>
         </div>
+      ) : input.lastSession ? (
+        <div className="engine-session-detail mt-2 pt-2 d-flex flex-column gap-1">
+          <div className="text-muted-soft small">最近会话</div>
+          <div className="d-flex justify-content-between align-items-center gap-3">
+            <span className="text-muted-soft small flex-shrink-0">会话 ID</span>
+            <span className="font-monospace small" style={ELLIPSIS} title={input.lastSession.providerSessionId}>
+              {input.lastSession.providerSessionId}
+            </span>
+          </div>
+          <div className="d-flex justify-content-between align-items-center gap-3">
+            <span className="text-muted-soft small flex-shrink-0">工作目录</span>
+            <span className="font-monospace small" style={ELLIPSIS} title={input.lastSession.cwd}>{input.lastSession.cwd}</span>
+          </div>
+          <div className="text-muted-soft small">最后活跃 {formatTimestamp(input.lastSession.updatedAt)}</div>
+        </div>
       ) : null}
     </div>
   );
@@ -128,11 +144,13 @@ export function EngineBays(input: {
   providerStatus: ProviderStatusView | null;
   plugin: ChannelPluginView | null;
   currentSession: CurrentSessionView | null;
+  lastProviderSessions?: Partial<Record<'claude-code' | 'codex', LastProviderSessionView>>;
 }) {
   const connected = isPluginConnected(input.plugin);
   const activeProvider = connected && input.currentSession
     ? (input.currentSession.providerId === 'codex' ? 'codex' : 'claude')
     : null;
+  const lastSessions = input.lastProviderSessions ?? {};
 
   const claude = (
     <EngineBay
@@ -141,6 +159,7 @@ export function EngineBays(input: {
       providerInfo={input.providerStatus?.claude}
       active={activeProvider === 'claude'}
       session={activeProvider === 'claude' ? input.currentSession : null}
+      lastSession={activeProvider === 'claude' ? null : lastSessions['claude-code'] ?? null}
     />
   );
   const codex = (
@@ -150,6 +169,7 @@ export function EngineBays(input: {
       providerInfo={input.providerStatus?.codex}
       active={activeProvider === 'codex'}
       session={activeProvider === 'codex' ? input.currentSession : null}
+      lastSession={activeProvider === 'codex' ? null : lastSessions['codex'] ?? null}
     />
   );
 

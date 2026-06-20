@@ -25,9 +25,7 @@ import {
 } from './apiClient';
 import { ChannelStrip, EngineBays } from './Cockpit';
 import {
-  ELLIPSIS,
   formatPluginHint,
-  formatTimestamp,
   isPluginConnected,
 } from './statusFormat';
 
@@ -322,7 +320,7 @@ export function WeChatPanel(input: {
         onDisconnect={() => void disconnect()}
       />
 
-      <EngineBays providerStatus={input.providerStatus} plugin={plugin} currentSession={input.currentSession} />
+      <EngineBays providerStatus={input.providerStatus} plugin={plugin} currentSession={input.currentSession} lastProviderSessions={lastProviderSessions} />
 
       {formatPluginHint(plugin) ? (
         <div className="soft-card mb-2"><div className="card-body text-muted-soft small">{formatPluginHint(plugin)}</div></div>
@@ -491,19 +489,6 @@ export function WeChatPanel(input: {
             </>
           ) : (
             <>
-              {(() => {
-                const recent = lastProviderSessions[effectiveTab === 'codex-native' ? 'codex' : 'claude-code'];
-                return recent ? (
-                  <div className="weixin-info-item d-flex flex-column gap-1 mb-2">
-                    <div className="text-muted-soft small">最近会话</div>
-                    <div className="d-flex justify-content-between align-items-center gap-3">
-                      <span style={ELLIPSIS} title={recent.providerSessionId}>{recent.providerSessionId}</span>
-                      <span className="text-muted-soft small flex-shrink-0">{formatTimestamp(recent.updatedAt)}</span>
-                    </div>
-                    {recent.cwd ? <div className="text-muted-soft small" style={ELLIPSIS} title={recent.cwd}>{recent.cwd}</div> : null}
-                  </div>
-                ) : null;
-              })()}
               {filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复会话。</p> : (
                 <ul className="list-unstyled mb-0">
                   {filteredRecoverableSessions.map((session) => (
