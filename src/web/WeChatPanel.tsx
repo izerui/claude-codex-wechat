@@ -1,4 +1,4 @@
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { subscribeBridgeEvents } from './bridgeEventsSocket';
 import { BRIDGE_COMMAND_HELP_GROUPS, BRIDGE_COMMAND_HELP_INTRO } from '../shared/bridgeCommandHelp';
@@ -21,66 +21,25 @@ import {
   type RecoverableProviderSessionView,
   syncWeixinChannelSettings,
   updateSettings,
+  type ProviderStatusView,
   type WeixinRuntimeConfigView,
 } from './apiClient';
+import { ChannelStrip, EngineBays } from './Cockpit';
+import {
+  ELLIPSIS,
+  formatPluginHint,
+  formatProviderBadgeClass,
+  formatProviderLabel,
+  formatSessionStatusBadgeClass,
+  formatTimestamp,
+  isPluginConnected,
+} from './statusFormat';
 
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
 type SessionTab = 'new' | 'defaults' | 'claude-native' | 'codex-native' | 'help';
 
-function isPluginConnected(plugin: ChannelPluginView | null): boolean {
-  return plugin?.enabled === true && plugin.connected === true;
-}
-
-function formatPluginBadge(plugin: ChannelPluginView | null): string {
-  if (!plugin?.enabled) return '未连接';
-  if (plugin.connected) return '已连接';
-  if (plugin.status === 'session_timeout') return '会话超时';
-  if (plugin.status === 'connecting') return '连接中';
-  if (plugin.status === 'poll_error') return '轮询异常';
-  return '未连接';
-}
-
-function formatPluginBadgeClass(plugin: ChannelPluginView | null): string {
-  if (isPluginConnected(plugin)) return 'badge-solid-success';
-  if (plugin?.status === 'session_timeout' || plugin?.status === 'poll_error') return 'badge-solid-error';
-  if (plugin?.status === 'connecting') return 'badge-soft-accent';
-  return 'badge-soft-neutral';
-}
-
-function formatSessionStatusBadgeClass(status: string): string {
-  if (status === 'running' || status === 'active') return 'badge-solid-success';
-  if (status === 'error' || status === 'failed') return 'badge-solid-error';
-  return 'badge-soft-neutral';
-}
-
-function formatProviderLabel(providerId: string): string {
-  return providerId === 'codex' ? 'Codex CLI' : 'Claude Code';
-}
-
-function formatProviderBadgeClass(providerId: string): string {
-  return providerId === 'codex' ? 'badge-soft-success' : 'badge-soft-accent';
-}
-
-function formatPluginHint(plugin: ChannelPluginView | null): string | null {
-  if (!plugin?.enabled) return null;
-  if (plugin.status === 'session_timeout') return '微信 bot 会话已失效，请重新扫码登录以刷新 token。';
-  if (plugin.status === 'poll_error') return '微信消息轮询异常，请检查网络或重新扫码登录。';
-  if (plugin.status === 'connecting') return '微信通道正在建立轮询连接。';
-  return null;
-}
-
-function formatTimestamp(value?: number): string {
-  if (!value) return '-';
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return String(value);
-  }
-}
-
-const ELLIPSIS: CSSProperties = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
-
 export function WeChatPanel(input: {
+  providerStatus: ProviderStatusView | null;
   currentSession: CurrentSessionView | null;
   onRefreshCurrentSession?(session: CurrentSessionView | null): void;
   onNotice?(message: string): void;
@@ -346,8 +305,6 @@ export function WeChatPanel(input: {
     };
   };
 
-  const currentUserLabel = activeUser?.displayName ?? activeUser?.platformUserId;
-  const showWeixinIdentity = isPluginConnected(plugin);
   const filteredRecoverableSessions = recoverableSessions.filter((session) => (
     activeTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
   ));
@@ -359,100 +316,35 @@ export function WeChatPanel(input: {
     <section>
       {error ? <div className="alert alert-danger" role="alert">{error}</div> : null}
 
-      <div className="soft-card mb-2">
-        <div className="card-header d-flex justify-content-between align-items-center">
-          <span className="d-flex align-items-center gap-2">
-            微信通道
-          </span>
-          <div className="d-flex align-items-center gap-2">
-            {plugin?.enabled ? (
-              <button className="btn btn-sm btn-outline-danger" disabled={busy} onClick={() => void disconnect()} type="button">
-                {busy ? '断开中...' : '断开连接'}
-              </button>
-            ) : null}
-          </div>
-        </div>
-        <div className="card-body">
-          <div className="row g-2">
-            {runtimeConfig?.baseUrl ? (
-              <div className="col-md-6">
-                <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                  <span className="text-muted-soft small flex-shrink-0">网关</span>
-                  <span style={ELLIPSIS} title={runtimeConfig.baseUrl}>{runtimeConfig.baseUrl}</span>
-                </div>
-              </div>
-            ) : null}
-            {activeUser ? (
-              <div className="col-md-6">
-                <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                  <span className="text-muted-soft small flex-shrink-0">当前活跃用户</span>
-                  <span style={ELLIPSIS} title={activeUser.displayName ?? activeUser.platformUserId}>{activeUser.displayName ?? activeUser.platformUserId}</span>
-                </div>
-              </div>
-            ) : null}
-            {input.currentSession && isPluginConnected(plugin) ? (
-              <div className="col-12">
-                <div className="weixin-info-item d-flex flex-column gap-2">
-                  <div className="d-flex align-items-center gap-2 flex-wrap">
-                    <span className={`badge ${formatProviderBadgeClass(input.currentSession.providerId)}`}>{formatProviderLabel(input.currentSession.providerId)}</span>
-                    <span className={`badge ${formatSessionStatusBadgeClass(input.currentSession.status)}`}>{input.currentSession.status}</span>
-                    {(input.currentSession.nativeTitle ?? input.currentSession.resumeTitle) ? (
-                      <span className="text-muted-soft small text-truncate">{input.currentSession.nativeTitle ?? input.currentSession.resumeTitle}</span>
-                    ) : null}
-                  </div>
-                  <div className="d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small flex-shrink-0">会话 ID</span>
-                    <span style={ELLIPSIS} title={input.currentSession.providerSessionId ?? '-'}>{input.currentSession.providerSessionId ?? '-'}</span>
-                  </div>
-                  <div className="d-flex justify-content-between align-items-center gap-3">
-                    <span className="text-muted-soft small flex-shrink-0">工作目录</span>
-                    <span style={ELLIPSIS} title={input.currentSession.cwd}>{input.currentSession.cwd}</span>
-                  </div>
-                  <div className="text-muted-soft small">
-                    创建 {formatTimestamp(input.currentSession.createdAt)} · 最后活跃 {formatTimestamp(input.currentSession.lastActivityAt)}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-            {formatPluginHint(plugin) ? (
-              <div className="col-12">
-                <div className="weixin-info-item text-muted-soft small">{formatPluginHint(plugin)}</div>
-              </div>
-            ) : null}
-            {plugin?.lastError ? (
-              <div className="col-12">
-                <div className="weixin-info-item text-muted-soft small">错误：{plugin.lastError}</div>
-              </div>
-            ) : null}
-          </div>
+      <ChannelStrip
+        plugin={plugin}
+        activeUser={activeUser}
+        gateway={runtimeConfig?.baseUrl}
+        busy={busy}
+        loginState={loginState}
+        onLogin={startQrLogin}
+        onDisconnect={() => void disconnect()}
+      />
 
-          {loginState === 'showing_qr' || loginState === 'scanned' ? (
-            <div className="p-3 text-center">
-              {qrcodeData ? (
-                <div className="border rounded p-3 bg-white d-inline-flex justify-content-center" data-testid="weixin-login-qr">
-                  <QRCodeSVG
-                    value={qrcodeData}
-                    size={220}
-                    marginSize={2}
-                    bgColor="#ffffff"
-                    fgColor="#111827"
-                    title="微信登录二维码"
-                  />
-                </div>
-              ) : null}
-              <p className="text-muted-soft small mt-3 mb-0">{loginState === 'scanned' ? '已扫码，等待确认...' : '请使用微信扫描二维码'}</p>
+      <EngineBays providerStatus={input.providerStatus} plugin={plugin} currentSession={input.currentSession} />
+
+      {formatPluginHint(plugin) ? (
+        <div className="soft-card mb-2"><div className="card-body text-muted-soft small">{formatPluginHint(plugin)}</div></div>
+      ) : null}
+      {plugin?.lastError ? (
+        <div className="soft-card mb-2"><div className="card-body text-muted-soft small">错误：{plugin.lastError}</div></div>
+      ) : null}
+
+      {loginState === 'showing_qr' || loginState === 'scanned' ? (
+        <div className="soft-card mb-2"><div className="card-body p-3 text-center">
+          {qrcodeData ? (
+            <div className="border rounded p-3 bg-white d-inline-flex justify-content-center" data-testid="weixin-login-qr">
+              <QRCodeSVG value={qrcodeData} size={220} marginSize={2} bgColor="#ffffff" fgColor="#111827" title="微信登录二维码" />
             </div>
           ) : null}
-
-          {!isPluginConnected(plugin) && loginState !== 'showing_qr' && loginState !== 'scanned' ? (
-            <div className="p-3 text-center">
-              <button className="btn btn-accent" disabled={loginState === 'loading_qr'} onClick={startQrLogin} type="button">
-                {loginState === 'loading_qr' ? '正在加载二维码...' : plugin?.status === 'session_timeout' ? '重新扫码登录' : '扫码登录'}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </div>
+          <p className="text-muted-soft small mt-3 mb-0">{loginState === 'scanned' ? '已扫码，等待确认...' : '请使用微信扫描二维码'}</p>
+        </div></div>
+      ) : null}
 
       <ul className="nav nav-accent mb-2">
         {canCreateSession ? (
