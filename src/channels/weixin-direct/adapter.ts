@@ -100,12 +100,19 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     const chunks = chunkText(message.text ?? '', MAX_TEXT_LENGTH);
     const chunkDelayMs = this.options.chunkDelayMs ?? DEFAULT_CHUNK_DELAY_MS;
     for (let i = 0; i < chunks.length; i += 1) {
+      // iLink hard limit: ≤10 proactive sends per token within 24h. Check before
+      // each chunk so we fail loudly (quota error) instead of getting a -3 from
+      // the gateway. Each chunk counts against the quota.
+      if (this.options.stateStore && !this.options.stateStore.canSend(message.chatId)) {
+        throw new Error(`weixin_push_quota_exceeded:${message.chatId}`);
+      }
       if (i > 0 && chunkDelayMs > 0) await delay(chunkDelayMs);
       await this.options.api.sendTextMessage({
         toUserId: message.chatId,
         text: chunks[i]!,
         contextToken,
       });
+      this.options.stateStore?.recordSent(message.chatId);
     }
   }
 

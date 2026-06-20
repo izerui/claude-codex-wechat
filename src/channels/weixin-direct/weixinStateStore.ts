@@ -1,29 +1,55 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+/** iLink 平台硬限制:每个最新 token 开启的 24h 窗口内,bot 最多主动发 10 条。 */
+export const PUSH_QUOTA_LIMIT = 10;
+export const PUSH_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export type WeixinPersistedState = {
   contextTokens: Record<string, string>;
   cursor: string;
 };
 
+export type WeixinQuota = {
+  /** 当前 token 窗口内还能主动发几条（过期则 0）。 */
+  remaining: number;
+  sentCount: number;
+  windowStartAt: number;
+  /** 24h 窗口是否已过期（过期则 token 失效，需用户发新消息）。 */
+  expired: boolean;
+};
+
 /**
- * Persists the WeChat channel's recovery state — per-user `context_token`s and the
- * `getupdates` cursor — so the bridge survives restarts. Without this, every restart
- * drops all context tokens (replies fail until the user messages again) and resets
- * the cursor (risking missed/duplicated messages).
+ * Persists the WeChat channel's recovery + quota state so the bridge survives restarts.
+ *
+ * Per user we track the latest `context_token` plus its **24h window start** and
+ * **proactive send count** — both bound to that token. When the user sends a new
+ * message (token refresh), the window and quota reset. This mirrors the iLink
+ * platform's hard limit: ≤10 proactive messages per token within 24h.
  */
 export interface WeixinStateStore {
-  /** Read persisted state. */
   load(): WeixinPersistedState;
+  /** Record the user's latest token AND reset its 24h window + send quota. */
   setContextToken(userId: string, token: string): void;
   setCursor(cursor: string): void;
+  /** Whether a proactive send is currently allowed (has token, window live, quota left). */
+  canSend(userId: string): boolean;
+  /** Count one sent message against the current token's quota. */
+  recordSent(userId: string): void;
+  getQuota(userId: string): WeixinQuota;
   /** Drop everything (e.g. on session expiry / re-login). */
   clear(): void;
 }
 
+type UserState = {
+  contextToken: string;
+  windowStartAt: number;
+  sentCount: number;
+};
+
 type WeixinChannelState = {
-  contextTokens?: Record<string, string>;
   cursor?: string;
+  users?: Record<string, UserState>;
 };
 
 type RuntimeStateFile = {
@@ -35,29 +61,30 @@ type RuntimeStateFile = {
 };
 
 /**
- * Stores channel recovery state inside the shared runtime config file under
- * `bridge.weixinChannel`, alongside the other runtime stores (active user,
- * current conversation, credentials) — single source of truth, no separate file.
+ * Stores channel recovery + quota state inside the shared runtime config file under
+ * `bridge.weixinChannel`, alongside the other runtime stores — single source of truth.
  */
 export class FileWeixinStateStore implements WeixinStateStore {
   constructor(private readonly configPath: string) {}
 
   load(): WeixinPersistedState {
-    const channel = this.readState().bridge?.weixinChannel;
-    return {
-      contextTokens: { ...(channel?.contextTokens ?? {}) },
-      cursor: channel?.cursor ?? '',
-    };
+    const channel = this.readChannel();
+    const contextTokens: Record<string, string> = {};
+    for (const [userId, user] of Object.entries(channel.users ?? {})) {
+      if (user?.contextToken) contextTokens[userId] = user.contextToken;
+    }
+    return { contextTokens, cursor: channel.cursor ?? '' };
   }
 
   setContextToken(userId: string, token: string): void {
     if (!userId || !token) return;
     const state = this.readState();
     const channel = state.bridge?.weixinChannel ?? {};
-    const contextTokens = { ...(channel.contextTokens ?? {}) };
-    if (contextTokens[userId] === token) return;
-    contextTokens[userId] = token;
-    this.writeChannel(state, { ...channel, contextTokens });
+    const users = { ...(channel.users ?? {}) };
+    // New token = user just messaged → reset this user's 24h window + quota,
+    // bound to the latest token.
+    users[userId] = { contextToken: token, windowStartAt: Date.now(), sentCount: 0 };
+    this.writeChannel(state, { ...channel, users });
   }
 
   setCursor(cursor: string): void {
@@ -67,10 +94,38 @@ export class FileWeixinStateStore implements WeixinStateStore {
     this.writeChannel(state, { ...channel, cursor });
   }
 
+  canSend(userId: string): boolean {
+    const user = this.readChannel().users?.[userId];
+    if (!user?.contextToken) return false;
+    if (Date.now() - user.windowStartAt >= PUSH_WINDOW_MS) return false;
+    return user.sentCount < PUSH_QUOTA_LIMIT;
+  }
+
+  recordSent(userId: string): void {
+    const state = this.readState();
+    const channel = state.bridge?.weixinChannel ?? {};
+    const user = channel.users?.[userId];
+    if (!user) return;
+    const users = { ...channel.users, [userId]: { ...user, sentCount: user.sentCount + 1 } };
+    this.writeChannel(state, { ...channel, users });
+  }
+
+  getQuota(userId: string): WeixinQuota {
+    const user = this.readChannel().users?.[userId];
+    if (!user?.contextToken) return { remaining: 0, sentCount: 0, windowStartAt: 0, expired: true };
+    const expired = Date.now() - user.windowStartAt >= PUSH_WINDOW_MS;
+    const remaining = expired ? 0 : Math.max(0, PUSH_QUOTA_LIMIT - user.sentCount);
+    return { remaining, sentCount: user.sentCount, windowStartAt: user.windowStartAt, expired };
+  }
+
   clear(): void {
     const state = this.readState();
     if (!state.bridge?.weixinChannel) return;
-    this.writeChannel(state, { contextTokens: {}, cursor: '' });
+    this.writeChannel(state, { cursor: '', users: {} });
+  }
+
+  private readChannel(): WeixinChannelState {
+    return this.readState().bridge?.weixinChannel ?? {};
   }
 
   private readState(): RuntimeStateFile {

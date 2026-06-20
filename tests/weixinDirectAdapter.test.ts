@@ -456,6 +456,9 @@ describe('WeixinDirectAdapter', () => {
       load: vi.fn().mockReturnValue({ contextTokens: { user_a: 'ctx_loaded' }, cursor: 'buf_loaded' }),
       setContextToken: vi.fn(),
       setCursor: vi.fn(),
+      canSend: vi.fn().mockReturnValue(true),
+      recordSent: vi.fn(),
+      getQuota: vi.fn().mockReturnValue({ remaining: 10, sentCount: 0, windowStartAt: Date.now(), expired: false }),
       clear: vi.fn(),
     };
     const api = {
@@ -481,6 +484,9 @@ describe('WeixinDirectAdapter', () => {
       load: vi.fn().mockReturnValue({ contextTokens: {}, cursor: '' }),
       setContextToken: vi.fn(),
       setCursor: vi.fn(),
+      canSend: vi.fn().mockReturnValue(true),
+      recordSent: vi.fn(),
+      getQuota: vi.fn().mockReturnValue({ remaining: 10, sentCount: 0, windowStartAt: Date.now(), expired: false }),
       clear: vi.fn(),
     };
     const api = {
@@ -497,6 +503,60 @@ describe('WeixinDirectAdapter', () => {
       expect(store.setContextToken).toHaveBeenCalledWith('user_a', 'ctx_new');
       expect(store.setCursor).toHaveBeenCalledWith('buf_1');
     });
+
+    await adapter.stop();
+  });
+
+  it('refuses to send when the store reports quota exhausted / window expired', async () => {
+    const store = {
+      load: vi.fn().mockReturnValue({ contextTokens: { user_a: 'ctx_1' }, cursor: '' }),
+      setContextToken: vi.fn(),
+      setCursor: vi.fn(),
+      canSend: vi.fn().mockReturnValue(false),
+      recordSent: vi.fn(),
+      getQuota: vi.fn().mockReturnValue({ remaining: 0, sentCount: 10, windowStartAt: Date.now(), expired: false }),
+      clear: vi.fn(),
+    };
+    const api = {
+      getUpdates: vi.fn().mockResolvedValue({ nextBuffer: '', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, stateStore: store });
+    adapter.onMessage(async () => {});
+    await adapter.start({ background: true });
+
+    await expect(
+      adapter.sendMessage({ chatId: 'user_a', kind: 'text', text: 'hi' }),
+    ).rejects.toThrow('weixin_push_quota_exceeded');
+    expect(api.sendTextMessage).not.toHaveBeenCalled();
+    expect(store.recordSent).not.toHaveBeenCalled();
+
+    await adapter.stop();
+  });
+
+  it('records each sent chunk against the quota', async () => {
+    const store = {
+      load: vi.fn().mockReturnValue({ contextTokens: { user_a: 'ctx_1' }, cursor: '' }),
+      setContextToken: vi.fn(),
+      setCursor: vi.fn(),
+      canSend: vi.fn().mockReturnValue(true),
+      recordSent: vi.fn(),
+      getQuota: vi.fn().mockReturnValue({ remaining: 10, sentCount: 0, windowStartAt: Date.now(), expired: false }),
+      clear: vi.fn(),
+    };
+    const api = {
+      getUpdates: vi.fn().mockResolvedValue({ nextBuffer: '', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, chunkDelayMs: 0, stateStore: store });
+    adapter.onMessage(async () => {});
+    await adapter.start({ background: true });
+
+    // 4500 chars → 2 chunks → 2 sends → 2 quota records
+    await adapter.sendMessage({ chatId: 'user_a', kind: 'text', text: 'A'.repeat(4500) });
+    expect(api.sendTextMessage).toHaveBeenCalledTimes(2);
+    expect(store.recordSent).toHaveBeenCalledTimes(2);
+    expect(store.recordSent).toHaveBeenCalledWith('user_a');
 
     await adapter.stop();
   });
