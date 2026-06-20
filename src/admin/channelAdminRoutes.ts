@@ -256,11 +256,16 @@ export function registerChannelAdminRoutes(input: {
     });
     input.events?.emit({ type: 'channel.current-session-changed' });
     const providerLabel = providerId === 'codex' ? 'Codex' : 'Claude Code';
-    await input.channel?.sendMessage({
-      chatId,
-      kind: 'status',
-      text: `已新建 ${providerLabel} 会话，项目目录：${cwd}。`,
-    });
+    try {
+      await input.channel?.sendMessage({
+        chatId,
+        kind: 'status',
+        text: `已新建 ${providerLabel} 会话，项目目录：${cwd}。`,
+      });
+    } catch (error) {
+      // 通知是 best-effort：会话已创建成功，微信推送失败（如网关临时错误）不应让整个请求失败。
+      request.log.warn({ err: error }, 'sessions_new_notify_failed');
+    }
     return {
       ok: true,
       session: {

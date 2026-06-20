@@ -1506,6 +1506,32 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
+  it('still creates the session even if the weixin notification fails', async () => {
+    const channel = new MockChannelAdapter();
+    channel.onSent(() => {
+      throw new Error('weixin_send_message_failed:-3:unknown_error');
+    });
+    const provider = new FakeProviderAdapter('codex');
+    const { app, activeUserStore, sessions } = createDaemonServer({
+      channel,
+      providers: [provider],
+      activeUserStore: createRuntimeUserStore('bridge-admin-new-session-notify-fail-').activeUserStore,
+      bridgeDefaults: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+    });
+    activeUserStore.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/channel/sessions/new',
+      payload: { providerId: 'codex', cwd: '/tmp/my-project', platformUserId: 'wx_user_1' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ ok: true, session: { providerId: 'codex', cwd: '/tmp/my-project' } });
+    expect(sessions.getCurrent()).toMatchObject({ providerId: 'codex', cwd: '/tmp/my-project', chatId: 'wx_user_1' });
+    await app.close();
+  });
+
   it('rejects new session creation when there is no active weixin user', async () => {
     const provider = new FakeProviderAdapter('codex');
     const { app } = createDaemonServer({
