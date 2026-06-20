@@ -249,7 +249,5 @@ export function EngineBays(input: {
     />
   );
 
-  const ordered = activeProvider === 'codex' ? [codex, claude] : [claude, codex];
-
-  return <div className="engine-bays mb-2">{ordered}</div>;
+  return <div className="engine-bays mb-2">{claude}{codex}</div>;
 }

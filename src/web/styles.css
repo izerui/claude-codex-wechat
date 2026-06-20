@@ -302,7 +302,6 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--radius);
 }
 .engine-bay-active {
-  flex: 1.5 1 0;
   border: 1.5px solid var(--accent-border);
   background: linear-gradient(180deg, var(--accent), var(--card) 55%);
   box-shadow: 0 0 0 3px rgba(192, 112, 58, 0.10), 0 2px 8px rgba(192, 112, 58, 0.12);
