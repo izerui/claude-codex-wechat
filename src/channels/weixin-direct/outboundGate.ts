@@ -37,11 +37,9 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
       // Last slot. In the streaming case we can't know if more will follow, so we
       // always append the hint here; if nothing follows it's a harmless nudge.
       await this.options.send(chatId, { kind: message.kind, text: message.text + CONTINUATION_HINT });
-      store.recordSent(chatId);
       return;
     }
     await this.options.send(chatId, message);
-    store.recordSent(chatId);
   }
 
   async drain(chatId: string): Promise<void> {
@@ -56,12 +54,10 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
       if (isLastSlot && hasMore) {
         // Draining knows exactly whether more follows, so the hint is precise.
         await this.options.send(chatId, { kind: next.kind, text: next.text + CONTINUATION_HINT });
-        store.recordSent(chatId);
         store.shiftOutbound(chatId);
         break; // quota exhausted; remaining stay queued for the next refresh
       }
       await this.options.send(chatId, next);
-      store.recordSent(chatId);
       store.shiftOutbound(chatId);
     }
   }

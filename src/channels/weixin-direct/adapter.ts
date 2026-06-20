@@ -97,23 +97,24 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       // instead of firing a doomed request.
       throw new Error(`weixin_no_context_token:${message.chatId}`);
     }
+    // iLink hard limit: ≤10 proactive sends per token within 24h. A logical
+    // message counts as ONE against the quota, regardless of how many 4000-char
+    // chunks it splits into. The quota gate (if any) decided this send is allowed;
+    // we record exactly one here as the single source of truth.
+    if (this.options.stateStore && !this.options.stateStore.canSend(message.chatId)) {
+      throw new Error(`weixin_push_quota_exceeded:${message.chatId}`);
+    }
     const chunks = chunkText(message.text ?? '', MAX_TEXT_LENGTH);
     const chunkDelayMs = this.options.chunkDelayMs ?? DEFAULT_CHUNK_DELAY_MS;
     for (let i = 0; i < chunks.length; i += 1) {
-      // iLink hard limit: ≤10 proactive sends per token within 24h. Check before
-      // each chunk so we fail loudly (quota error) instead of getting a -3 from
-      // the gateway. Each chunk counts against the quota.
-      if (this.options.stateStore && !this.options.stateStore.canSend(message.chatId)) {
-        throw new Error(`weixin_push_quota_exceeded:${message.chatId}`);
-      }
       if (i > 0 && chunkDelayMs > 0) await delay(chunkDelayMs);
       await this.options.api.sendTextMessage({
         toUserId: message.chatId,
         text: chunks[i]!,
         contextToken,
       });
-      this.options.stateStore?.recordSent(message.chatId);
     }
+    this.options.stateStore?.recordSent(message.chatId);
   }
 
   async setTyping(chatId: string, active: boolean): Promise<void> {

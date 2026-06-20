@@ -11,7 +11,12 @@ function setup() {
   const sent: Array<{ chatId: string; kind: string; text: string }> = [];
   const gate = new WeixinOutboundGate({
     store,
-    send: async (chatId, msg) => { sent.push({ chatId, kind: msg.kind, text: msg.text }); },
+    // The real send path (adapter.sendMessage) records exactly one quota slot per
+    // logical message. The fake mirrors that so the gate is the decision layer only.
+    send: async (chatId, msg) => {
+      sent.push({ chatId, kind: msg.kind, text: msg.text });
+      store.recordSent(chatId);
+    },
   });
   return { store, sent, gate };
 }

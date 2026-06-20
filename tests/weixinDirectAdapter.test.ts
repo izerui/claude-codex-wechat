@@ -550,7 +550,7 @@ describe('WeixinDirectAdapter', () => {
     await adapter.stop();
   });
 
-  it('records each sent chunk against the quota', async () => {
+  it('records one quota slot per logical message regardless of chunk count', async () => {
     const store = {
       load: vi.fn().mockReturnValue({ contextTokens: { user_a: 'ctx_1' }, cursor: '' }),
       setContextToken: vi.fn(),
@@ -573,10 +573,10 @@ describe('WeixinDirectAdapter', () => {
     adapter.onMessage(async () => {});
     await adapter.start({ background: true });
 
-    // 4500 chars → 2 chunks → 2 sends → 2 quota records
+    // 4500 chars → 2 chunks (2 API calls) but ONE logical message → 1 quota slot
     await adapter.sendMessage({ chatId: 'user_a', kind: 'text', text: 'A'.repeat(4500) });
     expect(api.sendTextMessage).toHaveBeenCalledTimes(2);
-    expect(store.recordSent).toHaveBeenCalledTimes(2);
+    expect(store.recordSent).toHaveBeenCalledTimes(1);
     expect(store.recordSent).toHaveBeenCalledWith('user_a');
 
     await adapter.stop();
