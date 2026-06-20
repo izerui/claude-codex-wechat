@@ -10,6 +10,7 @@ import { ClaudeCodeProvider } from '../src/providers/claude-code/claudeProvider'
 import { CodexProvider } from '../src/providers/codex/codexProvider';
 import { CodexCliRunner } from '../src/providers/codex/codexCliRunner';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
+import { FileWeixinStateStore } from '../src/channels/weixin-direct/weixinStateStore';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
 
 describe('channel admin routes', () => {
@@ -106,6 +107,40 @@ describe('channel admin routes', () => {
         providerSessionId: expect.stringContaining('claude-code_fake_'),
       }),
     ]);
+    await app.close();
+  });
+
+  it('exposes the active weixin user push quota in channel state', async () => {
+    const configPath = join(mkdtempSync(join(tmpdir(), 'bridge-admin-quota-')), 'config.json');
+    const { app, activeUserStore } = createDaemonServer({
+      configPath,
+      activeUserStore: createRuntimeUserStore('bridge-admin-quota-store-').activeUserStore,
+    });
+    activeUserStore.setActiveUser({ platform: 'weixin', platformUserId: 'wx_user_1', role: 'user' });
+
+    // No token yet → window expired, nothing left to send.
+    const before = await app.inject({ method: 'GET', url: '/api/channel/state' });
+    expect(before.json().quota).toMatchObject({ remaining: 0, sentCount: 0, limit: 10, expired: true });
+
+    // User messaged the bot → token refresh resets the 24h window + full quota.
+    new FileWeixinStateStore(configPath).setContextToken('wx_user_1', 'tok_1');
+    const after = await app.inject({ method: 'GET', url: '/api/channel/state' });
+    const quota = after.json().quota;
+    expect(quota).toMatchObject({ remaining: 10, sentCount: 0, limit: 10, expired: false });
+    expect(quota.windowEndsAt).toBeGreaterThan(Date.now());
+
+    await app.close();
+  });
+
+  it('reports no quota when there is no active weixin user', async () => {
+    const configPath = join(mkdtempSync(join(tmpdir(), 'bridge-admin-quota-none-')), 'config.json');
+    const { app } = createDaemonServer({
+      configPath,
+      activeUserStore: createRuntimeUserStore('bridge-admin-quota-none-store-').activeUserStore,
+    });
+
+    const state = await app.inject({ method: 'GET', url: '/api/channel/state' });
+    expect(state.json().quota).toBeNull();
     await app.close();
   });
 

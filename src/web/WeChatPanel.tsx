@@ -19,6 +19,7 @@ import {
   resolveApiUrl,
   type RecoverableProviderSessionView,
   type ProviderStatusView,
+  type WeixinQuotaView,
   type WeixinRuntimeConfigView,
 } from './apiClient';
 import { ChannelStrip, EngineBays } from './Cockpit';
@@ -37,12 +38,13 @@ export function WeChatPanel(input: {
   onNotice?(message: string): void;
 }) {
   const [activeUser, setActiveUser] = useState<ActiveWeChatUserView | null>(null);
+  const [quota, setQuota] = useState<WeixinQuotaView | null>(null);
   const [plugin, setPlugin] = useState<ChannelPluginView | null>(null);
   const [runtimeConfig, setRuntimeConfig] = useState<WeixinRuntimeConfigView | null>(null);
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
   const [lastProviderSessions, setLastProviderSessions] = useState<Partial<Record<'claude-code' | 'codex', LastProviderSessionView>>>({});
   const [recoverableSessions, setRecoverableSessions] = useState<RecoverableProviderSessionView[]>([]);
-  const [activeTab, setActiveTab] = useState<SessionTab>('claude-native');
+  const [activeTab, setActiveTab] = useState<SessionTab>('help');
   const [loginState, setLoginState] = useState<LoginState>('idle');
   const [qrcodeData, setQrcodeData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +58,7 @@ export function WeChatPanel(input: {
     try {
       const state = await fetchChannelState();
       setActiveUser(state.activeUser);
+      setQuota(state.quota ?? null);
       setSettings(state.settings);
       setRuntimeConfig(state.runtimeConfig);
       setLastProviderSessions(state.lastProviderSessions ?? {});
@@ -93,6 +96,9 @@ export function WeChatPanel(input: {
     return subscribeBridgeEvents((payload) => {
       if (payload.type === 'channel.user-authorized') {
         setActiveUser(toActiveWeChatUserView(payload.user));
+        // A fresh inbound message refreshed the iLink token → its 24h window and
+        // proactive-push quota reset. Re-pull state so the strip reflects it.
+        void refresh();
         return;
       }
       if (payload.type === 'channel.current-session-changed') {
@@ -266,6 +272,7 @@ export function WeChatPanel(input: {
       <ChannelStrip
         plugin={plugin}
         activeUser={activeUser}
+        quota={quota}
         gateway={runtimeConfig?.baseUrl}
         busy={busy}
         loginState={loginState}

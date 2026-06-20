@@ -8,6 +8,7 @@ import { deleteConfigFile, persistWechatCredentialsToConfigFile } from '../daemo
 import type { BridgeEventHub } from '../daemon/events';
 import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 import type { ActiveWeChatUserStore } from '../storage/userStore';
+import { PUSH_QUOTA_LIMIT, PUSH_WINDOW_MS, type WeixinStateStore } from '../channels/weixin-direct/weixinStateStore';
 import type { CurrentConversationStore } from '../session/currentConversationStore';
 import type { NativeProviderAdapter } from '../providers/types';
 import { ensureClaudeSessionBridgeMetadata, findRecoverableClaudeSessionPath, getClaudeRecoverableSessionById, hasClaudeHistoryDisplay, hasClaudeSessionBridgeMetadata, listRecoverableClaudeSessions } from '../providers/claude-code/nativeSessions';
@@ -22,6 +23,7 @@ export function registerChannelAdminRoutes(input: {
   providers?: NativeProviderAdapter[];
   getSessionBindingMatch?: (sessionId: string) => boolean;
   users: ActiveWeChatUserStore;
+  weixinStateStore?: WeixinStateStore;
   wechat?: WeixinConfig;
   channel?: ChannelAdapter;
   events?: BridgeEventHub;
@@ -47,6 +49,7 @@ export function registerChannelAdminRoutes(input: {
     settings: input.defaults ?? { defaultProvider: 'claude-code', defaultWorkspace: process.cwd() },
     runtimeConfig: wechat ?? null,
     lastProviderSessions: input.lastProviderSessions?.list() ?? {},
+    quota: toQuotaView(input.users, input.weixinStateStore),
   }));
 
   input.app.post<{ Body: { plugin_id: string; config?: Record<string, unknown> } }>('/api/channel/plugins/enable', async (request, reply) => {
@@ -400,8 +403,26 @@ export function registerChannelAdminRoutes(input: {
   });
 }
 
-function toWechatPluginStatus(wechat: WeixinConfig | undefined, activeUserStore: ActiveWeChatUserStore, channel?: ChannelAdapter) {
-  const health = channel?.getHealth?.();
+/**
+ * Builds the WeChat proactive-push quota view for the current active user, or null
+ * when there's no weixin user / no quota store. `windowEndsAt` is the absolute time
+ * the token's 24h window closes (0 when no token), so the UI can render a countdown.
+ */
+function toQuotaView(activeUserStore: ActiveWeChatUserStore, store?: WeixinStateStore) {
+  if (!store) return null;
+  const activeUser = activeUserStore.getActiveUser();
+  if (activeUser?.platform !== PRIMARY_WEIXIN_PLATFORM) return null;
+  const quota = store.getQuota(activeUser.platformUserId);
+  return {
+    remaining: quota.remaining,
+    sentCount: quota.sentCount,
+    limit: PUSH_QUOTA_LIMIT,
+    expired: quota.expired,
+    windowEndsAt: quota.windowStartAt ? quota.windowStartAt + PUSH_WINDOW_MS : 0,
+  };
+}
+
+function toWechatPluginStatus(wechat: WeixinConfig | undefined, activeUserStore: ActiveWeChatUserStore, channel?: ChannelAdapter) {  const health = channel?.getHealth?.();
   return {
     id: PRIMARY_WEIXIN_PLATFORM,
     type: 'weixin' as const,

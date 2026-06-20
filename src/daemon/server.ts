@@ -160,6 +160,7 @@ export function createDaemonServer(options: {
   registerChannelAdminRoutes({
     app,
     users: activeUserStore,
+    ...(weixinStateStore ? { weixinStateStore } : {}),
     ...(channel ? { channel } : {}),
     lastProviderSessions,
     conversation,

@@ -238,12 +238,22 @@ export type LastProviderSessionView = {
   updatedAt: number;
 };
 
+export type WeixinQuotaView = {
+  remaining: number;
+  sentCount: number;
+  limit: number;
+  expired: boolean;
+  /** Absolute time (ms) the token's 24h window closes; 0 when no token. */
+  windowEndsAt: number;
+};
+
 export type ChannelStateView = {
   activeUser: ActiveWeChatUserView | null;
   plugin: ChannelPluginView;
   settings: BridgeSettingsView;
   runtimeConfig: WeixinRuntimeConfigView | null;
   lastProviderSessions?: Partial<Record<'claude-code' | 'codex', LastProviderSessionView>>;
+  quota?: WeixinQuotaView | null;
 };
 
 export async function fetchChannelState(): Promise<ChannelStateView> {

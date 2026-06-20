@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ChannelPluginView, CurrentSessionView, ActiveWeChatUserView, ProviderStatusView, LastProviderSessionView } from './apiClient';
+import type { ChannelPluginView, CurrentSessionView, ActiveWeChatUserView, ProviderStatusView, LastProviderSessionView, WeixinQuotaView } from './apiClient';
 import {
   ELLIPSIS,
   formatPluginBadge,
@@ -20,6 +20,7 @@ type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected'
 export function ChannelStrip(input: {
   plugin: ChannelPluginView | null;
   activeUser: ActiveWeChatUserView | null;
+  quota?: WeixinQuotaView | null;
   gateway?: string;
   busy: boolean;
   loginState: LoginState;
@@ -46,6 +47,14 @@ export function ChannelStrip(input: {
             </span>
           </span>
         ) : null}
+        {input.activeUser && input.quota ? (
+          <span className="channel-meta d-flex align-items-center gap-1">
+            <span className="text-muted-soft small">推送额度</span>
+            <span className="small" title="iLink 限制：每个 24h 窗口内 bot 最多主动推送 10 条；用户在微信回条消息即可重置窗口与额度">
+              {formatQuota(input.quota)}
+            </span>
+          </span>
+        ) : null}
         {input.gateway ? (
           <span className="channel-meta d-flex align-items-center gap-1" style={{ minWidth: 0 }}>
             <span className="text-muted-soft small">网关</span>
@@ -68,6 +77,14 @@ export function ChannelStrip(input: {
       </div>
     </div>
   );
+}
+
+function formatQuota(quota: WeixinQuotaView): string {
+  if (quota.expired || quota.windowEndsAt === 0) {
+    return '已用尽 · 请在微信回条消息恢复';
+  }
+  const hours = Math.max(0, Math.round((quota.windowEndsAt - Date.now()) / (60 * 60 * 1000)));
+  return `剩 ${quota.remaining}/${quota.limit} · 窗口约 ${hours}h`;
 }
 
 function EngineBay(input: {
