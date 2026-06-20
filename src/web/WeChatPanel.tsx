@@ -209,7 +209,8 @@ export function WeChatPanel(input: {
       const nextCurrentSession = await fetchCurrentSession();
       input.onRefreshCurrentSession?.(nextCurrentSession);
       await refresh();
-      input.onNotice?.('已新建会话');
+      const providerLabel = providerId === 'codex' ? 'Codex CLI' : 'Claude Code';
+      input.onNotice?.(`已新建 ${providerLabel} 会话 · ${cwd.trim()}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
