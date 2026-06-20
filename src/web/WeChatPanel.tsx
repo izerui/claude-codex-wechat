@@ -30,7 +30,7 @@ import {
 } from './statusFormat';
 
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
-type SessionTab = 'new' | 'defaults' | 'claude-native' | 'codex-native' | 'help';
+type SessionTab = 'defaults' | 'claude-native' | 'codex-native' | 'help';
 
 export function WeChatPanel(input: {
   providerStatus: ProviderStatusView | null;
@@ -44,19 +44,14 @@ export function WeChatPanel(input: {
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
   const [lastProviderSessions, setLastProviderSessions] = useState<Partial<Record<'claude-code' | 'codex', LastProviderSessionView>>>({});
   const [recoverableSessions, setRecoverableSessions] = useState<RecoverableProviderSessionView[]>([]);
-  const [activeTab, setActiveTab] = useState<SessionTab>('new');
+  const [activeTab, setActiveTab] = useState<SessionTab>('claude-native');
   const [loginState, setLoginState] = useState<LoginState>('idle');
   const [qrcodeData, setQrcodeData] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [attachingSessionId, setAttachingSessionId] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
-  const [newSessionProvider, setNewSessionProvider] = useState<'claude-code' | 'codex'>('claude-code');
-  const [newSessionCwd, setNewSessionCwd] = useState('');
-  const [creatingSession, setCreatingSession] = useState(false);
-  const newSessionProviderTouched = useRef(false);
-  const newSessionCwdTouched = useRef(false);
-  const lastSessionIdRef = useRef<string | null | undefined>(undefined);
+  const [creatingProvider, setCreatingProvider] = useState<'claude-code' | 'codex' | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const refresh = useCallback(async () => {
@@ -90,25 +85,6 @@ export function WeChatPanel(input: {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    const sessionId = input.currentSession?.id ?? null;
-    // Re-sync the form to the current session only when it genuinely changes,
-    // so a background refresh of the same session won't clobber the user's edits.
-    if (sessionId !== lastSessionIdRef.current) {
-      lastSessionIdRef.current = sessionId;
-      newSessionProviderTouched.current = false;
-      newSessionCwdTouched.current = false;
-    }
-    if (!newSessionProviderTouched.current) {
-      const provider = input.currentSession?.providerId ?? settings?.defaultProvider;
-      if (provider) setNewSessionProvider(provider === 'codex' ? 'codex' : 'claude-code');
-    }
-    if (!newSessionCwdTouched.current) {
-      const cwd = input.currentSession?.cwd ?? settings?.defaultWorkspace;
-      if (cwd) setNewSessionCwd(cwd);
-    }
-  }, [input.currentSession, settings]);
 
   useEffect(() => {
     if (!activeUser) return;
@@ -215,18 +191,18 @@ export function WeChatPanel(input: {
     }
   };
 
-  const submitNewSession = async () => {
+  const submitNewSession = async (providerId: 'claude-code' | 'codex', cwd: string) => {
     if (!activeUser?.platformUserId) {
       setError('no_active_wechat_user');
       return;
     }
-    if (creatingSession) return;
+    if (creatingProvider) return;
     setError(null);
-    setCreatingSession(true);
+    setCreatingProvider(providerId);
     try {
       await createNewSession({
-        providerId: newSessionProvider,
-        cwd: newSessionCwd.trim(),
+        providerId,
+        cwd: cwd.trim(),
         platformUserId: activeUser.platformUserId,
         chatId: activeUser.platformUserId,
       });
@@ -237,7 +213,7 @@ export function WeChatPanel(input: {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setCreatingSession(false);
+      setCreatingProvider(null);
     }
   };
 
@@ -304,7 +280,6 @@ export function WeChatPanel(input: {
   ));
 
   const canCreateSession = Boolean(activeUser && isPluginConnected(plugin));
-  const effectiveTab = activeTab === 'new' && !canCreateSession ? 'defaults' : activeTab;
 
   return (
     <section>
@@ -320,7 +295,16 @@ export function WeChatPanel(input: {
         onDisconnect={() => void disconnect()}
       />
 
-      <EngineBays providerStatus={input.providerStatus} plugin={plugin} currentSession={input.currentSession} lastProviderSessions={lastProviderSessions} />
+      <EngineBays
+        providerStatus={input.providerStatus}
+        plugin={plugin}
+        currentSession={input.currentSession}
+        lastProviderSessions={lastProviderSessions}
+        canCreateSession={canCreateSession}
+        defaultWorkspace={settings?.defaultWorkspace}
+        creatingProvider={creatingProvider}
+        onCreateSession={(providerId, cwd) => void submitNewSession(providerId, cwd)}
+      />
 
       {formatPluginHint(plugin) ? (
         <div className="soft-card mb-2"><div className="card-body text-muted-soft small">{formatPluginHint(plugin)}</div></div>
@@ -341,17 +325,6 @@ export function WeChatPanel(input: {
       ) : null}
 
       <ul className="nav nav-accent mb-2">
-        {canCreateSession ? (
-          <li className="nav-item">
-            <button
-              type="button"
-              className={`nav-link ${effectiveTab === 'new' ? 'active' : ''}`}
-              onClick={() => setActiveTab('new')}
-            >
-              新建会话
-            </button>
-          </li>
-        ) : null}
         <li className="nav-item">
           <button
             type="button"
@@ -379,7 +352,7 @@ export function WeChatPanel(input: {
         <li className="nav-item">
           <button
             type="button"
-            className={`nav-link ${effectiveTab === 'defaults' ? 'active' : ''}`}
+            className={`nav-link ${activeTab === 'defaults' ? 'active' : ''}`}
             onClick={() => setActiveTab('defaults')}
           >
             会话默认值
@@ -398,7 +371,7 @@ export function WeChatPanel(input: {
 
       <div className="soft-card mb-2">
         <div className="card-body">
-          {effectiveTab === 'help' ? (
+          {activeTab === 'help' ? (
             <>
               <p className="text-muted-soft small mb-3">微信端可发送以下命令；{BRIDGE_COMMAND_HELP_INTRO}</p>
               {BRIDGE_COMMAND_HELP_GROUPS.map((group) => (
@@ -418,47 +391,7 @@ export function WeChatPanel(input: {
                 </div>
               ))}
             </>
-          ) : effectiveTab === 'new' ? (
-            <>
-              <p className="text-muted-soft small mb-3">用指定的提供方与目录开启一个新对话，立即成为当前会话，并通知微信。</p>
-              <div className="mb-3">
-                <label className="form-label" htmlFor="new-session-provider">提供方</label>
-                <select
-                  id="new-session-provider"
-                  className="form-select"
-                  value={newSessionProvider}
-                  onChange={(event) => {
-                    newSessionProviderTouched.current = true;
-                    setNewSessionProvider(event.target.value === 'codex' ? 'codex' : 'claude-code');
-                  }}
-                >
-                  <option value="claude-code">Claude Code</option>
-                  <option value="codex">Codex CLI</option>
-                </select>
-              </div>
-              <div className="mb-3">
-                <label className="form-label" htmlFor="new-session-cwd">工作目录</label>
-                <input
-                  id="new-session-cwd"
-                  className="form-control"
-                  value={newSessionCwd}
-                  onChange={(event) => {
-                    newSessionCwdTouched.current = true;
-                    setNewSessionCwd(event.target.value);
-                  }}
-                  type="text"
-                />
-              </div>
-              <button
-                className="btn btn-accent"
-                disabled={creatingSession || !newSessionCwd.trim()}
-                onClick={() => void submitNewSession()}
-                type="button"
-              >
-                {creatingSession ? '新建中...' : '新建会话'}
-              </button>
-            </>
-          ) : effectiveTab === 'defaults' ? (
+          ) : activeTab === 'defaults' ? (
             <>
               <p className="text-muted-soft small mb-3">仅在未指定时生效：新用户首次对话、或无当前会话自动接入时按此默认值新建。</p>
               <div className="mb-3">

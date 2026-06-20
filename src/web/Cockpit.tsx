@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ChannelPluginView, CurrentSessionView, ActiveWeChatUserView, ProviderStatusView, LastProviderSessionView } from './apiClient';
 import {
   ELLIPSIS,
@@ -71,11 +72,28 @@ export function ChannelStrip(input: {
 
 function EngineBay(input: {
   name: string;
+  providerId: 'claude-code' | 'codex';
   providerInfo: unknown;
   active: boolean;
   session: CurrentSessionView | null;
   lastSession: LastProviderSessionView | null;
+  canCreate: boolean;
+  defaultCwd: string;
+  creating: boolean;
+  onCreate?(cwd: string): void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const [cwdInput, setCwdInput] = useState('');
+  const cwdId = `engine-create-cwd-${input.providerId}`;
+  const openCreate = () => {
+    setCwdInput(input.defaultCwd);
+    setExpanded(true);
+  };
+  const submitCreate = () => {
+    const cwd = cwdInput.trim();
+    if (!cwd) return;
+    input.onCreate?.(cwd);
+  };
   const tone = input.active && input.session ? sessionDotTone(input.session) : providerTone(input.providerInfo);
   const command = readProviderCommand(input.providerInfo);
   return (
@@ -136,6 +154,44 @@ function EngineBay(input: {
           <div className="text-muted-soft small">最后活跃 {formatTimestamp(input.lastSession.updatedAt)}</div>
         </div>
       ) : null}
+      {input.canCreate ? (
+        expanded ? (
+          <div className="engine-create mt-2 pt-2 d-flex flex-column gap-2">
+            <label className="form-label small mb-0" htmlFor={cwdId}>工作目录</label>
+            <input
+              id={cwdId}
+              className="form-control form-control-sm"
+              value={cwdInput}
+              onChange={(event) => setCwdInput(event.target.value)}
+              type="text"
+            />
+            <div className="d-flex gap-2">
+              <button
+                className="btn btn-accent btn-sm"
+                disabled={input.creating || !cwdInput.trim()}
+                onClick={submitCreate}
+                type="button"
+              >
+                {input.creating ? '新建中...' : '确认'}
+              </button>
+              <button
+                className="btn btn-outline-secondary btn-sm"
+                disabled={input.creating}
+                onClick={() => setExpanded(false)}
+                type="button"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-2 pt-2">
+            <button className="btn btn-accent btn-sm" onClick={openCreate} type="button">
+              {input.active ? '新开会话' : '新建会话'}
+            </button>
+          </div>
+        )
+      ) : null}
     </div>
   );
 }
@@ -145,31 +201,51 @@ export function EngineBays(input: {
   plugin: ChannelPluginView | null;
   currentSession: CurrentSessionView | null;
   lastProviderSessions?: Partial<Record<'claude-code' | 'codex', LastProviderSessionView>>;
+  canCreateSession?: boolean;
+  defaultWorkspace?: string;
+  creatingProvider?: 'claude-code' | 'codex' | null;
+  onCreateSession?(providerId: 'claude-code' | 'codex', cwd: string): void;
 }) {
   const connected = isPluginConnected(input.plugin);
   const activeProvider = connected && input.currentSession
     ? (input.currentSession.providerId === 'codex' ? 'codex' : 'claude')
     : null;
   const lastSessions = input.lastProviderSessions ?? {};
+  const canCreate = input.canCreateSession ?? false;
+  const wsFallback = input.defaultWorkspace ?? '';
 
   const claude = (
     <EngineBay
       key="claude"
       name="Claude"
+      providerId="claude-code"
       providerInfo={input.providerStatus?.claude}
       active={activeProvider === 'claude'}
       session={activeProvider === 'claude' ? input.currentSession : null}
       lastSession={activeProvider === 'claude' ? null : lastSessions['claude-code'] ?? null}
+      canCreate={canCreate}
+      defaultCwd={activeProvider === 'claude'
+        ? (input.currentSession?.cwd ?? wsFallback)
+        : (lastSessions['claude-code']?.cwd ?? wsFallback)}
+      creating={input.creatingProvider === 'claude-code'}
+      onCreate={(cwd) => input.onCreateSession?.('claude-code', cwd)}
     />
   );
   const codex = (
     <EngineBay
       key="codex"
       name="Codex"
+      providerId="codex"
       providerInfo={input.providerStatus?.codex}
       active={activeProvider === 'codex'}
       session={activeProvider === 'codex' ? input.currentSession : null}
       lastSession={activeProvider === 'codex' ? null : lastSessions['codex'] ?? null}
+      canCreate={canCreate}
+      defaultCwd={activeProvider === 'codex'
+        ? (input.currentSession?.cwd ?? wsFallback)
+        : (lastSessions['codex']?.cwd ?? wsFallback)}
+      creating={input.creatingProvider === 'codex'}
+      onCreate={(cwd) => input.onCreateSession?.('codex', cwd)}
     />
   );
 

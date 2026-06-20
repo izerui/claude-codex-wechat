@@ -121,4 +121,61 @@ describe('EngineBays', () => {
     expect(screen.queryByText('最近会话')).toBeNull();
     expect(screen.getByText('待命')).toBeTruthy();
   });
+
+  it('hides the create buttons when session creation is not allowed', () => {
+    render(
+      <EngineBays
+        providerStatus={{ claude: { detected: true, version: '2.0.1' }, codex: { detected: true, version: '0.9.0' } }}
+        plugin={connectedPlugin}
+        currentSession={claudeSession}
+        canCreateSession={false}
+        onCreateSession={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: '新建会话' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '新开会话' })).toBeNull();
+  });
+
+  it('creates a session from the inactive card using its provider and edited cwd', () => {
+    const onCreateSession = vi.fn();
+    render(
+      <EngineBays
+        providerStatus={{ claude: { detected: true, version: '2.0.1' }, codex: { detected: true, version: '0.9.0' } }}
+        plugin={connectedPlugin}
+        currentSession={claudeSession}
+        canCreateSession
+        defaultWorkspace="/default/ws"
+        lastProviderSessions={{ codex: { providerSessionId: 'sess_codex_old', cwd: '/old/codex', updatedAt: 1700000000000 } }}
+        onCreateSession={onCreateSession}
+      />,
+    );
+    // active claude card offers "新开会话"; inactive codex card offers "新建会话"
+    expect(screen.getByRole('button', { name: '新开会话' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
+    const input = screen.getByLabelText('工作目录') as HTMLInputElement;
+    // default cwd for inactive card comes from its last session
+    expect(input.value).toBe('/old/codex');
+    fireEvent.change(input, { target: { value: '/new/codex' } });
+    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+    expect(onCreateSession).toHaveBeenCalledWith('codex', '/new/codex');
+  });
+
+  it('creates a session from the active card using the current session cwd as default', () => {
+    const onCreateSession = vi.fn();
+    render(
+      <EngineBays
+        providerStatus={{ claude: { detected: true, version: '2.0.1' }, codex: { detected: true, version: '0.9.0' } }}
+        plugin={connectedPlugin}
+        currentSession={claudeSession}
+        canCreateSession
+        defaultWorkspace="/default/ws"
+        onCreateSession={onCreateSession}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '新开会话' }));
+    const input = screen.getByLabelText('工作目录') as HTMLInputElement;
+    expect(input.value).toBe('/home/me/proj');
+    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+    expect(onCreateSession).toHaveBeenCalledWith('claude-code', '/home/me/proj');
+  });
 });

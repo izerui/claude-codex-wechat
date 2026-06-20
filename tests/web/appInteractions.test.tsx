@@ -605,6 +605,7 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
+    fireEvent.click((await screen.findAllByRole('button', { name: '会话默认值' })).at(-1)!);
     const selectors = await screen.findAllByDisplayValue('Claude Code');
     fireEvent.change(selectors[0]!, { target: { value: 'codex' } });
     fireEvent.click((await screen.findAllByText('保存')).at(-1)!);
