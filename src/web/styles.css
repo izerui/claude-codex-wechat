@@ -312,6 +312,24 @@ h1, h2, h3, h4, h5, h6 {
 .engine-bay .engine-create {
   border-top: 1px dashed var(--accent-border);
 }
+.engine-create-btn {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 4px;
+  border-radius: 8px;
+  color: var(--primary);
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.engine-create-btn:hover:not(:disabled) {
+  color: var(--primary-hover);
+  background: var(--accent);
+}
+.engine-create-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 
 @media (max-width: 768px) {
   .engine-bays {

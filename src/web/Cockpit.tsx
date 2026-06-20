@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChannelPluginView, CurrentSessionView, ActiveWeChatUserView, ProviderStatusView, LastProviderSessionView } from './apiClient';
 import {
   ELLIPSIS,
@@ -82,13 +82,11 @@ function EngineBay(input: {
   creating: boolean;
   onCreate?(cwd: string): void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [cwdInput, setCwdInput] = useState('');
-  const cwdId = `engine-create-cwd-${input.providerId}`;
-  const openCreate = () => {
-    setCwdInput(input.defaultCwd);
-    setExpanded(true);
-  };
+  const [cwdInput, setCwdInput] = useState(input.defaultCwd);
+  const cwdEditedRef = useRef(false);
+  useEffect(() => {
+    if (!cwdEditedRef.current) setCwdInput(input.defaultCwd);
+  }, [input.defaultCwd]);
   const submitCreate = () => {
     const cwd = cwdInput.trim();
     if (!cwd) return;
@@ -155,42 +153,32 @@ function EngineBay(input: {
         </div>
       ) : null}
       {input.canCreate ? (
-        expanded ? (
-          <div className="engine-create mt-2 pt-2 d-flex flex-column gap-2">
-            <label className="form-label small mb-0" htmlFor={cwdId}>工作目录</label>
-            <input
-              id={cwdId}
-              className="form-control form-control-sm"
-              value={cwdInput}
-              onChange={(event) => setCwdInput(event.target.value)}
-              type="text"
-            />
-            <div className="d-flex gap-2">
-              <button
-                className="btn btn-accent btn-sm"
-                disabled={input.creating || !cwdInput.trim()}
-                onClick={submitCreate}
-                type="button"
-              >
-                {input.creating ? '新建中...' : '确认'}
-              </button>
-              <button
-                className="btn btn-outline-secondary btn-sm"
-                disabled={input.creating}
-                onClick={() => setExpanded(false)}
-                type="button"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-2 pt-2">
-            <button className="btn btn-accent btn-sm" onClick={openCreate} type="button">
-              {input.active ? '新开会话' : '新建会话'}
-            </button>
-          </div>
-        )
+        <div className="engine-create mt-2 pt-2 d-flex gap-2 align-items-center">
+          <input
+            className="form-control form-control-sm"
+            value={cwdInput}
+            onChange={(event) => {
+              cwdEditedRef.current = true;
+              setCwdInput(event.target.value);
+            }}
+            placeholder="工作目录"
+            aria-label={`${input.name} 工作目录`}
+            type="text"
+          />
+          <button
+            className="engine-create-btn d-inline-flex align-items-center flex-shrink-0"
+            disabled={input.creating || !cwdInput.trim()}
+            onClick={submitCreate}
+            title={input.active ? '新开会话' : '新建会话'}
+            aria-label={input.active ? '新开会话' : '新建会话'}
+            type="button"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M6 9a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3A.5.5 0 0 1 6 9M3.854 4.146a.5.5 0 1 0-.708.708L4.793 6.5 3.146 8.146a.5.5 0 1 0 .708.708l2-2a.5.5 0 0 0 0-.708z" />
+              <path d="M2 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2zm12 1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" />
+            </svg>
+          </button>
+        </div>
       ) : null}
     </div>
   );

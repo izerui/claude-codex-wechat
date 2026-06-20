@@ -151,12 +151,11 @@ describe('EngineBays', () => {
     );
     // active claude card offers "新开会话"; inactive codex card offers "新建会话"
     expect(screen.getByRole('button', { name: '新开会话' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
-    const input = screen.getByLabelText('工作目录') as HTMLInputElement;
-    // default cwd for inactive card comes from its last session
+    // the inactive codex directory input is always visible, prefilled from its last session
+    const input = screen.getByLabelText('Codex 工作目录') as HTMLInputElement;
     expect(input.value).toBe('/old/codex');
     fireEvent.change(input, { target: { value: '/new/codex' } });
-    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
     expect(onCreateSession).toHaveBeenCalledWith('codex', '/new/codex');
   });
 
@@ -172,10 +171,9 @@ describe('EngineBays', () => {
         onCreateSession={onCreateSession}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: '新开会话' }));
-    const input = screen.getByLabelText('工作目录') as HTMLInputElement;
+    const input = screen.getByLabelText('Claude 工作目录') as HTMLInputElement;
     expect(input.value).toBe('/home/me/proj');
-    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+    fireEvent.click(screen.getByRole('button', { name: '新开会话' }));
     expect(onCreateSession).toHaveBeenCalledWith('claude-code', '/home/me/proj');
   });
 });
