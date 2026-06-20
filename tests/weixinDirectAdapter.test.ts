@@ -321,4 +321,40 @@ describe('WeixinDirectAdapter', () => {
 
     await adapter.stop();
   });
+
+  it('orders typing writes so a slow start cannot land after a later stop', async () => {
+    let releaseStart!: () => void;
+    const startGate = new Promise<void>((resolve) => { releaseStart = resolve; });
+    const landed: Array<1 | 2> = [];
+    const api = {
+      getUpdates: vi.fn().mockResolvedValue({ nextBuffer: 'buf_1', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+      getConfig: vi.fn().mockResolvedValue({ typingTicket: 'ticket_123' }),
+      sendTyping: vi.fn().mockImplementation(async ({ status }: { status: 1 | 2 }) => {
+        // Simulate the "typing start" round-trip lagging on the wire while the
+        // later "typing stop" returns immediately.
+        if (status === 1) await startGate;
+        landed.push(status);
+      }),
+    };
+
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
+    adapter.onMessage(async () => {});
+    await adapter.start({ background: true });
+
+    // Fire-and-forget start (mirrors the keepalive), immediately followed by stop.
+    void adapter.setTyping('user_a', true);
+    const stop = adapter.setTyping('user_a', false);
+
+    await Promise.resolve();
+    releaseStart();
+    await stop;
+
+    await vi.waitFor(() => expect(landed.length).toBe(2));
+    // The final state delivered to WeChat must be the stop (status 2), never a
+    // stale start that re-enables "正在输入".
+    expect(landed[landed.length - 1]).toBe(2);
+
+    await adapter.stop();
+  });
 });

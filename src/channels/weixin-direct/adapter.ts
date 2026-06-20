@@ -25,6 +25,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   private buffer = '';
   private contextTokens = new Map<string, string>();
   private typingTickets = new Map<string, string>();
+  private typingChain = new Map<string, Promise<void>>();
   private runningTask: Promise<void> | null = null;
   private pollAbort: AbortController | null = null;
   private healthy = false;
@@ -80,10 +81,26 @@ export class WeixinDirectAdapter implements ChannelAdapter {
 
   async setTyping(chatId: string, active: boolean): Promise<void> {
     if (!this.options.api.getConfig || !this.options.api.sendTyping) return;
+    // Serialize writes per chat (chain updated synchronously, before any await)
+    // so a fire-and-forget keepalive `true` can never land on the wire after the
+    // turn's final `false` and leave WeChat stuck showing "正在输入".
+    const previous = this.typingChain.get(chatId) ?? Promise.resolve();
+    const next = previous.then(
+      () => this.writeTyping(chatId, active),
+      () => this.writeTyping(chatId, active),
+    );
+    this.typingChain.set(chatId, next);
+    next.finally(() => {
+      if (this.typingChain.get(chatId) === next) this.typingChain.delete(chatId);
+    });
+    await next;
+  }
+
+  private async writeTyping(chatId: string, active: boolean): Promise<void> {
     try {
       const typingTicket = await this.getTypingTicket(chatId);
       if (!typingTicket) return;
-      await this.options.api.sendTyping({
+      await this.options.api.sendTyping?.({
         ilinkUserId: chatId,
         typingTicket,
         status: active ? 1 : 2,

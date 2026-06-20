@@ -382,27 +382,11 @@ export function WeChatPanel(input: {
                 </div>
               </div>
             ) : null}
-            {runtimeConfig?.accountId ? (
-              <div className="col-md-6">
-                <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                  <span className="text-muted-soft small flex-shrink-0">微信 Account ID</span>
-                  <span style={ELLIPSIS} title={runtimeConfig.accountId}>{runtimeConfig.accountId}</span>
-                </div>
-              </div>
-            ) : null}
             {activeUser ? (
               <div className="col-md-6">
                 <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
                   <span className="text-muted-soft small flex-shrink-0">当前活跃用户</span>
                   <span style={ELLIPSIS} title={activeUser.displayName ?? activeUser.platformUserId}>{activeUser.displayName ?? activeUser.platformUserId}</span>
-                </div>
-              </div>
-            ) : null}
-            {plugin?.botUsername ? (
-              <div className="col-md-6">
-                <div className="weixin-info-item d-flex justify-content-between align-items-center gap-3">
-                  <span className="text-muted-soft small flex-shrink-0">Bot 账号</span>
-                  <span style={ELLIPSIS} title={plugin.botUsername}>{plugin.botUsername}</span>
                 </div>
               </div>
             ) : null}
