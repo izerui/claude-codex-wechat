@@ -11,7 +11,6 @@ import {
   enableWeixinPlugin,
   type BridgeSettingsView,
   type ChannelPluginView,
-  type ChannelStateView,
   type CurrentSessionView,
   fetchChannelState,
   fetchCurrentSession,
@@ -28,9 +27,6 @@ import { ChannelStrip, EngineBays } from './Cockpit';
 import {
   ELLIPSIS,
   formatPluginHint,
-  formatProviderBadgeClass,
-  formatProviderLabel,
-  formatSessionStatusBadgeClass,
   formatTimestamp,
   isPluginConnected,
 } from './statusFormat';
