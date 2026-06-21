@@ -4,7 +4,6 @@ export type BridgeCommand =
   | { kind: 'help' }
   | { kind: 'status' }
   | { kind: 'new_session'; providerId: ProviderId | null; cwd: string | null }
-  | { kind: 'use_provider'; providerId: ProviderId }
   | { kind: 'list_sessions'; scope: 'all'; keyword: string | null }
   | { kind: 'resume_session'; ref: string }
   | { kind: 'archive_session'; ref: string }
@@ -60,11 +59,6 @@ export function parseBridgeCommand(input: string): BridgeCommand {
     if (providerId) return { kind: 'new_session', providerId, cwd: null };
     if (looksLikePath(first)) return { kind: 'new_session', providerId: null, cwd: first };
     return { kind: 'chat', text };
-  }
-
-  if (command === '/use') {
-    const providerId = parseProvider(first);
-    return providerId ? { kind: 'use_provider', providerId } : { kind: 'chat', text };
   }
 
   if ((command === '/approve' || command === '/deny' || command === '/abort') && first) {

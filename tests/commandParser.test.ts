@@ -21,6 +21,11 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/new claude:foo')).toEqual({ kind: 'chat', text: '/new claude:foo' });
   });
 
+  it('treats removed /use commands as plain chat', () => {
+    expect(parseBridgeCommand('/use codex')).toEqual({ kind: 'chat', text: '/use codex' });
+    expect(parseBridgeCommand('/use claude')).toEqual({ kind: 'chat', text: '/use claude' });
+  });
+
   it('parses permission decisions', () => {
     expect(parseBridgeCommand('/approve pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'approve' });
     expect(parseBridgeCommand('/deny pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'deny' });
@@ -63,5 +68,6 @@ describe('parseBridgeCommand', () => {
     expect(help).toContain('中断当前正在生成的回复（会话保留）');
     expect(help).not.toContain('`/cancel`');
     expect(help).not.toContain('`/sessions mine`');
+    expect(help).not.toContain('`/use claude|codex`');
   });
 });

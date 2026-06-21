@@ -21,7 +21,6 @@ export const BRIDGE_COMMAND_HELP_GROUPS: BridgeCommandHelpGroup[] = [
         command: '/new [claude|codex][:目录]',
         desc: '新建会话；省略 provider 用默认，可带目录，例：`/new`、`/new codex`、`/new ~/project`、`/new claude:/home/project`',
       },
-      { command: '/use claude|codex', desc: '切换当前 provider' },
       { command: '/stop', desc: '中断当前正在生成的回复（会话保留）' },
     ],
   },

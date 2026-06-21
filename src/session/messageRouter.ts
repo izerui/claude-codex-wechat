@@ -438,24 +438,6 @@ export class MessageRouter {
       return;
     }
 
-    if (command.kind === 'use_provider') {
-      await this.preemptActiveGeneration(chatId);
-      const current = this.conversation.getCurrent();
-      const cwd = current?.cwd ?? '/tmp/project';
-      this.conversation.create({
-        chatId,
-        ownerUserId: user.id,
-        providerId: command.providerId,
-        cwd,
-      });
-      await this.sendToChat({
-        chatId,
-        kind: 'status',
-        text: `Switched active provider to ${command.providerId}`,
-      });
-      return;
-    }
-
     if (command.kind === 'status') {
       const session = this.conversation.getCurrent();
       await this.sendToChat({
