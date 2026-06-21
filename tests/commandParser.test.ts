@@ -20,10 +20,6 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/new claude:foo')).toEqual({ kind: 'chat', text: '/new claude:foo' });
   });
 
-  it('parses reload command', () => {
-    expect(parseBridgeCommand('/reload')).toEqual({ kind: 'reload' });
-  });
-
   it('parses permission decisions', () => {
     expect(parseBridgeCommand('/approve pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'approve' });
     expect(parseBridgeCommand('/deny pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'deny' });

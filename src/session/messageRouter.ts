@@ -620,36 +620,6 @@ export class MessageRouter {
       });
       return;
     }
-
-    if (command.kind === 'reload') {
-      const session = this.conversation.getCurrent();
-      if (!session) {
-        await this.sendToChat({ chatId, kind: 'status', text: 'No active session to reload' });
-        return;
-      }
-      const provider = this.providers.get(session.providerId);
-      if (!provider) throw new Error(`provider_not_registered:${session.providerId}`);
-      await this.preemptActiveGeneration(chatId);
-      await provider.stopSession(session.id);
-      const reloaded = await provider.startSession({
-        bridgeSessionId: session.id,
-        cwd: session.cwd,
-        options: {
-          ...(session.providerSessionId ? { providerSessionId: session.providerSessionId } : {}),
-          ...(session.resumeTitle ? { sessionName: session.resumeTitle } : {}),
-        },
-      });
-      this.conversation.update({
-        providerSessionId: reloaded.providerSessionId,
-        status: reloaded.status,
-        lastActivityAt: Date.now(),
-      }, session.id);
-      await this.sendToChat({
-        chatId,
-        kind: 'status',
-        text: `Reloaded active ${session.providerId} session ${session.id}`,
-      });
-    }
   }
 
   async decidePermission(input: { requestId: string; userId: string; decision: PermissionChoice }): Promise<

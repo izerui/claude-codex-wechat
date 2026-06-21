@@ -24,7 +24,6 @@ export const BRIDGE_COMMAND_HELP_GROUPS: BridgeCommandHelpGroup[] = [
       { command: '/use claude|codex', desc: '切换当前 provider' },
       { command: '/stop', desc: '停止并清除当前会话' },
       { command: '/cancel', desc: '中断当前正在生成的回复（会话保留）' },
-      { command: '/reload', desc: '重启当前会话（保留 provider 与目录）' },
     ],
   },
   {

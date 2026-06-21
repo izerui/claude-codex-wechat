@@ -6,7 +6,6 @@ export type BridgeCommand =
   | { kind: 'new_session'; providerId: ProviderId | null; cwd: string | null }
   | { kind: 'use_provider'; providerId: ProviderId }
   | { kind: 'stop' }
-  | { kind: 'reload' }
   | { kind: 'list_sessions'; scope: 'all' | 'mine'; keyword: string | null }
   | { kind: 'resume_session'; ref: string }
   | { kind: 'archive_session'; ref: string }
@@ -34,7 +33,6 @@ export function parseBridgeCommand(input: string): BridgeCommand {
   if (command === '/help') return { kind: 'help' };
   if (command === '/status') return { kind: 'status' };
   if (command === '/stop') return { kind: 'stop' };
-  if (command === '/reload') return { kind: 'reload' };
   if (command === '/cancel' || command === '/interrupt') return { kind: 'cancel_generation' };
 
   if (command === '/sessions') {

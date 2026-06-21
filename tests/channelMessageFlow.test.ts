@@ -228,46 +228,6 @@ describe('channel message flow', () => {
     await app.close();
   });
 
-  it('reloads the active provider session through an incoming command', async () => {
-    const { activeUserStore, configPath } = seededUsers();
-    const channel = new MockChannelAdapter();
-    const sent: string[] = [];
-    channel.onSent((message) => sent.push(message.text));
-    const provider = new FakeProviderAdapter('claude-code');
-    const { app, sessions } = createDaemonServer({
-      channel,
-      providers: [provider],
-      activeUserStore: activeUserStore,
-      configPath,
-    });
-
-    await channel.emitIncoming({
-      id: 'm1',
-      platform: PRIMARY_WEIXIN_PLATFORM,
-      chatId: 'chat-reload',
-      user: { id: 'wx_user_1' },
-      content: { type: 'text', text: 'hello reload' },
-      timestamp: 1,
-    });
-    const active = sessions.getActiveSession('chat-reload');
-    expect(active?.providerSessionId).toMatch(/^claude-code_fake_/);
-
-    await channel.emitIncoming({
-      id: 'm2',
-      platform: PRIMARY_WEIXIN_PLATFORM,
-      chatId: 'chat-reload',
-      user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '/reload' },
-      timestamp: 2,
-    });
-
-    expect(provider.stoppedSessions).toEqual([active!.id]);
-    expect(sessions.getActiveSession('chat-reload')?.id).toBe(active?.id);
-    expect(sent.at(-1)).toContain(`Reloaded active claude-code session ${active?.id}`);
-
-    await app.close();
-  });
-
   it('writes a bridge-owned Codex thread name into session_index for a new chat session', async () => {
     const previousCodexHome = process.env.CODEX_HOME;
     const codexHome = mkdtempSync(`${tmpdir()}/bridge-codex-home-`);
