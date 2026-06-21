@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/main.ts",
-    "web": "vite --host",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build:web": "vite build"
   },
   "dependencies": {
+    "@fastify/middie": "^9.3.2",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@vitejs/plugin-react": "latest",
     "better-sqlite3": "latest",

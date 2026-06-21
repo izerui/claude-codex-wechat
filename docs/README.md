@@ -33,16 +33,10 @@ cd /Users/liuyuhua/github/claude-codex-wechat
 pnpm install
 ```
 
-启动 daemon：
+启动 daemon（前端管理页通过内嵌 Vite middleware 在同一进程同端口提供，默认 `127.0.0.1:8787`）：
 
 ```bash
 pnpm dev
-```
-
-启动 web 管理页开发模式：
-
-```bash
-pnpm web
 ```
 
 生产构建前端：
@@ -459,20 +453,14 @@ BRIDGE_REAL_CODEX=1 pnpm test tests/codexRealProbe.test.ts tests/codexCliRunner.
 pnpm dev
 ```
 
-2. 启动 web UI：
-
-```bash
-pnpm web
-```
-
-3. 在管理页点击 **Scan to Login**，完成微信扫码登录
-4. 从微信发送第一条消息
-5. 如果未开启自动授权，则在管理页审批 pairing
-6. 如果需要恢复原生 Claude/Codex 会话：
+2. 在管理页（同一进程同端口，默认 `127.0.0.1:8787`）点击 **Scan to Login**，完成微信扫码登录
+3. 从微信发送第一条消息
+4. 如果未开启自动授权，则在管理页审批 pairing
+5. 如果需要恢复原生 Claude/Codex 会话：
    - 先试管理页的 **自动接入 Claude/Codex 会话**
    - 不满足时再用 **扫描原生会话** + **接入会话**
-7. 在管理页观察 session / permissions / provider status / binding status
-8. 如需验证真实 provider contract，再显式运行 `BRIDGE_REAL_*` 测试
+6. 在管理页观察 session / permissions / provider status / binding status
+7. 如需验证真实 provider contract，再显式运行 `BRIDGE_REAL_*` 测试
 
 ### 最新实例切换与验收
 

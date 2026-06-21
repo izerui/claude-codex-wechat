@@ -103,17 +103,13 @@ pnpm install
 
 ## 本地启动
 
-启动后端：
+一条命令同时启动后端与前端管理页（前端以 Vite middleware 模式嵌入同一进程，含热更新）：
 
 ```bash
 pnpm dev
 ```
 
-启动前端管理页：
-
-```bash
-pnpm web
-```
+启动后访问 `http://127.0.0.1:8787`（端口由 `BRIDGE_PORT` 控制）。
 
 基础校验：
 

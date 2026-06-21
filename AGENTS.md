@@ -33,16 +33,10 @@ Install dependencies:
 pnpm install
 ```
 
-Start the bridge daemon:
+Start the bridge daemon (also serves the web admin UI on the same port via embedded Vite middleware, default `127.0.0.1:8787`):
 
 ```bash
 pnpm dev
-```
-
-Start the web admin UI (Vite dev server on `127.0.0.1:5177`):
-
-```bash
-pnpm web
 ```
 
 Typecheck:

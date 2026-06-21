@@ -1,6 +1,8 @@
 import { createDaemonServer } from './daemon/server';
 import { defaultConfigPath, loadBridgeConfig } from './daemon/config';
 import { persistProviderCommandsToConfigFile } from './daemon/configPersistence';
+import middie from '@fastify/middie';
+import { createServer as createViteServer } from 'vite';
 import { execFile } from 'node:child_process';
 import { networkInterfaces } from 'node:os';
 import { promisify } from 'node:util';
@@ -21,6 +23,23 @@ const { app } = createDaemonServer({
     defaultWorkspace: config.bridge?.defaultWorkspace ?? process.cwd(),
   },
   configPath,
+});
+
+// 将前端开发服务器以 Vite middleware 模式嵌入同一进程：
+// /api/* 由 Fastify 路由处理，其余请求（页面、模块、HMR）交给 Vite。
+// HMR websocket 复用 Fastify 的 HTTP server，避免额外端口、确保局域网访问可热更新。
+const vite = await createViteServer({
+  server: { middlewareMode: true, hmr: { server: app.server } },
+  appType: 'spa',
+});
+await app.register(middie);
+app.use((req, res, next) => {
+  // /api/* 交给 Fastify 路由；其余请求由 Vite 处理（含 SPA fallback）。
+  if (req.url?.startsWith('/api')) return next();
+  vite.middlewares(req, res, next);
+});
+app.addHook('onClose', async () => {
+  await vite.close();
 });
 
 await app.listen({ host: '0.0.0.0', port });
