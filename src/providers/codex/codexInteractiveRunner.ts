@@ -1,10 +1,6 @@
 import type { PermissionRequest, ProviderEvent, ProviderSession } from '../types';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { CodexAppServerClient } from './codexAppServerClient';
 import { syncCodexThreadForResume } from './nativeThreads';
-
-const execFileAsync = promisify(execFile);
 
 type StoredSession = ProviderSession & {
   threadId?: string;
@@ -161,10 +157,6 @@ export class CodexInteractiveRunner {
 
   async decidePermission(_input: { requestId: string; decision: 'approve' | 'deny' | 'abort' }): Promise<void> {
     // Interactive Codex permissions are not bridged yet in this minimal runner.
-  }
-
-  async archiveSession(providerSessionId: string): Promise<void> {
-    await execFileAsync(this.command ?? 'codex', ['archive', providerSessionId]);
   }
 
   async interruptTurn(bridgeSessionId: string): Promise<void> {

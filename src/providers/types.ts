@@ -73,7 +73,6 @@ export interface NativeProviderAdapter {
     bridgeSessionId: string;
     cwd: string;
   }): Promise<ProviderSession>;
-  archiveSession?(providerSessionId: string): Promise<void>;
   interruptSession?(bridgeSessionId: string): Promise<void>;
   // Inject a message into the in-flight turn (native "steer") instead of
   // starting a new turn. Only providers running a persistent session support it.

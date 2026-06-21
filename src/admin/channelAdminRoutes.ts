@@ -379,28 +379,6 @@ export function registerChannelAdminRoutes(input: {
     input.events?.emit({ type: 'channel.current-session-changed' });
     return { ok: true };
   });
-
-  input.app.post('/api/channel/current-session/stop', async (_request, reply) => {
-    const runtimeSession = input.conversation?.getCurrent();
-    if (!runtimeSession) return reply.code(404).send({ ok: false, error: 'session_not_found' });
-    const provider = input.providers?.find((candidate) => candidate.id === runtimeSession.providerId);
-    await provider?.stopSession(runtimeSession.id);
-    input.conversation?.clear();
-    input.events?.emit({ type: 'channel.current-session-changed' });
-    return { ok: true };
-  });
-
-  input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/stop', async (request, reply) => {
-    const current = input.conversation?.getCurrent();
-    if (!current || current.id !== request.params.id) {
-      return reply.code(404).send({ ok: false, error: 'session_not_found' });
-    }
-    return await input.app.inject({ method: 'POST', url: '/api/channel/current-session/stop' }).then((response) => response.json());
-  });
-
-  input.app.post<{ Params: { id: string } }>('/api/channel/sessions/:id/archive', async (_request, reply) => {
-    return reply.code(404).send({ ok: false, error: 'session_archive_not_supported' });
-  });
 }
 
 /**

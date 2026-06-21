@@ -362,16 +362,6 @@ export async function repairAllRecoverableProviderSessionsNativeResume(input: {
   });
 }
 
-export async function stopCurrentSession(): Promise<void> {
-  const current = await fetchCurrentSession();
-  if (!current) return;
-  try {
-    await requestJson('/api/channel/current-session/stop', { method: 'POST' });
-  } catch {
-    await requestJson(`/api/channel/sessions/${encodeURIComponent(current.id)}/stop`, { method: 'POST' });
-  }
-}
-
 export async function decidePermission(input: {
   requestId: string;
   userId: string;

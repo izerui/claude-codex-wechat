@@ -68,16 +68,19 @@ describe('channel admin routes', () => {
     expect(active).not.toBeNull();
 
     const stop = await app.inject({ method: 'POST', url: `/api/channel/sessions/${active!.id}/stop` });
-    expect(stop.statusCode).toBe(200);
-    expect(stop.json()).toEqual({ ok: true });
-    expect(provider.stoppedSessions).toEqual([active!.id]);
+    expect(stop.statusCode).toBe(404);
 
     const stopMissing = await app.inject({ method: 'POST', url: '/api/channel/sessions/does-not-exist/stop' });
     expect(stopMissing.statusCode).toBe(404);
-    expect(stopMissing.json()).toEqual({ ok: false, error: 'session_not_found' });
 
     const listed = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
-    expect(listed.json()).toEqual([]);
+    expect(listed.json()).toEqual([
+      expect.objectContaining({
+        id: active!.id,
+        status: 'idle',
+        providerSessionId: expect.stringContaining('claude-code_fake_'),
+      }),
+    ]);
 
     await channel.emitIncoming({
       id: 'm2',
@@ -89,20 +92,18 @@ describe('channel admin routes', () => {
     });
     const next = sessions.getActiveSession('chat-a');
     expect(next).not.toBeNull();
-    expect(next!.id).not.toBe(active!.id);
+    expect(next!.id).toBe(active!.id);
 
     const archive = await app.inject({ method: 'POST', url: `/api/channel/sessions/${next!.id}/archive` });
     expect(archive.statusCode).toBe(404);
-    expect(archive.json()).toEqual({ ok: false, error: 'session_archive_not_supported' });
 
     const archiveMissing = await app.inject({ method: 'POST', url: '/api/channel/sessions/does-not-exist/archive' });
     expect(archiveMissing.statusCode).toBe(404);
-    expect(archiveMissing.json()).toEqual({ ok: false, error: 'session_archive_not_supported' });
 
     const afterArchive = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
     expect(afterArchive.json()).toEqual([
       expect.objectContaining({
-        id: next!.id,
+        id: active!.id,
         status: 'idle',
         providerSessionId: expect.stringContaining('claude-code_fake_'),
       }),
@@ -1482,31 +1483,10 @@ describe('channel admin routes', () => {
     expect(sync.json()).toEqual({ ok: true });
 
     const after = conversation.getCurrent();
-    expect(after).toMatchObject({
-      id: before?.id,
-      chatId: 'chat-a',
-      ownerUserId: activeUser.id,
-      providerId: 'codex',
-      cwd: '/tmp/updated-project',
-      recoverySource: 'runtime',
-      status: 'starting',
-    });
-    expect(after?.providerSessionId).toBeUndefined();
-    expect(after?.resumeTitle).toBeUndefined();
-    expect(after?.createdAt).toBe(before?.createdAt);
-    expect(after?.lastActivityAt).toBeGreaterThanOrEqual(before?.lastActivityAt ?? 0);
+    expect(after).toBeNull();
 
     const listed = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
-    expect(listed.json()).toEqual([
-      expect.objectContaining({
-        id: before?.id,
-        chatId: 'chat-a',
-        ownerUserId: activeUser.id,
-        providerId: 'codex',
-        cwd: '/tmp/updated-project',
-        status: 'starting',
-      }),
-    ]);
+    expect(listed.json()).toEqual([]);
     await app.close();
   });
 

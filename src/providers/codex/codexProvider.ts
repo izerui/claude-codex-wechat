@@ -14,7 +14,6 @@ type CodexRunner = {
   }): AsyncIterable<ProviderEvent>;
   stopSession(bridgeSessionId: string): Promise<void>;
   decidePermission(input: { requestId: string; decision: 'approve' | 'deny' | 'abort' }): Promise<void>;
-  archiveSession?(providerSessionId: string): Promise<void>;
   interruptTurn?(bridgeSessionId: string): Promise<void>;
   steerTurn?(bridgeSessionId: string, text: string): Promise<void>;
 };
@@ -70,11 +69,6 @@ export class CodexProvider implements NativeProviderAdapter {
       cwd: input.cwd,
       options: { providerSessionId: input.candidateId },
     });
-  }
-
-  async archiveSession(providerSessionId: string): Promise<void> {
-    if (!this.options.runner.archiveSession) throw new Error('codex_archive_not_supported');
-    await this.options.runner.archiveSession(providerSessionId);
   }
 
   async interruptSession(bridgeSessionId: string): Promise<void> {
