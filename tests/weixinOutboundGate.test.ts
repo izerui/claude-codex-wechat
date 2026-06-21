@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { FileWeixinStateStore } from '../src/channels/weixin-direct/weixinStateStore';
 import { CONTINUATION_HINT, WeixinOutboundGate } from '../src/channels/weixin-direct/outboundGate';
 
@@ -37,6 +37,8 @@ describe('WeixinOutboundGate.deliver', () => {
     for (let i = 0; i < 9; i += 1) store.recordSent('u'); // remaining = 1
     await gate.deliver('u', { kind: 'text', text: '第10条' });
     expect(sent).toEqual([{ chatId: 'u', kind: 'text', text: `第10条${CONTINUATION_HINT}` }]);
+    expect(gate.shouldInterceptReply('u')).toBe(true);
+    expect(gate.shouldInterceptReply('u')).toBe(false);
   });
 
   it('queues when quota is exhausted', async () => {
@@ -76,6 +78,7 @@ describe('WeixinOutboundGate.drain', () => {
       { kind: 'text', text: 'm11' },
       { kind: 'text', text: 'm12' },
     ]);
+    expect(gate.shouldInterceptReply('u')).toBe(true);
   });
 
   it('drains a queue that fits exactly, with no hint on the final message', async () => {
@@ -100,5 +103,21 @@ describe('WeixinOutboundGate.drain', () => {
 
     expect(sent).toEqual([]);
     expect(store.hasPendingOutbound('u')).toBe(true);
+  });
+
+  it('expires a stale continuation-hint intercept marker', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, gate } = setup();
+      store.setContextToken('u', 'ctx');
+      for (let i = 0; i < 9; i += 1) store.recordSent('u');
+
+      await gate.deliver('u', { kind: 'text', text: '第10条' });
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000 + 1);
+
+      expect(gate.shouldInterceptReply('u')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

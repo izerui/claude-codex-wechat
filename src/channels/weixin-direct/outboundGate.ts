@@ -12,6 +12,9 @@ export const CONTINUATION_HINT = '\n\n（消息较多未发完，请回复任意
  * the user replies (refreshing the token + quota), `drain` replays the queue.
  */
 export class WeixinOutboundGate implements OutboundDeliveryGate {
+  private readonly hintedReplies = new Map<string, number>();
+  private static readonly HINT_REPLY_TTL_MS = 2 * 60 * 60 * 1000;
+
   constructor(private readonly options: {
     store: WeixinStateStore;
     send: (chatId: string, message: OutboundQueueItem) => Promise<void>;
@@ -19,6 +22,17 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
 
   hasPending(chatId: string): boolean {
     return this.options.store.hasPendingOutbound(chatId);
+  }
+
+  shouldInterceptReply(chatId: string): boolean {
+    const hintedAt = this.hintedReplies.get(chatId);
+    if (!hintedAt) return false;
+    if (Date.now() - hintedAt > WeixinOutboundGate.HINT_REPLY_TTL_MS) {
+      this.hintedReplies.delete(chatId);
+      return false;
+    }
+    this.hintedReplies.delete(chatId);
+    return true;
   }
 
   async deliver(chatId: string, message: OutboundQueueItem): Promise<void> {
@@ -37,6 +51,7 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
       // Last slot. In the streaming case we can't know if more will follow, so we
       // always append the hint here; if nothing follows it's a harmless nudge.
       await this.options.send(chatId, { kind: message.kind, text: message.text + CONTINUATION_HINT });
+      this.hintedReplies.set(chatId, Date.now());
       return;
     }
     await this.options.send(chatId, message);
@@ -54,11 +69,13 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
       if (isLastSlot && hasMore) {
         // Draining knows exactly whether more follows, so the hint is precise.
         await this.options.send(chatId, { kind: next.kind, text: next.text + CONTINUATION_HINT });
+        this.hintedReplies.set(chatId, Date.now());
         store.shiftOutbound(chatId);
         break; // quota exhausted; remaining stay queued for the next refresh
       }
       await this.options.send(chatId, next);
       store.shiftOutbound(chatId);
     }
+    if (!store.hasPendingOutbound(chatId)) this.hintedReplies.delete(chatId);
   }
 }

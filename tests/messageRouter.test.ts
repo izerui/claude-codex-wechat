@@ -1134,6 +1134,7 @@ describe('MessageRouter outbound gate', () => {
     let drainCount = 0;
     const gate: OutboundDeliveryGate = {
       hasPending: () => pending,
+      shouldInterceptReply: () => false,
       deliver: async (chatId, msg) => { delivered.push({ chatId, kind: msg.kind, text: msg.text }); },
       drain: async () => { drainCount += 1; },
     };
@@ -1159,6 +1160,34 @@ describe('MessageRouter outbound gate', () => {
 
     expect(getDrainCount()).toBe(1);
     // pending → message consumed for drain, never reaches the provider
+    expect(sessions.listSessions()).toHaveLength(0);
+  });
+
+  it('intercepts arbitrary replies after a continuation hint even when no pending queue remains', async () => {
+    const channel = new MockChannelAdapter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const delivered: Array<{ kind: string; text: string }> = [];
+    const gate: OutboundDeliveryGate = {
+      hasPending: () => false,
+      shouldInterceptReply: () => true,
+      deliver: async (_chatId, message) => { delivered.push({ kind: message.kind, text: message.text }); },
+      drain: async () => undefined,
+    };
+    const router = new MessageRouter({
+      channel,
+      permissions: new PermissionRouter(),
+      providers: [new FakeProviderAdapter('claude-code')],
+      sessions,
+      resolveUser: () => authorizedUser,
+      outboundGate: gate,
+    });
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '随便回一句' }, timestamp: 1,
+    });
+
+    expect(delivered).toEqual([{ kind: 'status', text: '没有待续发消息了。' }]);
     expect(sessions.listSessions()).toHaveLength(0);
   });
 

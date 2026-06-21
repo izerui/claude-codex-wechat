@@ -118,6 +118,14 @@ export class MessageRouter {
       await this.options.outboundGate.drain(message.chatId);
       return { status: 'accepted' };
     }
+    if (this.options.outboundGate?.shouldInterceptReply?.(message.chatId)) {
+      await this.sendToChat({
+        chatId: message.chatId,
+        kind: 'status',
+        text: '没有待续发消息了。',
+      });
+      return { status: 'accepted' };
+    }
     const composedText = composeInboundText(message.content);
     if (!composedText) return { status: 'accepted' };
 
