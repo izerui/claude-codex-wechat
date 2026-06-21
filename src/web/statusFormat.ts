@@ -52,13 +52,30 @@ export function formatSessionStatusBadgeClass(status: string): string {
   return 'badge-soft-neutral';
 }
 
-export function formatTimestamp(value?: number): string {
+export function formatTimestamp(value?: number, now: number = Date.now()): string {
   if (!value) return '-';
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return String(value);
-  }
+  const diff = now - value;
+  if (!Number.isFinite(diff)) return '-';
+  if (diff < 0) return '刚刚';
+
+  const sec = Math.floor(diff / 1000);
+  if (sec < 10) return '刚刚';
+  if (sec < 60) return `${sec}秒前`;
+
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}分钟前`;
+
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return `${hour}小时前`;
+
+  const day = Math.floor(hour / 24);
+  if (day < 30) return `${day}天前`;
+
+  const month = Math.floor(day / 30);
+  if (month < 12) return `${month}个月前`;
+
+  const year = Math.floor(day / 365);
+  return `${year}年前`;
 }
 
 export function readProviderCommand(value: unknown): string | null {

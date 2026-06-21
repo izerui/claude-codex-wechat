@@ -14,12 +14,18 @@ export function App() {
   const [currentSession, setCurrentSession] = useState<CurrentSessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [, setRelativeTick] = useState(0);
 
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 2500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    const id = setInterval(() => setRelativeTick((tick) => tick + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   const refresh = useCallback(async () => {
     setError(null);
