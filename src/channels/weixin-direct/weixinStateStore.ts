@@ -51,6 +51,10 @@ export interface WeixinStateStore {
   shiftOutbound(chatId: string): void;
   hasPendingOutbound(chatId: string): boolean;
   clearOutbound(chatId: string): void;
+  /** Mark whether a chat currently has an outstanding "typing" indicator on WeChat. */
+  setTypingActive(chatId: string, active: boolean): void;
+  /** Chats whose typing was active — used on startup to clear crash-leftover indicators. */
+  getActiveTypingChats(): string[];
   /** Drop everything (e.g. on session expiry / re-login). */
   clear(): void;
 }
@@ -65,6 +69,7 @@ type WeixinChannelState = {
   cursor?: string;
   users?: Record<string, UserState>;
   outbox?: Record<string, OutboundQueueItem[]>;
+  typing?: Record<string, true>;
 };
 
 type RuntimeStateFile = {
@@ -171,10 +176,29 @@ export class FileWeixinStateStore implements WeixinStateStore {
     this.writeChannel(state, { ...channel, outbox });
   }
 
+  setTypingActive(chatId: string, active: boolean): void {
+    if (!chatId) return;
+    const state = this.readState();
+    const channel = state.bridge?.weixinChannel ?? {};
+    const typing = { ...(channel.typing ?? {}) };
+    if (active) {
+      if (typing[chatId]) return;
+      typing[chatId] = true;
+    } else {
+      if (!typing[chatId]) return;
+      delete typing[chatId];
+    }
+    this.writeChannel(state, { ...channel, typing });
+  }
+
+  getActiveTypingChats(): string[] {
+    return Object.keys(this.readChannel().typing ?? {});
+  }
+
   clear(): void {
     const state = this.readState();
     if (!state.bridge?.weixinChannel) return;
-    this.writeChannel(state, { cursor: '', users: {}, outbox: {} });
+    this.writeChannel(state, { cursor: '', users: {}, outbox: {}, typing: {} });
   }
 
   private readChannel(): WeixinChannelState {

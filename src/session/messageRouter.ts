@@ -1,7 +1,7 @@
 import type { ChannelAdapter, ChannelAttachment, ChannelIncomingMessage, ChannelOutgoingMessage } from '../channels/types';
 import { formatPermissionMessage } from '../permissions/formatPermissionMessage';
 import type { PermissionRouter } from '../permissions/permissionRouter';
-import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, PermissionChoice } from '../providers/types';
+import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, PermissionChoice, ProviderEvent } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { parseBridgeCommand, type BridgeCommand } from './commandParser';
 import type { OutboundDeliveryGate } from './outboundGate';
@@ -299,15 +299,20 @@ export class MessageRouter {
       && (this.latestMutatingSeq.get(message.chatId) ?? 0) <= seq;
     let bufferedText = '';
     await this.options.channel.setTyping?.(message.chatId, true);
-    const typingKeepalive = this.options.channel.setTyping
-      ? setInterval(() => {
-          void this.options.channel.setTyping?.(message.chatId, true);
-        }, MessageRouter.TYPING_KEEPALIVE_MS)
-      : null;
-    // 手动驱动迭代器并与 abort 信号竞速：被抢占时即便 provider 卡死、迭代器永不
-    // 返回下一个事件，也能立即跳出循环、释放 sessionOpChain，后续聊天不再永久排队。
-    const iterator = provider.sendMessage({ bridgeSessionId: session.id, text })[Symbol.asyncIterator]();
+    // Create the keepalive and the iterator INSIDE the try so that a synchronous
+    // throw from provider.sendMessage can never orphan the keepalive interval (which
+    // would leave WeChat stuck showing "正在输入" forever); the finally always cleans up.
+    let typingKeepalive: ReturnType<typeof setInterval> | null = null;
+    let iterator: AsyncIterator<ProviderEvent> | null = null;
     try {
+      typingKeepalive = this.options.channel.setTyping
+        ? setInterval(() => {
+            void this.options.channel.setTyping?.(message.chatId, true);
+          }, MessageRouter.TYPING_KEEPALIVE_MS)
+        : null;
+      // 手动驱动迭代器并与 abort 信号竞速：被抢占时即便 provider 卡死、迭代器永不
+      // 返回下一个事件，也能立即跳出循环、释放 sessionOpChain，后续聊天不再永久排队。
+      iterator = provider.sendMessage({ bridgeSessionId: session.id, text })[Symbol.asyncIterator]();
       while (isLive()) {
         const step = await Promise.race([iterator.next(), aborted]);
         if (step === 'aborted' || step.done) break;
@@ -364,7 +369,7 @@ export class MessageRouter {
         bufferedText = '';
       }
     } finally {
-      void iterator.return?.().catch(() => undefined);
+      void iterator?.return?.().catch(() => undefined);
       // 只有当 entry 仍是本次生成时才清除并复位 typing；被抢占时新生成会自行管理，
       // 这里不能动，避免抹掉它的 entry 或清掉它的 typing。
       const stillMine = this.activeGenerations.get(message.chatId)?.genId === genId;

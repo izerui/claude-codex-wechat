@@ -5,6 +5,7 @@ import { PRIMARY_WEIXIN_PLATFORM } from '../platforms';
 import type { WeixinStateStore } from './weixinStateStore';
 import type { InboundAttachmentMeta, InboundWeixinMessage } from './apiClient';
 import type { WeixinMediaDownloader } from './mediaDownloader';
+import { TypingController } from './typingController';
 
 const MAX_TEXT_LENGTH = 4_000;
 const DEFAULT_CHUNK_DELAY_MS = 300;
@@ -25,15 +26,13 @@ type WeixinDirectApi = {
 export class WeixinDirectAdapter implements ChannelAdapter {
   readonly id = 'weixin-direct';
   private static readonly SESSION_TIMEOUT_THRESHOLD = 3;
-  private static readonly TYPING_STOP_MAX_ATTEMPTS = 3;
   private handler: ChannelMessageHandler | null = null;
   private stopped = true;
   private buffer = '';
   private contextTokens = new Map<string, string>();
   private seenMessageIds = new Map<string, number>();
   private retryDelayMs = 0;
-  private typingTickets = new Map<string, string>();
-  private typingChain = new Map<string, Promise<void>>();
+  private readonly typing: TypingController | null;
   private runningTask: Promise<void> | null = null;
   private pollAbort: AbortController | null = null;
   private healthy = false;
@@ -49,7 +48,19 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     stateStore?: WeixinStateStore;
     mediaDownloader?: WeixinMediaDownloader;
     mediaDir?: string;
-  }) {}
+    typingStopBackoffMs?: number[];
+  }) {
+    const { api } = options;
+    this.typing = api.getConfig && api.sendTyping
+      ? new TypingController({
+          getConfig: (input) => api.getConfig!(input),
+          sendTyping: (input) => api.sendTyping!(input),
+          getContextToken: (chatId) => this.contextTokens.get(chatId),
+          persistTypingActive: (chatId, active) => this.options.stateStore?.setTypingActive(chatId, active),
+          ...(options.typingStopBackoffMs ? { stopBackoffMs: options.typingStopBackoffMs } : {}),
+        })
+      : null;
+  }
 
   onMessage(handler: ChannelMessageHandler): void {
     this.handler = handler;
@@ -74,6 +85,9 @@ export class WeixinDirectAdapter implements ChannelAdapter {
         this.contextTokens.set(userId, token);
       }
       if (persisted.cursor) this.buffer = persisted.cursor;
+      // Context tokens are restored above, so the reconciler can fetch tickets and
+      // clear any "正在输入" left stuck by a crash mid-generation.
+      this.typing?.reconcilePersisted(this.options.stateStore.getActiveTypingChats());
     }
     this.stopped = false;
     const loop = this.runLoop();
@@ -87,6 +101,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     this.pollAbort?.abort();
     await this.runningTask;
     this.runningTask = null;
+    this.typing?.dispose();
     this.notifyHealthChange();
   }
 
@@ -119,46 +134,10 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   }
 
   async setTyping(chatId: string, active: boolean): Promise<void> {
-    if (!this.options.api.getConfig || !this.options.api.sendTyping) return;
-    // Serialize writes per chat (chain updated synchronously, before any await)
-    // so a fire-and-forget keepalive `true` can never land on the wire after the
-    // turn's final `false` and leave WeChat stuck showing "正在输入".
-    const previous = this.typingChain.get(chatId) ?? Promise.resolve();
-    const next = previous.then(
-      () => this.writeTyping(chatId, active),
-      () => this.writeTyping(chatId, active),
-    );
-    this.typingChain.set(chatId, next);
-    next.finally(() => {
-      if (this.typingChain.get(chatId) === next) this.typingChain.delete(chatId);
-    });
-    await next;
-  }
-
-  private async writeTyping(chatId: string, active: boolean): Promise<void> {
-    // WeChat typing is sticky: a lost stop leaves the chat stuck showing "正在输入".
-    // The stop (status 2) is therefore retried — on failure we drop the cached
-    // ticket (the usual culprit is a ticket expired past its ~10min cache) so the
-    // retry re-fetches a fresh one. Start/keepalive stays best-effort; the next
-    // keepalive tick re-asserts it.
-    const maxAttempts = active ? 1 : WeixinDirectAdapter.TYPING_STOP_MAX_ATTEMPTS;
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      try {
-        const typingTicket = await this.getTypingTicket(chatId);
-        if (!typingTicket) return;
-        await this.options.api.sendTyping?.({
-          ilinkUserId: chatId,
-          typingTicket,
-          status: active ? 1 : 2,
-        });
-        return;
-      } catch (error) {
-        this.typingTickets.delete(chatId);
-        if (attempt >= maxAttempts) {
-          console.error('[weixin-typing] setTyping failed:', error);
-        }
-      }
-    }
+    // The TypingController owns serialization, ticket caching, durable-stop retries
+    // and crash-leftover recovery — see typingController.ts. iLink typing never
+    // auto-expires, so the stop must be guaranteed to eventually land.
+    await this.typing?.set(chatId, active);
   }
 
   getHealth(): { connected: boolean; status: string; lastError?: string } {
@@ -220,6 +199,9 @@ export class WeixinDirectAdapter implements ChannelAdapter {
         if (message.contextToken) {
           this.contextTokens.set(message.chatId, message.contextToken);
           this.options.stateStore?.setContextToken(message.chatId, message.contextToken);
+          // A fresh token revives a stop that was stuck failing on an expired
+          // context (-3) — retry it now instead of waiting out the backoff.
+          this.typing?.flush(message.chatId);
         }
         // Dispatch without awaiting the full turn so the long-poll loop stays
         // responsive while a generation streams. Media download happens inside the
@@ -300,19 +282,6 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     if (this.seenMessageIds.has(id)) return true;
     this.seenMessageIds.set(id, now);
     return false;
-  }
-
-  private async getTypingTicket(chatId: string): Promise<string> {
-    if (!this.options.api.getConfig) return '';
-    const cached = this.typingTickets.get(chatId);
-    if (cached) return cached;
-    const config = await this.options.api.getConfig({
-      ilinkUserId: chatId,
-      contextToken: this.contextTokens.get(chatId),
-    });
-    const ticket = config.typingTicket.trim();
-    if (ticket) this.typingTickets.set(chatId, ticket);
-    return ticket;
   }
 }
 
