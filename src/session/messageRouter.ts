@@ -1,7 +1,5 @@
 import type { ChannelAdapter, ChannelAttachment, ChannelIncomingMessage, ChannelOutgoingMessage } from '../channels/types';
-import { formatPermissionMessage } from '../permissions/formatPermissionMessage';
-import type { PermissionRouter } from '../permissions/permissionRouter';
-import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, PermissionChoice, ProviderEvent } from '../providers/types';
+import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, ProviderEvent } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { parseBridgeCommand, type BridgeCommand } from './commandParser';
 import type { OutboundDeliveryGate } from './outboundGate';
@@ -14,6 +12,7 @@ import { buildSessionBridgeName } from './sessionBridgeTag';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
 import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
 import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
+import type { PermissionRouter } from '../permissions/permissionRouter';
 
 export class MessageRouter {
   private static readonly TYPING_KEEPALIVE_MS = 5_000;
@@ -38,7 +37,7 @@ export class MessageRouter {
   constructor(
     private readonly options: {
       channel: ChannelAdapter;
-      permissions: PermissionRouter;
+      permissions?: PermissionRouter;
       providers: NativeProviderAdapter[];
       conversation?: CurrentConversationStore;
       sessions?: SessionManager;
@@ -136,10 +135,6 @@ export class MessageRouter {
     const command = isPlainText
       ? parseBridgeCommand(message.content.text ?? '')
       : { kind: 'chat' as const, text: composedText };
-    if (command.kind === 'permission_decision') {
-      await this.decidePermission({ requestId: command.requestId, userId: user.id, decision: command.decision });
-      return { status: 'accepted' };
-    }
     // 在到达顺序上同步分配序号（在任何 await 之前），保证命令与聊天的先后关系确定。
     const seq = ++this.opSeq;
     if (command.kind !== 'chat') {
@@ -333,18 +328,6 @@ export class MessageRouter {
           await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
           bufferedText = '';
         }
-        if (event.type === 'permission_request') {
-          if (bufferedText.trim()) {
-            await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
-            bufferedText = '';
-          }
-          this.options.permissions.addRequest(event.request);
-          await this.sendToChat({
-            chatId: message.chatId,
-            kind: 'permission_request',
-            text: formatPermissionMessage(event.request),
-          });
-        }
         if (event.type === 'session_state') {
           const updated = this.conversation.update({
             providerSessionId: event.state.providerSessionId,
@@ -390,7 +373,7 @@ export class MessageRouter {
   private async handleCommand(
     chatId: string,
     user: ActiveWeChatUserRecord,
-    command: Exclude<ReturnType<typeof parseBridgeCommand>, { kind: 'chat' } | { kind: 'permission_decision' }>,
+    command: Exclude<ReturnType<typeof parseBridgeCommand>, { kind: 'chat' }>,
   ): Promise<void> {
     if (command.kind === 'help') {
       await this.sendToChat({
@@ -528,25 +511,6 @@ export class MessageRouter {
     }
 
   }
-
-  async decidePermission(input: { requestId: string; userId: string; decision: PermissionChoice }): Promise<
-    { ok: true } | { ok: false; error: string }
-  > {
-    const request = this.options.permissions.getRequest(input.requestId);
-    const result = this.options.permissions.decide(input);
-    if (!result.ok) return result;
-    if (request) {
-      // Providers have no native per-session approval, so map approve_for_session
-      // down to a plain approve when handing the decision to the CLI.
-      const providerDecision = input.decision === 'approve_for_session' ? 'approve' : input.decision;
-      await this.providers.get(request.providerId)?.decidePermission?.({
-        requestId: input.requestId,
-        decision: providerDecision,
-      });
-    }
-    return result;
-  }
-
   private formatSessionLine(candidate: ProviderSessionCandidate): string {
     const title = candidate.resumeTitle ?? candidate.title ?? candidate.id;
     const cwd = candidate.cwd ? ` · ${candidate.cwd}` : '';

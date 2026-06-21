@@ -1,4 +1,4 @@
-import type { PermissionRequest, ProviderEvent, ProviderSession } from '../types';
+import type { ProviderEvent, ProviderSession } from '../types';
 
 export type ClaudeRunnerEvent = ProviderEvent;
 
@@ -23,11 +23,6 @@ export interface ClaudeRunner {
     text: string;
   }): AsyncIterable<ClaudeRunnerEvent>;
 
-  decidePermission?(input: {
-    requestId: string;
-    decision: 'approve' | 'deny' | 'abort';
-  }): Promise<void>;
-
   stopSession(bridgeSessionId: string): Promise<void>;
 
   interruptSession?(bridgeSessionId: string): Promise<void>;
@@ -43,5 +38,5 @@ export type ClaudeRawPermissionPayload = {
   cwd?: string;
   file?: string;
   details?: unknown;
-  choices?: PermissionRequest['choices'];
+  choices?: ('approve' | 'approve_for_session' | 'deny' | 'abort')[];
 };

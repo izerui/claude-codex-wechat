@@ -26,11 +26,11 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/use claude')).toEqual({ kind: 'chat', text: '/use claude' });
   });
 
-  it('parses permission decisions', () => {
-    expect(parseBridgeCommand('/approve pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'approve' });
-    expect(parseBridgeCommand('/deny pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'deny' });
-    expect(parseBridgeCommand('/abort pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'abort' });
-    expect(parseBridgeCommand('/always pr_123')).toEqual({ kind: 'permission_decision', requestId: 'pr_123', decision: 'approve_for_session' });
+  it('treats removed permission commands as plain chat', () => {
+    expect(parseBridgeCommand('/approve pr_123')).toEqual({ kind: 'chat', text: '/approve pr_123' });
+    expect(parseBridgeCommand('/deny pr_123')).toEqual({ kind: 'chat', text: '/deny pr_123' });
+    expect(parseBridgeCommand('/abort pr_123')).toEqual({ kind: 'chat', text: '/abort pr_123' });
+    expect(parseBridgeCommand('/always pr_123')).toEqual({ kind: 'chat', text: '/always pr_123' });
   });
 
   it('treats /cwd as plain text now that it is removed', () => {
@@ -71,5 +71,9 @@ describe('parseBridgeCommand', () => {
     expect(help).not.toContain('`/use claude|codex`');
     expect(help).not.toContain('`/resume <编号>`');
     expect(help).not.toContain('`/archive [编号]`');
+    expect(help).not.toContain('`/approve <id>`');
+    expect(help).not.toContain('`/always <id>`');
+    expect(help).not.toContain('`/deny <id>`');
+    expect(help).not.toContain('`/abort <id>`');
   });
 });

@@ -30,7 +30,7 @@ export type ChannelIncomingMessage = {
 
 export type ChannelOutgoingMessage = {
   chatId: string;
-  kind: 'text' | 'markdown' | 'permission_request' | 'status';
+  kind: 'text' | 'markdown' | 'status';
   text: string;
   streamId?: string;
   buttons?: Array<{

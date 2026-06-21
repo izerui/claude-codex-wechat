@@ -13,7 +13,6 @@ type CodexRunner = {
     text: string;
   }): AsyncIterable<ProviderEvent>;
   stopSession(bridgeSessionId: string): Promise<void>;
-  decidePermission(input: { requestId: string; decision: 'approve' | 'deny' | 'abort' }): Promise<void>;
   interruptTurn?(bridgeSessionId: string): Promise<void>;
   steerTurn?(bridgeSessionId: string, text: string): Promise<void>;
 };
@@ -53,10 +52,6 @@ export class CodexProvider implements NativeProviderAdapter {
 
   async stopSession(bridgeSessionId: string): Promise<void> {
     await this.options.runner.stopSession(bridgeSessionId);
-  }
-
-  async decidePermission(input: { requestId: string; decision: 'approve' | 'deny' | 'abort' }): Promise<void> {
-    await this.options.runner.decidePermission(input);
   }
 
   async listRecoverableSessions() {

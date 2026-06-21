@@ -127,22 +127,9 @@ export type CurrentSessionView = {
 
 export type BridgeSessionView = CurrentSessionView;
 
-export type PermissionRequestView = {
-  id: string;
-  bridgeSessionId: string;
-  providerId: string;
-  toolName: string;
-  summary: string;
-  details?: unknown;
-  status: string;
-  requestedAt: number;
-  expiresAt?: number;
-};
-
 export type StatusView = {
   ok: boolean;
   sessions: CurrentSessionView[];
-  permissions: PermissionRequestView[];
 };
 
 export type BridgeSettingsView = {
@@ -157,9 +144,7 @@ export type BridgeWsEvent =
   | { type: 'channel.user-authorized'; user: ActiveWeChatUserEventView }
   | { type: 'channel.plugin-status-changed'; plugin_id: 'weixin'; status: ChannelPluginView }
   | { type: 'channel.current-session-changed' }
-  | { type: 'status'; message: string }
-  | { type: 'permission_requested'; requestId: string }
-  | { type: 'permission_decided'; requestId: string; decision: string };
+  | { type: 'status'; message: string };
 
 export function resolveApiBaseUrlForTest(windowLike: WindowBridgeLike, locationLike: BrowserLike): string {
   if (typeof windowLike.__bridgeApiOrigin === 'string' && windowLike.__bridgeApiOrigin) {
@@ -359,18 +344,6 @@ export async function repairAllRecoverableProviderSessionsNativeResume(input: {
 }): Promise<{ ok: true; repairedCount: number; checkedCount: number }> {
   return await requestJson(`/api/channel/providers/${encodeURIComponent(input.providerId)}/recoverable-sessions/repair-native-resume`, {
     method: 'POST',
-  });
-}
-
-export async function decidePermission(input: {
-  requestId: string;
-  userId: string;
-  decision: 'approve' | 'deny' | 'abort';
-}): Promise<void> {
-  await requestJson('/api/permissions/decide', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
   });
 }
 

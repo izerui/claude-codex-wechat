@@ -87,7 +87,6 @@ describe('channel message flow', () => {
     expect(sessions.listSessions()).toHaveLength(1);
     expect(sent).toEqual([
       { kind: 'text', text: '收到：run tests' },
-      { kind: 'permission_request', text: expect.stringContaining('/approve pr_fake_1') },
     ]);
     await app.close();
   });
@@ -99,7 +98,7 @@ describe('channel message flow', () => {
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
-    const { app, permissions, sessions } = createDaemonServer({
+    const { app, sessions } = createDaemonServer({
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
       activeUserStore: activeUserStore,
@@ -116,10 +115,8 @@ describe('channel message flow', () => {
     });
 
     expect(sessions.listSessions()).toHaveLength(1);
-    expect(permissions.getPendingRequests()).toHaveLength(1);
     expect(sent).toEqual([
       { kind: 'text', text: '收到：run tests' },
-      { kind: 'permission_request', text: expect.stringContaining('/approve pr_fake_1') },
     ]);
     expect(JSON.parse(readFileSync(store.configPath, 'utf8'))).toMatchObject({
       bridge: {
@@ -134,10 +131,6 @@ describe('channel message flow', () => {
         },
       },
     });
-    expect(permissions.getPendingRequests()).toEqual([
-      expect.objectContaining({ id: 'pr_fake_1', bridgeSessionId: sessions.listSessions()[0].id }),
-    ]);
-
     await channel.emitIncoming({
       id: 'm2',
       platform: PRIMARY_WEIXIN_PLATFORM,
@@ -146,7 +139,6 @@ describe('channel message flow', () => {
       content: { type: 'text', text: 'run again' },
       timestamp: 2,
     });
-    expect(permissions.getPendingRequests()).toHaveLength(2);
     await app.close();
   });
 
@@ -322,7 +314,6 @@ describe('channel message flow', () => {
     expect(sessions.listSessions()).toHaveLength(1);
     expect(sent).toEqual([
       { kind: 'text', text: '收到：run tests' },
-      { kind: 'permission_request', text: expect.stringContaining('/approve pr_fake_1') },
     ]);
 
     await app.close();
@@ -411,7 +402,6 @@ describe('channel message flow', () => {
     });
     expect(sent).toEqual([
       { kind: 'text', text: '收到：run tests' },
-      { kind: 'permission_request', text: expect.stringContaining('/approve pr_fake_1') },
     ]);
 
     await app.close();

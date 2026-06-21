@@ -240,7 +240,6 @@ describe('channel admin routes', () => {
     expect(status.json()).toMatchObject({
       ok: true,
       sessions: [expect.objectContaining({ chatId: 'chat-a' })],
-      permissions: [expect.objectContaining({ id: 'pr_fake_1' })],
     });
 
     const decision = await app.inject({
@@ -248,14 +247,12 @@ describe('channel admin routes', () => {
       url: '/api/permissions/decide',
       payload: { requestId: 'pr_fake_1', userId: 'user_admin', decision: 'deny' },
     });
-    expect(decision.statusCode).toBe(200);
-    expect(decision.json()).toEqual({ ok: true });
+    expect(decision.statusCode).toBe(404);
     const statusAfterDecision = await app.inject({ method: 'GET', url: '/api/status' });
     expect(statusAfterDecision.json()).toMatchObject({
       ok: true,
-      permissions: [],
+      sessions: [expect.objectContaining({ chatId: 'chat-a' })],
     });
-    expect(provider.permissionDecisions).toEqual([{ requestId: 'pr_fake_1', decision: 'deny' }]);
     await app.close();
   });
 

@@ -1,4 +1,4 @@
-import type { PermissionChoice, ProviderId } from '../providers/types';
+import type { ProviderId } from '../providers/types';
 
 export type BridgeCommand =
   | { kind: 'help' }
@@ -7,7 +7,6 @@ export type BridgeCommand =
   | { kind: 'list_sessions'; scope: 'all'; keyword: string | null }
   | { kind: 'resume_session'; ref: string }
   | { kind: 'cancel_generation' }
-  | { kind: 'permission_decision'; requestId: string; decision: PermissionChoice }
   | { kind: 'chat'; text: string };
 
 function parseProvider(value: string | undefined): ProviderId | null {
@@ -55,15 +54,6 @@ export function parseBridgeCommand(input: string): BridgeCommand {
     if (providerId) return { kind: 'new_session', providerId, cwd: null };
     if (looksLikePath(first)) return { kind: 'new_session', providerId: null, cwd: first };
     return { kind: 'chat', text };
-  }
-
-  if ((command === '/approve' || command === '/deny' || command === '/abort') && first) {
-    const decision = command.slice(1) as 'approve' | 'deny' | 'abort';
-    return { kind: 'permission_decision', requestId: first, decision };
-  }
-
-  if (command === '/always' && first) {
-    return { kind: 'permission_decision', requestId: first, decision: 'approve_for_session' };
   }
 
   return { kind: 'chat', text };

@@ -9,7 +9,7 @@ import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { ManagedWeixinDirectAdapter } from '../channels/weixin-direct/managedAdapter';
 import { FileWeixinStateStore } from '../channels/weixin-direct/weixinStateStore';
 import { WeixinOutboundGate } from '../channels/weixin-direct/outboundGate';
-import { PermissionRouter } from '../permissions/permissionRouter';
+import type { PermissionRouter } from '../permissions/permissionRouter';
 import { createDefaultProviders } from '../providers/defaultProviders';
 import type { NativeProviderAdapter } from '../providers/types';
 import { ProviderRegistry } from '../providers/providerRegistry';
@@ -48,7 +48,6 @@ export function createDaemonServer(options: {
     defaultCwd: bridgeDefaults.defaultWorkspace,
     defaultProviderId: bridgeDefaults.defaultProvider,
   });
-  const permissions = options.permissionsRouter ?? new PermissionRouter();
   const providers = new ProviderRegistry({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
@@ -97,7 +96,6 @@ export function createDaemonServer(options: {
   const messageRouter = channel
     ? new MessageRouter({
         channel,
-        permissions,
         providers: providerAdapters,
         conversation,
         outboundGate: weixinOutboundGate,
@@ -185,19 +183,9 @@ export function createDaemonServer(options: {
   app.get('/api/status', async () => ({
     ok: true,
     sessions: conversation.getCurrent() ? [conversation.getCurrent()!] : [],
-    permissions: permissions.getPendingRequests(),
   }));
 
   app.get('/api/providers/status', async () => providers.getStatus());
-
-  app.post<{ Body: { requestId: string; userId: string; decision: 'approve' | 'deny' | 'abort' } }>('/api/permissions/decide', async (request, reply) => {
-    const result = messageRouter
-      ? await messageRouter.decidePermission(request.body)
-      : permissions.decide(request.body);
-    if (!result.ok) return reply.code(400).send(result);
-    events.emit({ type: 'permission_decided', requestId: request.body.requestId, decision: request.body.decision });
-    return result;
-  });
 
   app.post('/api/bridge-events', async (request, reply) => {
     reply.raw.writeHead(200, {
@@ -236,5 +224,5 @@ export function createDaemonServer(options: {
     await channel?.stop();
   });
 
-  return { app, conversation, sessions: conversation, permissions, events, activeUserStore };
+  return { app, conversation, sessions: conversation, events, activeUserStore };
 }

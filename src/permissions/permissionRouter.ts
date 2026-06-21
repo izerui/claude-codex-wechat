@@ -5,11 +5,14 @@ export type PermissionDecision = PermissionChoice;
 export type StoredPermissionRequest = PermissionRequest & {
   status: 'pending' | 'decided';
   requestedAt: number;
-  decidedAt?: number;
-  decidedBy?: string;
+  userId?: string;
   decision?: PermissionDecision;
 };
 
+// Compatibility-only shim: the bridge no longer surfaces permission approval
+// flows to WeChat, but some older tests and construction paths still instantiate
+// this router. Keep it inert and local so those paths compile without reviving
+// the removed product behavior.
 export class PermissionRouter {
   private readonly requests = new Map<string, StoredPermissionRequest>();
 
@@ -35,14 +38,9 @@ export class PermissionRouter {
     const request = this.requests.get(input.requestId);
     if (!request) return { ok: false, error: 'permission_request_not_found' };
     if (request.status !== 'pending') return { ok: false, error: 'permission_request_already_decided' };
-    if (!request.choices.includes(input.decision)) return { ok: false, error: 'permission_decision_not_allowed' };
-    this.requests.set(input.requestId, {
-      ...request,
-      status: 'decided',
-      decidedAt: Date.now(),
-      decidedBy: input.userId,
-      decision: input.decision,
-    });
+    request.status = 'decided';
+    request.userId = input.userId;
+    request.decision = input.decision;
     return { ok: true };
   }
 }

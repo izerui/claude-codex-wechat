@@ -104,11 +104,9 @@ class PartialWithoutDoneProviderAdapter implements NativeProviderAdapter {
 describe('MessageRouter', () => {
   it('routes authorized chat text through a provider and sends output to the channel', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new FakeProviderAdapter('claude-code')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -128,9 +126,7 @@ describe('MessageRouter', () => {
     expect(sessions.listSessions()).toHaveLength(1);
     expect(sent).toEqual([
       { kind: 'text', text: '收到：run tests' },
-      { kind: 'permission_request', text: expect.stringContaining('/approve pr_fake_1') },
     ]);
-    expect(permissions.getPendingRequests()).toHaveLength(1);
   });
 
   it('flushes the final buffered text when a provider stream ends without message_done', async () => {
@@ -404,42 +400,6 @@ describe('MessageRouter', () => {
     expect(sessions.listSessions()).toHaveLength(0);
     expect(permissions.getPendingRequests()).toHaveLength(0);
     expect(sent).toEqual([]);
-  });
-
-  it('routes permission commands to the permission router', async () => {
-    const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
-    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
-    const provider = new FakeProviderAdapter('claude-code');
-    const router = new MessageRouter({
-      channel,
-      permissions,
-      providers: [provider],
-      sessions,
-      resolveUser: () => authorizedUser,
-    });
-
-    await router.handleMessage({
-      id: 'm1',
-      platform: 'weixin',
-      chatId: 'chat-a',
-      user: { id: 'wx_user_1' },
-      content: { type: 'text', text: 'run tests' },
-      timestamp: 1,
-    });
-    expect(permissions.getPendingRequests()).toHaveLength(1);
-
-    await router.handleMessage({
-      id: 'm2',
-      platform: 'weixin',
-      chatId: 'chat-a',
-      user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '/approve pr_fake_1' },
-      timestamp: 2,
-    });
-
-    expect(permissions.getPendingRequests()).toHaveLength(0);
-    expect(provider.permissionDecisions).toEqual([{ requestId: 'pr_fake_1', decision: 'approve' }]);
   });
 
   it('creates a new session for /new codex and routes later chat to Codex', async () => {
@@ -958,56 +918,11 @@ describe('MessageRouter', () => {
     });
   });
 
-  it('generates distinct permission request ids across multiple sessions', async () => {
+  it('ignores provider permission requests instead of surfacing approval prompts', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
-    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
-    const provider = new FakeProviderAdapter('claude-code');
-    const router = new MessageRouter({
-      channel,
-      permissions,
-      providers: [provider],
-      sessions,
-      resolveUser: () => authorizedUser,
-    });
-
-    await router.handleMessage({
-      id: 'm1',
-      platform: 'weixin',
-      chatId: 'chat-a',
-      user: { id: 'wx_user_1' },
-      content: { type: 'text', text: 'first run' },
-      timestamp: 1,
-    });
-    await router.handleMessage({
-      id: 'm2',
-      platform: 'weixin',
-      chatId: 'chat-a',
-      user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '/stop' },
-      timestamp: 2,
-    });
-    await router.handleMessage({
-      id: 'm3',
-      platform: 'weixin',
-      chatId: 'chat-a',
-      user: { id: 'wx_user_1' },
-      content: { type: 'text', text: 'second run' },
-      timestamp: 3,
-    });
-
-    const requestIds = permissions.getPendingRequests().map((request) => request.id);
-    expect(new Set(requestIds).size).toBe(requestIds.length);
-    expect(requestIds).toHaveLength(2);
-  });
-
-  it('sends permission requests back to the channel without bridge event history', async () => {
-    const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new FakeProviderAdapter('codex')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -1027,7 +942,6 @@ describe('MessageRouter', () => {
 
     expect(sent).toEqual([
       { kind: 'text', text: '收到：hello codex' },
-      { kind: 'permission_request', text: expect.stringContaining('请直接在微信里回复以下任一命令完成选择') },
     ]);
   });
 

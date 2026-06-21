@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createDaemonServer } from '../src/daemon/server';
 import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
-import { PermissionRouter } from '../src/permissions/permissionRouter';
 import { SessionManager } from '../src/session/sessionManager';
 import { MessageRouter } from '../src/session/messageRouter';
 import { RuntimeUserStore } from '../src/storage/runtimeUserStore';
@@ -33,11 +32,9 @@ describe('channel auth repositories', () => {
     const configPath = join(configDir, 'config.json');
     const runtimeStore = new RuntimeUserStore(configPath);
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [],
       sessions,
       resolveUser: () => null,

@@ -32,16 +32,6 @@ export const BRIDGE_COMMAND_HELP_GROUPS: BridgeCommandHelpGroup[] = [
       { command: '/resume <id>', desc: '按会话 id 恢复' },
     ],
   },
-  {
-    title: '权限审批',
-    note: 'AI 请求工具授权时使用，`<id>` 见请求消息',
-    entries: [
-      { command: '/approve <id>', desc: '批准本次请求' },
-      { command: '/always <id>', desc: '本会话内永久批准该工具' },
-      { command: '/deny <id>', desc: '拒绝本次请求' },
-      { command: '/abort <id>', desc: '中止本次请求' },
-    ],
-  },
 ];
 
 export function buildBridgeCommandHelpMarkdown(): string {

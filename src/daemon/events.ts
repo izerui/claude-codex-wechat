@@ -2,8 +2,6 @@ import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 
 export type BridgeEvent =
   | { type: 'status'; message: string }
-  | { type: 'permission_requested'; requestId: string }
-  | { type: 'permission_decided'; requestId: string; decision: string }
   | {
       type: 'channel.user-authorized';
       user: {
