@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { expandTilde } from '../../shared/expandTilde';
-import type { PermissionRequest, ProviderEvent, ProviderSession } from '../types';
+import type { ProviderEvent, ProviderSession } from '../types';
 
 export type CodexProcessCall = {
   command: string;
@@ -95,11 +95,6 @@ export class CodexCliRunner {
   async stopSession(bridgeSessionId: string): Promise<void> {
     this.sessions.delete(bridgeSessionId);
   }
-
-  async decidePermission(_input: { requestId: string; decision: 'approve' | 'deny' | 'abort' }): Promise<void> {
-    // The CLI exec path cannot continue an in-flight approval request yet.
-    // Keep the method so the router can call it uniformly.
-  }
 }
 
 function buildCodexArgs(session: StoredCodexSession, prompt: string): string[] {
@@ -138,13 +133,6 @@ function parseCodexLine(input: { bridgeSessionId: string; cwd: string; line: str
       events.push({ type: 'text_delta', text: item.text.trim() });
       events.push({ type: 'message_done' });
     }
-  }
-
-  if (record.type === 'approval_request') {
-    events.push({
-      type: 'permission_request',
-      request: buildPermissionRequest(input.bridgeSessionId, record),
-    });
   }
 
   if (record.type === 'exec_complete') {
@@ -192,21 +180,6 @@ function extractCodexText(message: unknown): string[] {
     const record = item as Record<string, unknown>;
     return record.type === 'output_text' && typeof record.text === 'string' ? [record.text] : [];
   });
-}
-
-function buildPermissionRequest(bridgeSessionId: string, record: Record<string, unknown>): PermissionRequest {
-  const details: Record<string, unknown> = {};
-  if (typeof record.command === 'string') details.command = record.command;
-  if (typeof record.cwd === 'string') details.cwd = record.cwd;
-  return {
-    id: typeof record.id === 'string' ? record.id : 'codex_approval',
-    bridgeSessionId,
-    providerId: 'codex',
-    toolName: typeof record.tool_name === 'string' ? record.tool_name : 'CodexApproval',
-    summary: typeof record.message === 'string' ? record.message : 'Codex approval request',
-    details,
-    choices: ['approve', 'deny', 'abort'],
-  };
 }
 
 function parseJsonLine(line: string): unknown | null {

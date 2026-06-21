@@ -27,18 +27,6 @@ export class FakeClaudeRunner implements ClaudeRunner {
   async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ClaudeRunnerEvent> {
     if (!this.sessions.has(input.bridgeSessionId)) throw new Error('fake_claude_session_not_found');
     yield { type: 'text_delta', text: `Claude 收到：${input.text}` };
-    yield {
-      type: 'permission_request',
-      request: {
-        id: 'pr_claude_fake_1',
-        bridgeSessionId: input.bridgeSessionId,
-        providerId: 'claude-code',
-        toolName: 'Bash',
-        summary: '运行 fake Claude command',
-        details: { command: 'echo claude', cwd: '/tmp/project' },
-        choices: ['approve', 'deny', 'abort'],
-      },
-    };
     yield { type: 'message_done' };
   }
 

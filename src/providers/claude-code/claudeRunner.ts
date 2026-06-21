@@ -29,14 +29,3 @@ export interface ClaudeRunner {
 
   steerSession?(bridgeSessionId: string, text: string): Promise<void>;
 }
-
-export type ClaudeRawPermissionPayload = {
-  id: string;
-  toolName: string;
-  summary?: string;
-  command?: string;
-  cwd?: string;
-  file?: string;
-  details?: unknown;
-  choices?: ('approve' | 'approve_for_session' | 'deny' | 'abort')[];
-};

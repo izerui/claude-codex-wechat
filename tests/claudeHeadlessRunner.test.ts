@@ -83,55 +83,6 @@ describe('ClaudeHeadlessRunner', () => {
     expect(seen).toEqual(['round-1']);
   });
 
-  it('maps raw permission events into unified permission requests', async () => {
-    const runner = new ClaudeHeadlessRunner({
-      command: 'claude',
-      processRunner: async () => ({
-        code: 0,
-        stdout: [
-          JSON.stringify({
-            type: 'permission_request',
-            id: 'claude_perm_1',
-            tool_name: 'Bash',
-            command: 'yarn test',
-            cwd: '/tmp/project',
-          }),
-          JSON.stringify({ type: 'result', session_id: 'claude-session-1' }),
-        ].join('\n'),
-        stderr: '',
-      }),
-    });
-    await runner.startSession({ bridgeSessionId: 'bs_1', cwd: '/tmp/project' });
-
-    const events = [];
-    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_1', text: 'run tests' })) {
-      events.push(event);
-    }
-
-    expect(events).toContainEqual({
-      type: 'permission_request',
-      request: {
-        id: 'claude_perm_1',
-        bridgeSessionId: 'bs_1',
-        providerId: 'claude-code',
-        toolName: 'Bash',
-        summary: 'Bash: yarn test',
-        details: {
-          command: 'yarn test',
-          cwd: '/tmp/project',
-          raw: {
-            type: 'permission_request',
-            id: 'claude_perm_1',
-            tool_name: 'Bash',
-            command: 'yarn test',
-            cwd: '/tmp/project',
-          },
-        },
-        choices: ['approve', 'deny', 'abort'],
-      },
-    });
-  });
-
   it('resumes the captured Claude session on later messages', async () => {
     const calls: Parameters<ClaudeProcessRunner>[0][] = [];
     const runner = new ClaudeHeadlessRunner({

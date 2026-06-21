@@ -12,7 +12,6 @@ import { buildSessionBridgeName } from './sessionBridgeTag';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
 import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
 import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
-import type { PermissionRouter } from '../permissions/permissionRouter';
 
 export class MessageRouter {
   private static readonly TYPING_KEEPALIVE_MS = 5_000;
@@ -37,7 +36,6 @@ export class MessageRouter {
   constructor(
     private readonly options: {
       channel: ChannelAdapter;
-      permissions?: PermissionRouter;
       providers: NativeProviderAdapter[];
       conversation?: CurrentConversationStore;
       sessions?: SessionManager;

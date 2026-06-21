@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { expandTilde } from '../../shared/expandTilde';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
-import { mapClaudePermissionRequest } from './claudePermissionMapping';
 
 export type ClaudeProcessCall = {
   command: string;
@@ -131,24 +130,6 @@ function parseClaudeLine(input: { bridgeSessionId: string; cwd: string; line: st
     // Flush each completed LLM round as its own message so multi-round
     // agent turns stream out incrementally instead of merging into one.
     if (emittedText) events.push({ type: 'message_done' });
-  }
-
-  if (record.type === 'permission_request') {
-    events.push({
-      type: 'permission_request',
-      request: mapClaudePermissionRequest({
-        bridgeSessionId: input.bridgeSessionId,
-        payload: {
-          id: typeof record.id === 'string' ? record.id : 'claude_permission',
-          toolName: typeof record.tool_name === 'string' ? record.tool_name : 'ClaudePermission',
-          summary: typeof record.summary === 'string' ? record.summary : undefined,
-          command: typeof record.command === 'string' ? record.command : undefined,
-          cwd: typeof record.cwd === 'string' ? record.cwd : undefined,
-          file: typeof record.file === 'string' ? record.file : undefined,
-          details: record,
-        },
-      }),
-    });
   }
 
   if (record.type === 'result') {

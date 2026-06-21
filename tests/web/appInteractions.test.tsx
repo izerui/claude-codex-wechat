@@ -35,6 +35,17 @@ class FakeEventSource {
   }
 }
 
+function setupBrowserMocks() {
+  const { fetchImpl } = createFetchStub();
+  vi.stubGlobal('fetch', fetchImpl as typeof fetch);
+  vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource);
+}
+
+async function flushPromises() {
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function createFetchStub() {
   const calls: Array<{ url: string; method: string; body?: string }> = [];
   let bridgeController: ReadableStreamDefaultController<Uint8Array> | null = null;

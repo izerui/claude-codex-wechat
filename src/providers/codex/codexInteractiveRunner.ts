@@ -1,4 +1,4 @@
-import type { PermissionRequest, ProviderEvent, ProviderSession } from '../types';
+import type { ProviderEvent, ProviderSession } from '../types';
 import { CodexAppServerClient } from './codexAppServerClient';
 import { syncCodexThreadForResume } from './nativeThreads';
 
@@ -6,7 +6,6 @@ type StoredSession = ProviderSession & {
   threadId?: string;
   client?: CodexAppServerClient;
   pendingText: string[];
-  pendingApprovals: ProviderEvent[];
   activeTurnId?: string;
   sessionName?: string;
   turnCompletedResolver?: () => void;
@@ -66,7 +65,6 @@ export class CodexInteractiveRunner {
       cwd: input.cwd,
       status: 'idle',
       pendingText: [],
-      pendingApprovals: [],
     };
     this.sessions.set(input.bridgeSessionId, session);
     return session;
@@ -78,7 +76,6 @@ export class CodexInteractiveRunner {
     const client = await this.ensureClient(session);
 
     session.pendingText = [];
-    session.pendingApprovals = [];
     session.activeTurnId = undefined;
     session.turnCompletedPromise = new Promise<void>((resolve) => {
       session.turnCompletedResolver = resolve;
@@ -133,9 +130,6 @@ export class CodexInteractiveRunner {
     for (const text of session.pendingText) {
       yield { type: 'text_delta', text };
     }
-    for (const approval of session.pendingApprovals) {
-      yield approval;
-    }
     yield {
       type: 'session_state',
       state: {
@@ -153,10 +147,6 @@ export class CodexInteractiveRunner {
     const session = this.sessions.get(bridgeSessionId);
     this.sessions.delete(bridgeSessionId);
     await session?.client?.dispose();
-  }
-
-  async decidePermission(_input: { requestId: string; decision: 'approve' | 'deny' | 'abort' }): Promise<void> {
-    // Interactive Codex permissions are not bridged yet in this minimal runner.
   }
 
   async interruptTurn(bridgeSessionId: string): Promise<void> {
@@ -204,35 +194,12 @@ export class CodexInteractiveRunner {
       session.turnCompletedResolver = undefined;
     });
     client.onRequest('item/commandExecution/requestApproval', async (_id, params) => {
-      const request = buildApprovalRequest(session, params as Record<string, unknown>);
-      session.pendingApprovals.push({ type: 'permission_request', request });
       return { decision: 'approve' };
     });
     client.onRequest('item/fileChange/requestApproval', async (_id, params) => {
-      const request = buildApprovalRequest(session, params as Record<string, unknown>, 'CodexPatch');
-      session.pendingApprovals.push({ type: 'permission_request', request });
       return { decision: 'approve' };
     });
     session.client = client;
     return client;
   }
-}
-
-function buildApprovalRequest(
-  session: StoredSession,
-  params: Record<string, unknown>,
-  toolName = 'CodexBash',
-): PermissionRequest {
-  return {
-    id: typeof params.itemId === 'string' ? params.itemId : 'codex_approval',
-    bridgeSessionId: session.bridgeSessionId,
-    providerId: 'codex',
-    toolName,
-    summary: typeof params.reason === 'string' && params.reason ? params.reason : `Codex requests approval for ${toolName}`,
-    details: {
-      ...(typeof params.command === 'string' ? { command: params.command } : {}),
-      ...(typeof params.cwd === 'string' ? { cwd: params.cwd } : {}),
-    },
-    choices: ['approve', 'deny', 'abort'],
-  };
 }

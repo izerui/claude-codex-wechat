@@ -1,7 +1,6 @@
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDaemonServer } from '../src/daemon/server';
-import { PermissionRouter } from '../src/permissions/permissionRouter';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { WeixinDirectAdapter } from '../src/channels/weixin-direct/adapter';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
@@ -174,18 +173,16 @@ describe('daemon WeChat runtime channel', () => {
     };
 
     const channel = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
-    const permissions = new PermissionRouter();
     const { app } = createDaemonServer({
       channel,
       providers: [new FakeProviderAdapter('claude-code')],
       activeUserStore: activeUserStore,
-      permissionsRouter: permissions,
     });
 
     void channel.start();
 
     await vi.waitFor(() => {
-      expect(permissions.getPendingRequests()).toHaveLength(1);
+      expect(api.sendTextMessage).toHaveBeenCalled();
     });
 
     expect(api.sendTextMessage).toHaveBeenCalledWith({
@@ -225,7 +222,6 @@ describe('daemon WeChat runtime channel', () => {
 
     const activeUserStore = seededUsers();
 
-    const permissions = new PermissionRouter();
     const { app } = createDaemonServer({
       providers: [new FakeProviderAdapter('claude-code')],
       wechat: {
@@ -235,13 +231,12 @@ describe('daemon WeChat runtime channel', () => {
         accountId: 'wx-account-1',
       },
       activeUserStore: activeUserStore,
-      permissionsRouter: permissions,
     });
 
     await app.ready();
 
     await vi.waitFor(() => {
-      expect(permissions.getPendingRequests()).toHaveLength(1);
+      expect(fetchMock).toHaveBeenCalled();
     });
 
     const sendCalls = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/ilink/bot/sendmessage'));

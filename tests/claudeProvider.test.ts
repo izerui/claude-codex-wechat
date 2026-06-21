@@ -16,7 +16,7 @@ describe('ClaudeCodeProvider', () => {
     });
   });
 
-  it('streams text and permission events', async () => {
+  it('streams text events', async () => {
     const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
     await provider.startSession({ bridgeSessionId: 'bs_1', cwd: '/tmp/project' });
 
@@ -25,7 +25,7 @@ describe('ClaudeCodeProvider', () => {
       events.push(event);
     }
 
-    expect(events.map((event) => event.type)).toEqual(['text_delta', 'permission_request', 'message_done']);
+    expect(events.map((event) => event.type)).toEqual(['text_delta', 'message_done']);
     expect(events[0]).toMatchObject({ type: 'text_delta', text: 'Claude 收到：hello' });
   });
 });

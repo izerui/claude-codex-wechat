@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
-import { PermissionRouter } from '../src/permissions/permissionRouter';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { CurrentConversationStore } from '../src/session/currentConversationStore';
 import { attachProviderSessionToBridge } from '../src/session/providerAutoAttach';
@@ -131,11 +130,9 @@ describe('MessageRouter', () => {
 
   it('flushes the final buffered text when a provider stream ends without message_done', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new PartialWithoutDoneProviderAdapter()],
       sessions,
       resolveUser: () => authorizedUser,
@@ -194,12 +191,10 @@ describe('MessageRouter', () => {
     }
 
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const provider = new GatedProvider();
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [provider],
       sessions,
       resolveUser: () => authorizedUser,
@@ -273,12 +268,10 @@ describe('MessageRouter', () => {
     }
 
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
     const provider = new SteerableProvider();
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [provider],
       sessions,
       resolveUser: () => authorizedUser,
@@ -312,11 +305,9 @@ describe('MessageRouter', () => {
 
   it('toggles typing state around a normal chat turn', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new FakeProviderAdapter('claude-code')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -341,11 +332,9 @@ describe('MessageRouter', () => {
 
   it('shows typing around command status replies', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new FakeProviderAdapter('claude-code')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -376,11 +365,9 @@ describe('MessageRouter', () => {
 
   it('does not trigger a provider for unactive wechat users', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new FakeProviderAdapter('claude-code')],
       sessions,
       resolveUser: () => null,
@@ -398,17 +385,14 @@ describe('MessageRouter', () => {
     });
 
     expect(sessions.listSessions()).toHaveLength(0);
-    expect(permissions.getPendingRequests()).toHaveLength(0);
     expect(sent).toEqual([]);
   });
 
   it('creates a new session for /new codex and routes later chat to Codex', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new FakeProviderAdapter('claude-code'), new FakeProviderAdapter('codex')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -443,11 +427,9 @@ describe('MessageRouter', () => {
 
   it('creates a new session for /new using the default provider', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new FakeProviderAdapter('claude-code'), new FakeProviderAdapter('codex')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -471,11 +453,9 @@ describe('MessageRouter', () => {
 
   it('creates a session with the given cwd via /new <path> and reports session status', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new FakeProviderAdapter('claude-code')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -543,12 +523,10 @@ describe('MessageRouter', () => {
     }
 
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const hung = new HungProvider();
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [hung, new FakeProviderAdapter('codex')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -623,13 +601,11 @@ describe('MessageRouter', () => {
     }
 
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const gated = new GatedNoSteerProvider();
     const codex = new FakeProviderAdapter('codex');
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [gated, codex],
       sessions,
       resolveUser: () => authorizedUser,
@@ -696,11 +672,9 @@ describe('MessageRouter', () => {
     }
 
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new UninterruptibleHungProvider(), new FakeProviderAdapter('codex')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -776,11 +750,9 @@ describe('MessageRouter', () => {
     }
 
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new SlowResumeProvider()],
       sessions,
       resolveUser: () => authorizedUser,
@@ -818,11 +790,9 @@ describe('MessageRouter', () => {
       { defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' },
     );
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const codex = new FakeProviderAdapter('codex');
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new FakeProviderAdapter('claude-code'), codex],
       conversation,
       resolveUser: () => authorizedUser,
@@ -876,11 +846,9 @@ describe('MessageRouter', () => {
       defaultProviderId: 'claude-code',
     });
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new FakeProviderAdapter('claude-code')],
       conversation,
       sessions,
@@ -947,11 +915,9 @@ describe('MessageRouter', () => {
 
   it('sends an error message back to the channel when the provider emits an error event', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new ErrorProviderAdapter()],
       sessions,
       resolveUser: () => authorizedUser,
@@ -976,11 +942,9 @@ describe('MessageRouter', () => {
 
   it('flushes buffered reply text before reporting a provider error', async () => {
     const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
     const router = new MessageRouter({
       channel,
-      permissions,
       providers: [new PartialThenErrorProviderAdapter()],
       sessions,
       resolveUser: () => authorizedUser,
@@ -1023,7 +987,6 @@ describe('MessageRouter outbound gate', () => {
     const { gate, getDrainCount } = makeFakeGate(true);
     const router = new MessageRouter({
       channel: new MockChannelAdapter(),
-      permissions: new PermissionRouter(),
       providers: [new FakeProviderAdapter('claude-code')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -1052,7 +1015,6 @@ describe('MessageRouter outbound gate', () => {
     };
     const router = new MessageRouter({
       channel,
-      permissions: new PermissionRouter(),
       providers: [new FakeProviderAdapter('claude-code')],
       sessions,
       resolveUser: () => authorizedUser,
@@ -1076,7 +1038,6 @@ describe('MessageRouter outbound gate', () => {
     const { gate, delivered } = makeFakeGate(false);
     const router = new MessageRouter({
       channel,
-      permissions: new PermissionRouter(),
       providers: [new FakeProviderAdapter('claude-code')],
       sessions,
       resolveUser: () => authorizedUser,

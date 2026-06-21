@@ -9,7 +9,6 @@ import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { ManagedWeixinDirectAdapter } from '../channels/weixin-direct/managedAdapter';
 import { FileWeixinStateStore } from '../channels/weixin-direct/weixinStateStore';
 import { WeixinOutboundGate } from '../channels/weixin-direct/outboundGate';
-import type { PermissionRouter } from '../permissions/permissionRouter';
 import { createDefaultProviders } from '../providers/defaultProviders';
 import type { NativeProviderAdapter } from '../providers/types';
 import { ProviderRegistry } from '../providers/providerRegistry';
@@ -28,7 +27,6 @@ export function createDaemonServer(options: {
   channel?: ChannelAdapter;
   providers?: NativeProviderAdapter[];
   activeUserStore?: ActiveWeChatUserStore;
-  permissionsRouter?: PermissionRouter;
   wechat?: WeixinConfig;
   bridgeDefaults?: { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string };
   providerCommands?: BridgeConfig['providers'];
