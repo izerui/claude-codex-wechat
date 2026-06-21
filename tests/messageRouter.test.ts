@@ -162,7 +162,7 @@ describe('MessageRouter', () => {
     ]);
   });
 
-  it('interrupts an in-flight generation on /cancel and keeps the session', async () => {
+  it('interrupts an in-flight generation on /stop and keeps the session', async () => {
     let releaseGate: () => void = () => {};
     const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
     let signalStarted: () => void = () => {};
@@ -228,7 +228,7 @@ describe('MessageRouter', () => {
       platform: 'weixin',
       chatId: 'chat-cancel',
       user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '/cancel' },
+      content: { type: 'text', text: '/stop' },
       timestamp: 2,
     });
 
@@ -907,43 +907,6 @@ describe('MessageRouter', () => {
     expect(final?.id).toBe(afterCommand?.id);
   });
 
-
-  it('stops the active session on /stop', async () => {
-    const channel = new MockChannelAdapter();
-    const permissions = new PermissionRouter();
-    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
-    const provider = new FakeProviderAdapter('claude-code');
-    const router = new MessageRouter({
-      channel,
-      permissions,
-      providers: [provider],
-      sessions,
-      resolveUser: () => authorizedUser,
-    });
-
-    await router.handleMessage({
-      id: 'm1',
-      platform: 'weixin',
-      chatId: 'chat-a',
-      user: { id: 'wx_user_1' },
-      content: { type: 'text', text: 'hello' },
-      timestamp: 1,
-    });
-    const active = sessions.getActiveSession('chat-a');
-    expect(active).not.toBeNull();
-
-    await router.handleMessage({
-      id: 'm2',
-      platform: 'weixin',
-      chatId: 'chat-a',
-      user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '/stop' },
-      timestamp: 2,
-    });
-
-    expect(sessions.getActiveSession('chat-a')).toBeNull();
-    expect(provider.stoppedSessions).toEqual([active!.id]);
-  });
 
   it('persists bridge binding metadata when a new WeChat Claude session is created', async () => {
     const store = createRuntimeUserStore('message-router-last-provider-');

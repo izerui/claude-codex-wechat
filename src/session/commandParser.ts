@@ -5,8 +5,7 @@ export type BridgeCommand =
   | { kind: 'status' }
   | { kind: 'new_session'; providerId: ProviderId | null; cwd: string | null }
   | { kind: 'use_provider'; providerId: ProviderId }
-  | { kind: 'stop' }
-  | { kind: 'list_sessions'; scope: 'all' | 'mine'; keyword: string | null }
+  | { kind: 'list_sessions'; scope: 'all'; keyword: string | null }
   | { kind: 'resume_session'; ref: string }
   | { kind: 'archive_session'; ref: string }
   | { kind: 'cancel_generation' }
@@ -32,11 +31,10 @@ export function parseBridgeCommand(input: string): BridgeCommand {
 
   if (command === '/help') return { kind: 'help' };
   if (command === '/status') return { kind: 'status' };
-  if (command === '/stop') return { kind: 'stop' };
-  if (command === '/cancel' || command === '/interrupt') return { kind: 'cancel_generation' };
+  if (command === '/stop') return { kind: 'cancel_generation' };
 
   if (command === '/sessions') {
-    if (first === 'mine') return { kind: 'list_sessions', scope: 'mine', keyword: null };
+    if (first === 'mine') return { kind: 'chat', text };
     const keyword = rest.join(' ').trim();
     return { kind: 'list_sessions', scope: 'all', keyword: keyword || null };
   }

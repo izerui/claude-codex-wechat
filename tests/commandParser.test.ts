@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseBridgeCommand } from '../src/session/commandParser';
+import { buildBridgeCommandHelpMarkdown } from '../src/shared/bridgeCommandHelp';
 
 describe('parseBridgeCommand', () => {
   it('parses provider creation commands', () => {
@@ -34,7 +35,7 @@ describe('parseBridgeCommand', () => {
 
   it('parses session listing commands', () => {
     expect(parseBridgeCommand('/sessions')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: null });
-    expect(parseBridgeCommand('/sessions mine')).toEqual({ kind: 'list_sessions', scope: 'mine', keyword: null });
+    expect(parseBridgeCommand('/sessions mine')).toEqual({ kind: 'chat', text: '/sessions mine' });
     expect(parseBridgeCommand('/sessions 登录 重构')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: '登录 重构' });
   });
 
@@ -50,8 +51,17 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/archive sess_xyz')).toEqual({ kind: 'archive_session', ref: 'sess_xyz' });
   });
 
-  it('parses cancel/interrupt commands', () => {
-    expect(parseBridgeCommand('/cancel')).toEqual({ kind: 'cancel_generation' });
-    expect(parseBridgeCommand('/interrupt')).toEqual({ kind: 'cancel_generation' });
+  it('parses /stop as interrupt and treats removed aliases as plain chat', () => {
+    expect(parseBridgeCommand('/stop')).toEqual({ kind: 'cancel_generation' });
+    expect(parseBridgeCommand('/cancel')).toEqual({ kind: 'chat', text: '/cancel' });
+    expect(parseBridgeCommand('/interrupt')).toEqual({ kind: 'chat', text: '/interrupt' });
+  });
+
+  it('documents only /stop for interrupt help text', () => {
+    const help = buildBridgeCommandHelpMarkdown();
+    expect(help).toContain('`/stop`');
+    expect(help).toContain('中断当前正在生成的回复（会话保留）');
+    expect(help).not.toContain('`/cancel`');
+    expect(help).not.toContain('`/sessions mine`');
   });
 });

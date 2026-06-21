@@ -22,7 +22,7 @@ export class MessageRouter {
   private readonly sessionListCache = new Map<string, { providerId: ProviderId; ids: string[] }>();
   // Single global lock: the bridge stores one current conversation, so every
   // session-mutating operation (chat generation + state-changing commands) must
-  // run one at a time. /cancel and read-only commands bypass this lock.
+  // run one at a time. /stop and read-only commands bypass this lock.
   private sessionOpChain: Promise<void> = Promise.resolve();
   // Commands run on their own chain, independent of sessionOpChain, so a hung
   // generation can never block /new, /stop, etc.
@@ -144,7 +144,7 @@ export class MessageRouter {
     const seq = ++this.opSeq;
     if (command.kind !== 'chat') {
       // 命令跑在独立的 commandChain 上，与生成链 sessionOpChain 互不依赖，
-      // 所以卡住的生成永远不会阻塞 /new、/stop 等命令。/cancel 和只读命令
+      // 所以卡住的生成永远不会阻塞 /new 等命令。/stop 和只读命令
       // 仍立即执行。setTyping 在回调内部切换（不在 runOnCommandChain 之前），
       // 避免被前一次生成 finally 里的 setTyping(false) 清掉。
       if (!isImmediateCommand(command.kind)) {
@@ -477,9 +477,6 @@ export class MessageRouter {
         return;
       }
       let candidates = await listUnattachedRecoverableSessions({ provider, providerId, currentSession: current });
-      if (command.scope === 'mine') {
-        candidates = candidates.filter((candidate) => candidate.bridgeTag?.platformUserId === user.platformUserId);
-      }
       if (command.keyword) {
         const keyword = command.keyword.toLowerCase();
         candidates = candidates.filter((candidate) =>
@@ -612,22 +609,6 @@ export class MessageRouter {
       return;
     }
 
-    if (command.kind === 'stop') {
-      const session = this.conversation.getCurrent();
-      if (!session) {
-        await this.sendToChat({ chatId, kind: 'status', text: 'No active session to stop' });
-        return;
-      }
-      await this.preemptActiveGeneration(chatId);
-      await this.providers.get(session.providerId)?.stopSession(session.id);
-      this.conversation.clear();
-      await this.sendToChat({
-        chatId,
-        kind: 'status',
-        text: `Stopped session ${session.id}`,
-      });
-      return;
-    }
   }
 
   async decidePermission(input: { requestId: string; userId: string; decision: PermissionChoice }): Promise<
@@ -677,7 +658,7 @@ function summarizeResumeTitle(text: string): string | undefined {
   return normalized.length > 32 ? `${normalized.slice(0, 32).trimEnd()}…` : normalized;
 }
 
-// Commands that may run while a generation is in flight: /cancel must (to
+// Commands that may run while a generation is in flight: /stop must (to
 // interrupt it), and read-only commands are safe. Everything else mutates the
 // single current conversation and is serialized behind the active generation.
 function isImmediateCommand(kind: BridgeCommand['kind']): boolean {
