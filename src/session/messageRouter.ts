@@ -480,7 +480,7 @@ export class MessageRouter {
       if (candidates.length > shown.length) {
         lines.push('', `（还有 ${candidates.length - shown.length} 条，用 \`/sessions <关键词>\` 筛选）`);
       }
-      lines.push('', '回复 `/resume <编号>` 恢复，或 `/resume <id>` 指定');
+      lines.push('', '回复 `/resume <id>` 恢复');
       await this.sendToChat({ chatId, kind: 'markdown', text: lines.join('\n') });
       return;
     }
@@ -488,35 +488,20 @@ export class MessageRouter {
     if (command.kind === 'resume_session') {
       const ref = command.ref.trim();
       if (!ref) {
-        await this.sendToChat({ chatId, kind: 'status', text: '用法：/resume <编号> 或 /resume <id>（先用 /sessions 查看列表）' });
+        await this.sendToChat({ chatId, kind: 'status', text: '用法：/resume <id>' });
         return;
       }
       await this.preemptActiveGeneration(chatId);
-      let providerId = this.conversation.getCurrent()?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
+      const providerId = this.conversation.getCurrent()?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
       const previousCwd = this.conversation.getCurrent()?.cwd;
-      let sessionId = ref;
-      if (/^\d+$/.test(ref)) {
-        const cached = this.sessionListCache.get(chatId);
-        if (!cached) {
-          await this.sendToChat({ chatId, kind: 'status', text: '请先用 /sessions 查看列表，再用编号恢复' });
-          return;
-        }
-        const index = Number.parseInt(ref, 10);
-        if (index < 1 || index > cached.ids.length) {
-          await this.sendToChat({ chatId, kind: 'status', text: `编号 ${ref} 超出范围，请重新 /sessions 查看` });
-          return;
-        }
-        providerId = cached.providerId;
-        sessionId = cached.ids[index - 1];
-      }
       const provider = this.providers.get(providerId);
       if (!provider?.attachSession || !provider.listRecoverableSessions) {
         await this.sendToChat({ chatId, kind: 'status', text: `当前 provider（${providerId}）不支持会话恢复` });
         return;
       }
-      const candidate = (await provider.listRecoverableSessions()).find((item) => item.id === sessionId);
+      const candidate = (await provider.listRecoverableSessions()).find((item) => item.id === ref);
       if (!candidate) {
-        await this.sendToChat({ chatId, kind: 'status', text: `找不到会话 ${sessionId}` });
+        await this.sendToChat({ chatId, kind: 'status', text: `找不到会话 ${ref}` });
         return;
       }
       const cwdUnresolved = !candidate.cwd;
@@ -526,7 +511,7 @@ export class MessageRouter {
         provider,
         user,
         providerId,
-        providerSessionId: sessionId,
+        providerSessionId: ref,
         chatId,
         cwd: candidate.cwd ?? this.options.defaults?.defaultWorkspace ?? '/tmp/project',
         recoverySource: 'manual_attach',
@@ -539,55 +524,6 @@ export class MessageRouter {
           ? `${head}\n已切换工作目录到 ${attached.cwd}`
           : `${head} · ${attached.cwd}`;
       await this.sendToChat({ chatId, kind: 'status', text });
-      return;
-    }
-
-    if (command.kind === 'archive_session') {
-      const ref = command.ref.trim();
-      const current = this.conversation.getCurrent();
-      let providerId: ProviderId;
-      let providerSessionId: string;
-      if (!ref) {
-        if (!current?.providerSessionId) {
-          await this.sendToChat({ chatId, kind: 'status', text: '当前没有可归档的会话' });
-          return;
-        }
-        providerId = current.providerId;
-        providerSessionId = current.providerSessionId;
-      } else if (/^\d+$/.test(ref)) {
-        const cached = this.sessionListCache.get(chatId);
-        if (!cached) {
-          await this.sendToChat({ chatId, kind: 'status', text: '请先用 /sessions 查看列表，再用编号归档' });
-          return;
-        }
-        const index = Number.parseInt(ref, 10);
-        if (index < 1 || index > cached.ids.length) {
-          await this.sendToChat({ chatId, kind: 'status', text: `编号 ${ref} 超出范围，请重新 /sessions 查看` });
-          return;
-        }
-        providerId = cached.providerId;
-        providerSessionId = cached.ids[index - 1];
-      } else {
-        providerId = current?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
-        providerSessionId = ref;
-      }
-      const provider = this.providers.get(providerId);
-      if (!provider?.archiveSession) {
-        await this.sendToChat({ chatId, kind: 'status', text: `${providerId} 无原生归档命令，暂不支持归档（可用 /stop 停止，会话仍可 resume）` });
-        return;
-      }
-      const isCurrent = current?.providerSessionId === providerSessionId;
-      if (isCurrent) await this.preemptActiveGeneration(chatId);
-      try {
-        if (isCurrent && current) await provider.stopSession(current.id);
-        await provider.archiveSession(providerSessionId);
-      } catch (error) {
-        await this.sendToChat({ chatId, kind: 'status', text: `归档失败：${error instanceof Error ? error.message : String(error)}` });
-        return;
-      }
-      if (isCurrent) this.conversation.clear();
-      this.sessionListCache.delete(chatId);
-      await this.sendToChat({ chatId, kind: 'status', text: `已归档会话 ${providerSessionId}` });
       return;
     }
 

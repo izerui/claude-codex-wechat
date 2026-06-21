@@ -44,16 +44,16 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/sessions 登录 重构')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: '登录 重构' });
   });
 
-  it('parses resume commands by index or id', () => {
-    expect(parseBridgeCommand('/resume 3')).toEqual({ kind: 'resume_session', ref: '3' });
+  it('parses resume commands by id only', () => {
+    expect(parseBridgeCommand('/resume 3')).toEqual({ kind: 'chat', text: '/resume 3' });
     expect(parseBridgeCommand('/resume bs_abc')).toEqual({ kind: 'resume_session', ref: 'bs_abc' });
     expect(parseBridgeCommand('/resume')).toEqual({ kind: 'resume_session', ref: '' });
   });
 
-  it('parses archive commands with optional target', () => {
-    expect(parseBridgeCommand('/archive')).toEqual({ kind: 'archive_session', ref: '' });
-    expect(parseBridgeCommand('/archive 2')).toEqual({ kind: 'archive_session', ref: '2' });
-    expect(parseBridgeCommand('/archive sess_xyz')).toEqual({ kind: 'archive_session', ref: 'sess_xyz' });
+  it('treats removed /archive commands as plain chat', () => {
+    expect(parseBridgeCommand('/archive')).toEqual({ kind: 'chat', text: '/archive' });
+    expect(parseBridgeCommand('/archive 2')).toEqual({ kind: 'chat', text: '/archive 2' });
+    expect(parseBridgeCommand('/archive sess_xyz')).toEqual({ kind: 'chat', text: '/archive sess_xyz' });
   });
 
   it('parses /stop as interrupt and treats removed aliases as plain chat', () => {
@@ -69,5 +69,7 @@ describe('parseBridgeCommand', () => {
     expect(help).not.toContain('`/cancel`');
     expect(help).not.toContain('`/sessions mine`');
     expect(help).not.toContain('`/use claude|codex`');
+    expect(help).not.toContain('`/resume <编号>`');
+    expect(help).not.toContain('`/archive [编号]`');
   });
 });

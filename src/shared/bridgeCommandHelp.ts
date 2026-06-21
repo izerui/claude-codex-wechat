@@ -29,9 +29,7 @@ export const BRIDGE_COMMAND_HELP_GROUPS: BridgeCommandHelpGroup[] = [
     entries: [
       { command: '/sessions', desc: '列出最近的历史会话（按更新时间倒序）' },
       { command: '/sessions <关键词>', desc: '按标题/目录筛选' },
-      { command: '/resume <编号>', desc: '按列表编号恢复' },
       { command: '/resume <id>', desc: '按会话 id 恢复' },
-      { command: '/archive [编号]', desc: '归档会话（仅 Codex；省略则归档当前会话）' },
     ],
   },
   {
