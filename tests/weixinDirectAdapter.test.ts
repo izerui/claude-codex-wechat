@@ -359,6 +359,40 @@ describe('WeixinDirectAdapter', () => {
     await adapter.stop();
   });
 
+  it('retries typing stop with a refreshed ticket when the first stop fails', async () => {
+    const api = {
+      getUpdates: vi.fn().mockResolvedValue({ nextBuffer: 'buf_1', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+      getConfig: vi.fn()
+        .mockResolvedValueOnce({ typingTicket: 'ticket_stale' })
+        .mockResolvedValue({ typingTicket: 'ticket_fresh' }),
+      sendTyping: vi.fn().mockImplementation(async ({ status, typingTicket }: { status: 1 | 2; typingTicket: string }) => {
+        // A stale ticket (e.g. expired after ~10min) makes the stop fail. WeChat
+        // typing is sticky, so a swallowed stop leaves it stuck on "正在输入".
+        if (status === 2 && typingTicket === 'ticket_stale') throw new Error('invalid_typing_ticket');
+      }),
+    };
+
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
+    adapter.onMessage(async () => {});
+    await adapter.start({ background: true });
+
+    await adapter.setTyping('user_a', true);
+    await adapter.setTyping('user_a', false);
+
+    await vi.waitFor(() => {
+      // The stop must actually land: after the stale-ticket failure the adapter
+      // refreshes the ticket and re-sends status 2.
+      expect(api.sendTyping).toHaveBeenCalledWith({
+        ilinkUserId: 'user_a',
+        typingTicket: 'ticket_fresh',
+        status: 2,
+      });
+    });
+
+    await adapter.stop();
+  });
+
   it('refuses to send (and does not call the api) when no context token exists for the chat', async () => {
     const api = {
       getUpdates: vi.fn().mockResolvedValue({ nextBuffer: 'buf_1', messages: [] }),

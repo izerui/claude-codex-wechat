@@ -45,6 +45,7 @@ function createFetchStub() {
   const state: {
     sessions: BridgeSessionView[];
     activeUser: ActiveWeChatUserView | null;
+    quota: { remaining: number; sentCount: number; limit: number; expired: boolean; windowEndsAt: number } | null;
   } = {
     sessions: [
       {
@@ -64,7 +65,7 @@ function createFetchStub() {
         lastActivityAt: 2,
       },
     ],
-    activeUser: 
+    activeUser:
       {
         id: 'user_1',
         platform: 'weixin',
@@ -72,6 +73,13 @@ function createFetchStub() {
         role: 'user',
         createdAt: 1,
       },
+    quota: {
+      remaining: 7,
+      sentCount: 3,
+      limit: 10,
+      expired: false,
+      windowEndsAt: Date.now() + 18 * 60 * 60 * 1000 + 60_000,
+    },
   };
 
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -117,6 +125,7 @@ function createFetchStub() {
             updatedAt: 3,
           },
         },
+        quota: state.quota,
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/providers/status')) {
@@ -317,6 +326,17 @@ describe('App admin interactions', () => {
     await screen.findAllByText('当前活跃用户');
     expect(screen.queryByText('待审批配对')).toBeNull();
     expect(fetchImpl.mock.calls.some(([input]) => String(input).endsWith('/api/channel/pairings'))).toBe(false);
+  });
+
+  it('shows the WeChat proactive-push quota and remaining window in the channel strip', async () => {
+    setupBrowserMocks();
+    render(<App />);
+
+    await screen.findAllByText('当前活跃用户');
+    expect((await screen.findAllByText('推送额度')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/剩 7\/10/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/窗口约 18h/)).length).toBeGreaterThan(0);
+    await flushPromises();
   });
 
   it('switches to the Claude and Codex native session tabs and loads recoverable sessions', async () => {

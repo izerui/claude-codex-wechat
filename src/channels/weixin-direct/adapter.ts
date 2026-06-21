@@ -25,6 +25,7 @@ type WeixinDirectApi = {
 export class WeixinDirectAdapter implements ChannelAdapter {
   readonly id = 'weixin-direct';
   private static readonly SESSION_TIMEOUT_THRESHOLD = 3;
+  private static readonly TYPING_STOP_MAX_ATTEMPTS = 3;
   private handler: ChannelMessageHandler | null = null;
   private stopped = true;
   private buffer = '';
@@ -135,16 +136,28 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   }
 
   private async writeTyping(chatId: string, active: boolean): Promise<void> {
-    try {
-      const typingTicket = await this.getTypingTicket(chatId);
-      if (!typingTicket) return;
-      await this.options.api.sendTyping?.({
-        ilinkUserId: chatId,
-        typingTicket,
-        status: active ? 1 : 2,
-      });
-    } catch (error) {
-      console.error('[weixin-typing] setTyping failed:', error);
+    // WeChat typing is sticky: a lost stop leaves the chat stuck showing "正在输入".
+    // The stop (status 2) is therefore retried — on failure we drop the cached
+    // ticket (the usual culprit is a ticket expired past its ~10min cache) so the
+    // retry re-fetches a fresh one. Start/keepalive stays best-effort; the next
+    // keepalive tick re-asserts it.
+    const maxAttempts = active ? 1 : WeixinDirectAdapter.TYPING_STOP_MAX_ATTEMPTS;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const typingTicket = await this.getTypingTicket(chatId);
+        if (!typingTicket) return;
+        await this.options.api.sendTyping?.({
+          ilinkUserId: chatId,
+          typingTicket,
+          status: active ? 1 : 2,
+        });
+        return;
+      } catch (error) {
+        this.typingTickets.delete(chatId);
+        if (attempt >= maxAttempts) {
+          console.error('[weixin-typing] setTyping failed:', error);
+        }
+      }
     }
   }
 
