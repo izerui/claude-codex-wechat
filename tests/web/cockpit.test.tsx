@@ -176,4 +176,18 @@ describe('EngineBays', () => {
     fireEvent.click(screen.getByRole('button', { name: '新开会话' }));
     expect(onCreateSession).toHaveBeenCalledWith('claude-code', '/home/me/proj');
   });
+
+  it('shows visible 新会话 text on each create button', () => {
+    render(
+      <EngineBays
+        providerStatus={{ claude: { detected: true, version: '2.0.1' }, codex: { detected: true, version: '0.9.0' } }}
+        plugin={connectedPlugin}
+        currentSession={claudeSession}
+        canCreateSession
+        defaultWorkspace="/default/ws"
+        onCreateSession={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByText('新会话')).toHaveLength(2);
+  });
 });

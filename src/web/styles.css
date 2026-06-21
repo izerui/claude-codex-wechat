@@ -316,11 +316,19 @@ h1, h2, h3, h4, h5, h6 {
   background: none;
   border: none;
   box-shadow: none;
-  padding: 4px;
+  padding: 4px 8px;
   border-radius: 8px;
   color: var(--primary);
   cursor: pointer;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
   transition: color 150ms ease, background-color 150ms ease;
+}
+.engine-create-btn svg {
+  flex: 0 0 auto;
 }
 .engine-create-btn:hover:not(:disabled) {
   color: var(--primary-hover);
