@@ -3,9 +3,8 @@ import { defaultConfigPath, loadBridgeConfig } from './daemon/config';
 import { persistProviderCommandsToConfigFile } from './daemon/configPersistence';
 import middie from '@fastify/middie';
 import { createServer as createViteServer } from 'vite';
-import { execFile } from 'node:child_process';
 import { networkInterfaces } from 'node:os';
-import { promisify } from 'node:util';
+import { findExecutable } from './shared/platform';
 
 const port = Number(process.env.BRIDGE_PORT ?? 8787);
 const configPath = process.env.BRIDGE_CONFIG ?? defaultConfigPath();
@@ -61,22 +60,11 @@ function listLanIpv4Addresses(): string[] {
 async function resolveProviderCommands(
   providers: ReturnType<typeof loadBridgeConfig>['providers'] | undefined,
 ): Promise<ReturnType<typeof loadBridgeConfig>['providers']> {
-  const claudeCommand = providers?.claude?.command ?? await resolveCommandPath('claude');
-  const codexCommand = providers?.codex?.command ?? await resolveCommandPath('codex');
+  const claudeCommand = providers?.claude?.command ?? await findExecutable('claude');
+  const codexCommand = providers?.codex?.command ?? await findExecutable('codex');
   if (!claudeCommand && !codexCommand) return undefined;
   return {
     ...(claudeCommand ? { claude: { command: claudeCommand } } : {}),
     ...(codexCommand ? { codex: { command: codexCommand } } : {}),
   };
-}
-
-async function resolveCommandPath(command: string): Promise<string | undefined> {
-  try {
-    const execFileAsync = promisify(execFile);
-    const { stdout } = await execFileAsync('command', ['-v', command], { shell: '/bin/zsh' });
-    const resolved = stdout.trim();
-    return resolved || undefined;
-  } catch {
-    return undefined;
-  }
 }

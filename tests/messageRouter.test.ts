@@ -1026,8 +1026,81 @@ describe('MessageRouter outbound gate', () => {
       content: { type: 'text', text: '随便回一句' }, timestamp: 1,
     });
 
-    expect(delivered).toEqual([{ kind: 'status', text: '没有待续发消息了。' }]);
+    expect(delivered).toEqual([]);
     expect(sessions.listSessions()).toHaveLength(0);
+  });
+
+  it('silently consumes a continuation reply while the session is still running and no queue exists yet', async () => {
+    let releaseGate: () => void = () => {};
+    const gateOpen = new Promise<void>((resolve) => { releaseGate = resolve; });
+    let started!: () => void;
+    const generationStarted = new Promise<void>((resolve) => { started = resolve; });
+
+    class GatedProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `claude_gated_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        started();
+        yield { type: 'text_delta', text: `第一段：${input.text}` };
+        await gateOpen;
+        yield { type: 'text_delta', text: '第二段' };
+        yield { type: 'message_done' };
+      }
+
+      async stopSession(): Promise<void> {}
+    }
+
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    let interceptCount = 0;
+    const outboundGate: OutboundDeliveryGate = {
+      hasPending: () => false,
+      shouldInterceptReply: () => {
+        interceptCount += 1;
+        return interceptCount === 2;
+      },
+      deliver: async (chatId, message) => {
+        await channel.sendMessage({ chatId, kind: message.kind as 'text', text: message.text });
+      },
+      drain: async () => undefined,
+    };
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new GatedProvider()],
+      sessions,
+      resolveUser: () => authorizedUser,
+      outboundGate,
+    });
+
+    const generation = router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '开始执行' }, timestamp: 1,
+    });
+    await generationStarted;
+
+    await router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '随便回一句' }, timestamp: 2,
+    });
+
+    releaseGate();
+    await generation;
+
+    expect(sent).toEqual([
+      { kind: 'text', text: '第一段：开始执行第二段' },
+    ]);
   });
 
   it('routes outbound messages through the gate instead of the channel', async () => {

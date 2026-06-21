@@ -4,6 +4,7 @@ import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { parseBridgeCommand, type BridgeCommand } from './commandParser';
 import type { OutboundDeliveryGate } from './outboundGate';
 import { buildBridgeCommandHelpMarkdown } from '../shared/bridgeCommandHelp';
+import { defaultWorkspaceDir, statePath } from '../shared/platform';
 import { CurrentConversationStore, type CurrentConversationBinding } from './currentConversationStore';
 import { attachProviderSessionToBridge, listUnattachedRecoverableSessions } from './providerAutoAttach';
 import type { SessionManager } from './sessionManager';
@@ -53,8 +54,8 @@ export class MessageRouter {
       const fallbackSessions = this.options.sessions;
       this.options.conversation = fallbackSessions?.store
         ? fallbackSessions.store
-        : new CurrentConversationStore('/tmp/claude-codex-wechat-message-router.json', {
-            defaultCwd: '/tmp/project',
+        : new CurrentConversationStore(statePath('claude-codex-wechat-message-router.json'), {
+            defaultCwd: defaultWorkspaceDir(),
             defaultProviderId: 'claude-code',
           });
     }
@@ -116,11 +117,6 @@ export class MessageRouter {
       return { status: 'accepted' };
     }
     if (this.options.outboundGate?.shouldInterceptReply?.(message.chatId)) {
-      await this.sendToChat({
-        chatId: message.chatId,
-        kind: 'status',
-        text: '没有待续发消息了。',
-      });
       return { status: 'accepted' };
     }
     const composedText = composeInboundText(message.content);
@@ -250,7 +246,7 @@ export class MessageRouter {
           chatId: message.chatId,
           ownerUserId: user.id,
           providerId: this.options.defaults?.defaultProvider ?? 'claude-code',
-          cwd: this.options.defaults?.defaultWorkspace ?? '/tmp/project',
+          cwd: this.options.defaults?.defaultWorkspace ?? defaultWorkspaceDir(),
           resumeTitle: sessionResumeTitle,
         });
     }
@@ -404,7 +400,7 @@ export class MessageRouter {
       const cwd = command.cwd
         ?? this.conversation.getCurrent()?.cwd
         ?? this.options.defaults?.defaultWorkspace
-        ?? '/tmp/project';
+        ?? defaultWorkspaceDir();
       const session = this.conversation.create({
         chatId,
         ownerUserId: user.id,
@@ -494,7 +490,7 @@ export class MessageRouter {
         providerId,
         providerSessionId: ref,
         chatId,
-        cwd: candidate.cwd ?? this.options.defaults?.defaultWorkspace ?? '/tmp/project',
+        cwd: candidate.cwd ?? this.options.defaults?.defaultWorkspace ?? defaultWorkspaceDir(),
         recoverySource: 'manual_attach',
         resumeTitle: candidate.resumeTitle,
       });

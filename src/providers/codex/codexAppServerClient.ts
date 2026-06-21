@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { terminateChild } from '../../shared/platform';
 
 type JsonRpcMessage = {
   id?: string | number | null;
@@ -92,7 +93,7 @@ export class CodexAppServerClient {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    this.child.kill();
+    terminateChild(this.child);
     this.failAll(new Error('codex_app_server_disposed'));
   }
 

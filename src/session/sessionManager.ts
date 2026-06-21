@@ -1,7 +1,8 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ProviderId, ProviderSessionStatus } from '../providers/types';
+import type { ProviderId } from '../providers/types';
+import { defaultWorkspaceDir } from '../shared/platform';
 import { CurrentConversationStore, type CurrentConversationBinding } from './currentConversationStore';
 
 export type BridgeSessionRecord = CurrentConversationBinding;
@@ -28,7 +29,7 @@ export class SessionManager {
       chatId: input.chatId,
       ownerUserId: input.ownerUserId,
       providerId: input.providerId ?? 'claude-code',
-      cwd: input.cwd ?? '/tmp/project',
+      cwd: input.cwd ?? defaultWorkspaceDir(),
     });
   }
 

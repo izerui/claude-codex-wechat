@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { expandTilde } from '../../shared/expandTilde';
+import { terminateChild } from '../../shared/platform';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 // A persistent claude session driven over stream-json stdio. Unlike the
@@ -265,7 +266,7 @@ function defaultClaudeStreamSpawner(call: { command: string; args: string[]; cwd
     },
     close() {
       try { child.stdin.end(); } catch { /* already closed */ }
-      child.kill('SIGTERM');
+      terminateChild(child);
     },
   };
 }

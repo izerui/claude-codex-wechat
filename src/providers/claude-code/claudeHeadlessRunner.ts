@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { expandTilde } from '../../shared/expandTilde';
+import { terminateChild } from '../../shared/platform';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 export type ClaudeProcessCall = {
@@ -200,7 +201,7 @@ async function* defaultClaudeLineStreamer(call: ClaudeProcessCall): AsyncIterabl
   child.stdin.end(call.input);
 
   const onAbort = () => {
-    child.kill('SIGTERM');
+    terminateChild(child);
   };
   if (call.signal) {
     if (call.signal.aborted) onAbort();
