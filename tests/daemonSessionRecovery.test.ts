@@ -193,4 +193,98 @@ describe('daemon provider session recovery', () => {
       process.env.HOME = previousHome;
     }
   });
+
+  it('keeps resuming the persisted session even if the restart path re-authorizes the same wechat user', async () => {
+    const previousHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-daemon-home-`);
+    try {
+      const store = createRuntimeUserStore('bridge-daemon-reauth-');
+      const activeUserStore = store.activeUserStore;
+      const user = activeUserStore.setActiveUser({
+        platform: PRIMARY_WEIXIN_PLATFORM,
+        platformUserId: 'wx_user_1',
+        role: 'user',
+        currentConversation: {
+          id: 'bs_existing',
+          chatId: 'chat-a',
+          ownerUserId: 'user_existing',
+          providerId: 'claude-code',
+          providerSessionId: 'claude-session-1',
+          recoverySource: 'runtime',
+          resumeTitle: 'first',
+          cwd: '/tmp/project',
+          status: 'idle',
+          createdAt: 1,
+          lastActivityAt: 1,
+        },
+      });
+
+      // Simulate a restart path that re-authorizes the same user before the next inbound turn.
+      activeUserStore.setActiveUser({
+        platform: PRIMARY_WEIXIN_PLATFORM,
+        platformUserId: 'wx_user_1',
+        role: 'user',
+        displayName: 'Alice',
+      });
+
+      const runnerCalls: Parameters<ClaudeProcessRunner>[0][] = [];
+      const runner = new ClaudeHeadlessRunner({
+        command: 'claude',
+        processRunner: async (call) => {
+          runnerCalls.push(call);
+          return {
+            code: 0,
+            stdout: [
+              JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'reply' }] } }),
+              JSON.stringify({ type: 'result', session_id: 'claude-session-1' }),
+            ].join('\n'),
+            stderr: '',
+          };
+        },
+      });
+      const channel = new MockChannelAdapter();
+      const server = createDaemonServer({
+        channel,
+        providers: [new ClaudeCodeProvider({ runner })],
+        activeUserStore,
+        configPath: store.configPath,
+      });
+
+      await channel.emitIncoming({
+        id: 'm1',
+        platform: PRIMARY_WEIXIN_PLATFORM,
+        chatId: 'chat-a',
+        user: { id: 'wx_user_1' },
+        content: { type: 'text', text: 'second' },
+        timestamp: 2,
+      });
+
+      expect(runnerCalls[0]?.args).toEqual([
+        '-p',
+        '--output-format',
+        'stream-json',
+        '--include-partial-messages',
+        '--verbose',
+        '--dangerously-skip-permissions',
+        '--resume',
+        'claude-session-1',
+        'second',
+      ]);
+      expect(JSON.parse(readFileSync(store.configPath, 'utf8'))).toMatchObject({
+        bridge: {
+          activeWeChatUser: {
+            id: user.id,
+            currentConversation: {
+              providerSessionId: 'claude-session-1',
+              resumeTitle: 'first',
+            },
+          },
+        },
+      });
+
+      await server.app.close();
+    } finally {
+      process.env.HOME = previousHome;
+    }
+  });
 });

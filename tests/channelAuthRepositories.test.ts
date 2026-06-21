@@ -133,4 +133,46 @@ describe('channel auth repositories', () => {
     });
     expect(store.activeUserStore.getActiveUser()).toMatchObject({ platformUserId: 'wx_user_2' });
   });
+
+  it('preserves currentConversation when re-authorizing the same active wechat user', () => {
+    const store = createRuntimeUserStore('bridge-auth-preserve-current-');
+    const created = seedRuntimeUserStore(store, {
+      platform: 'weixin',
+      platformUserId: 'wx_user_1',
+      role: 'user',
+      currentConversation: {
+        id: 'bs_1',
+        chatId: 'chat-a',
+        ownerUserId: 'user_1',
+        providerId: 'claude-code',
+        providerSessionId: 'claude-session-1',
+        recoverySource: 'runtime',
+        resumeTitle: 'existing session',
+        cwd: '/tmp/project',
+        status: 'idle',
+        createdAt: 1,
+        lastActivityAt: 1,
+      },
+    });
+
+    const updated = store.activeUserStore.setActiveUser({
+      platform: 'weixin',
+      platformUserId: 'wx_user_1',
+      role: 'user',
+      displayName: 'Alice',
+    });
+
+    expect(updated.platformUserId).toBe('wx_user_1');
+    expect(store.activeUserStore.getActiveUser()).toMatchObject({
+      platformUserId: 'wx_user_1',
+      displayName: 'Alice',
+      currentConversation: {
+        id: 'bs_1',
+        providerSessionId: 'claude-session-1',
+        cwd: '/tmp/project',
+      },
+    });
+    expect(store.activeUserStore.getActiveUser()?.id).toBe(created.id);
+    expect(updated.id).toBe(created.id);
+  });
 });

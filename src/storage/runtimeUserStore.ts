@@ -15,10 +15,16 @@ export class RuntimeUserStore implements ActiveWeChatUserStore {
 
   setActiveUser(input: Omit<ActiveWeChatUserRecord, 'id' | 'createdAt'>): ActiveWeChatUserRecord {
     const state = this.readState();
+    const existing = state.bridge?.activeWeChatUser;
+    const sameIdentity = existing
+      && existing.platform === input.platform
+      && existing.platformUserId === input.platformUserId;
     const record: ActiveWeChatUserRecord = {
+      ...(sameIdentity ? existing : {}),
       ...input,
-      id: `user_${nanoid(10)}`,
-      createdAt: Date.now(),
+      id: sameIdentity ? existing.id : `user_${nanoid(10)}`,
+      createdAt: sameIdentity ? existing.createdAt : Date.now(),
+      currentConversation: input.currentConversation ?? (sameIdentity ? existing.currentConversation : undefined),
       updatedAt: Date.now(),
     };
     state.bridge = {
