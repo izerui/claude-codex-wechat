@@ -25,6 +25,7 @@ import {
 import { ChannelStrip, EngineBays } from './Cockpit';
 import {
   formatPluginHint,
+  formatTimestamp,
   isPluginConnected,
 } from './statusFormat';
 
@@ -380,6 +381,7 @@ export function WeChatPanel(input: {
                       {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
                       {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
                       {session.cwd ? <div className="small text-muted-soft">{session.cwd}</div> : null}
+                      {session.lastActivityAt ? <div className="small text-muted-soft">最后活跃 {formatTimestamp(session.lastActivityAt)}</div> : null}
                       <button
                         className="btn btn-accent btn-sm mt-2"
                         disabled={attachingSessionId === session.id}
