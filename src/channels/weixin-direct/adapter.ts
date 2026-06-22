@@ -129,7 +129,9 @@ export class WeixinDirectAdapter implements ChannelAdapter {
 
   async setTyping(chatId: string, active: boolean): Promise<void> {
     // Best-effort only: iLink typing auto-expires after roughly 60 seconds, so
-    // callers send one start and one stop without keepalive or durable retries.
+    // the caller re-asserts the start on an interval to keep it visible during a
+    // long generation, then sends one stop. Each call is a single attempt with no
+    // durable retry here; a dropped ticket is refetched on the next assertion.
     await this.typing?.set(chatId, active);
   }
 

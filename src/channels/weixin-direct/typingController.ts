@@ -1,10 +1,13 @@
 /**
  * Per-chat best-effort typing sender for the WeChat iLink channel.
  *
- * The iLink typing indicator auto-expires after roughly 60 seconds, so the bridge
- * only sends one `status=1` when work starts and one `status=2` when work ends.
- * Failures are logged by callers but never retried here; TTL expiration is the
- * safety net that prevents a permanently stuck indicator.
+ * The iLink typing indicator auto-expires after roughly 60 seconds. To keep it
+ * visible across a long generation the caller re-asserts `status=1` on an
+ * interval (see MessageRouter's typing keepalive), and sends one `status=2` when
+ * work ends. This controller does not retry failed writes itself: each `set`
+ * is a single best-effort attempt that drops its cached ticket on error, so the
+ * next keepalive tick refetches the ticket; TTL expiration is the safety net
+ * that prevents a permanently stuck indicator.
  */
 export type TypingControllerDeps = {
   getConfig: (input: { ilinkUserId: string; contextToken?: string }) => Promise<{ typingTicket: string }>;
