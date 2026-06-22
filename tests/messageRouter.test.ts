@@ -128,6 +128,65 @@ describe('MessageRouter', () => {
     ]);
   });
 
+  it('re-asserts the typing indicator while a generation is still running', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    class HangingProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `hang_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        if (!this.sessions.has(input.bridgeSessionId)) throw new Error('codex_session_not_found');
+        await gate;
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+    }
+    const channel = new MockChannelAdapter();
+    const typings: boolean[] = [];
+    channel.onTyping(({ active }) => typings.push(active));
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new HangingProvider()],
+      sessions,
+      resolveUser: () => authorizedUser,
+      typingKeepaliveMs: 10,
+    });
+
+    const done = router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'slow' },
+      timestamp: 1,
+    });
+    // Let several keepalive ticks fire while the provider hangs.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const startsWhileHanging = typings.filter(Boolean).length;
+    release();
+    await done;
+
+    // Initial start + at least one keepalive re-assert. Without keepalive only the
+    // single initial start fires, leaving WeChat's indicator to expire mid-turn.
+    expect(startsWhileHanging).toBeGreaterThanOrEqual(2);
+    // The generation's end still clears typing.
+    expect(typings[typings.length - 1]).toBe(false);
+  });
+
   it('flushes the final buffered text when a provider stream ends without message_done', async () => {
     const channel = new MockChannelAdapter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });

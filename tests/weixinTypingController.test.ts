@@ -70,6 +70,38 @@ describe('TypingController', () => {
     ctrl.dispose();
   });
 
+  it('refreshes the ticket when the context token changes between turns', async () => {
+    let currentToken = 'T1';
+    const getConfig = vi.fn(async ({ contextToken }: { contextToken?: string }) => ({
+      typingTicket: contextToken === 'T1' ? 'ticketA' : 'ticketB',
+    }));
+    const sendTyping = vi.fn(async ({ status, typingTicket }: SendTypingInput) => {
+      // A typing_ticket is bound to the context_token it was fetched with. Once the
+      // user sends a new message the old token expires, so a start sent with the
+      // stale ticket is rejected (-3). This is what left every turn after the first
+      // stuck with no indicator.
+      if (status === 1 && typingTicket === 'ticketA' && currentToken !== 'T1') {
+        throw new Error('weixin_send_typing_failed:-3');
+      }
+    });
+    const ctrl = new TypingController(makeDeps({
+      getConfig,
+      sendTyping,
+      getContextToken: () => currentToken,
+    }));
+
+    // Turn 1 under token T1.
+    await ctrl.set('user_a', true);
+    await ctrl.set('user_a', false);
+    // Turn 2: a new inbound message refreshed the context token.
+    currentToken = 'T2';
+    await ctrl.set('user_a', true);
+
+    // The second start must use the refreshed ticketB, not the stale cached ticketA.
+    expect(sendTyping).toHaveBeenCalledWith({ ilinkUserId: 'user_a', typingTicket: 'ticketB', status: 1 });
+    ctrl.dispose();
+  });
+
   it('dispose() stops any further typing writes', async () => {
     const sendTyping = vi.fn().mockResolvedValue(undefined);
     const ctrl = new TypingController(makeDeps({ sendTyping }));

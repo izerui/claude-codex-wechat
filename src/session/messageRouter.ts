@@ -46,6 +46,8 @@ export class MessageRouter {
       events?: BridgeEventHub;
       defaults?: { defaultProvider: ProviderId; defaultWorkspace: string };
       outboundGate?: OutboundDeliveryGate;
+      /** Interval for re-asserting the typing indicator during a generation (ms). */
+      typingKeepaliveMs?: number;
     },
   ) {
     for (const provider of options.providers) this.providers.set(provider.id, provider);
@@ -295,8 +297,18 @@ export class MessageRouter {
       && (this.latestMutatingSeq.get(message.chatId) ?? 0) <= seq;
     let bufferedText = '';
     await this.options.channel.setTyping?.(message.chatId, true);
+    // Create the keepalive and the iterator INSIDE the try so a synchronous throw
+    // from provider.sendMessage can never orphan the keepalive interval; the finally
+    // always clears it. WeChat's indicator expires on its own, so without this
+    // re-assert it vanishes mid-turn on any generation longer than its TTL.
+    let typingKeepalive: ReturnType<typeof setInterval> | null = null;
     let iterator: AsyncIterator<ProviderEvent> | null = null;
     try {
+      typingKeepalive = this.options.channel.setTyping
+        ? setInterval(() => {
+            void this.options.channel.setTyping?.(message.chatId, true);
+          }, this.options.typingKeepaliveMs ?? 5_000)
+        : null;
       // 手动驱动迭代器并与 abort 信号竞速：被抢占时即便 provider 卡死、迭代器永不
       // 返回下一个事件，也能立即跳出循环、释放 sessionOpChain，后续聊天不再永久排队。
       iterator = provider.sendMessage({ bridgeSessionId: session.id, text })[Symbol.asyncIterator]();
@@ -349,6 +361,7 @@ export class MessageRouter {
       // 这里不能动，避免抹掉它的 entry 或清掉它的 typing。
       const stillMine = this.activeGenerations.get(message.chatId)?.genId === genId;
       if (stillMine) this.activeGenerations.delete(message.chatId);
+      if (typingKeepalive) clearInterval(typingKeepalive);
       if (stillMine) await this.options.channel.setTyping?.(message.chatId, false);
     }
   }

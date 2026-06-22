@@ -13,7 +13,7 @@ export type TypingControllerDeps = {
 };
 
 export class TypingController {
-  private readonly tickets = new Map<string, string>();
+  private readonly tickets = new Map<string, { ticket: string; contextToken?: string }>();
   private readonly chain = new Map<string, Promise<void>>();
   private disposed = false;
 
@@ -50,14 +50,16 @@ export class TypingController {
   }
 
   private async getTicket(chatId: string): Promise<string> {
+    const contextToken = this.deps.getContextToken(chatId);
     const cached = this.tickets.get(chatId);
-    if (cached) return cached;
-    const config = await this.deps.getConfig({
-      ilinkUserId: chatId,
-      contextToken: this.deps.getContextToken(chatId),
-    });
+    // A ticket is bound to the context_token it was fetched with; once the user
+    // sends a new message that token expires, so a cached ticket from an older
+    // token is refetched instead of reused (otherwise every turn after the first
+    // sends `status=1` with a stale ticket and shows no indicator).
+    if (cached && cached.contextToken === contextToken) return cached.ticket;
+    const config = await this.deps.getConfig({ ilinkUserId: chatId, contextToken });
     const ticket = config.typingTicket.trim();
-    if (ticket) this.tickets.set(chatId, ticket);
+    if (ticket) this.tickets.set(chatId, { ticket, contextToken });
     return ticket;
   }
 }
