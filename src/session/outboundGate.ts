@@ -15,6 +15,12 @@ export interface OutboundDeliveryGate {
   shouldInterceptReply?(chatId: string): boolean;
   /** Deliver one logical message: send now (maybe with a hint) or queue it. */
   deliver(chatId: string, message: { kind: string; text: string }): Promise<void>;
+  /**
+   * Signal that a logical batch (a generation or command) finished producing
+   * output, so the gate can flush any message it buffered on the final quota
+   * slot — sent without a continuation hint since nothing more followed.
+   */
+  finalize?(chatId: string): Promise<void>;
   /** Replay queued messages after a token refresh (until quota runs out again). */
   drain(chatId: string): Promise<void>;
 }

@@ -31,12 +31,37 @@ describe('WeixinOutboundGate.deliver', () => {
     expect(store.hasPendingOutbound('u')).toBe(false);
   });
 
-  it('appends the continuation hint on the last quota slot', async () => {
+  it('buffers the final quota slot instead of sending immediately', async () => {
     const { store, sent, gate } = setup();
     store.setContextToken('u', 'ctx');
     for (let i = 0; i < 9; i += 1) store.recordSent('u'); // remaining = 1
     await gate.deliver('u', { kind: 'text', text: '第10条' });
+    // Held back, not sent: we can't yet tell whether more will follow.
+    expect(sent).toEqual([]);
+    expect(gate.shouldInterceptReply('u')).toBe(false);
+  });
+
+  it('flushes the buffered final message WITHOUT a hint when the turn ends (genuinely last)', async () => {
+    const { store, sent, gate } = setup();
+    store.setContextToken('u', 'ctx');
+    for (let i = 0; i < 9; i += 1) store.recordSent('u'); // remaining = 1
+    await gate.deliver('u', { kind: 'text', text: '第10条' });
+    await gate.finalize('u');
+    // Nothing followed → the last message goes out clean, no "未发完" nudge,
+    // and no intercept marker that would swallow the user's next reply.
+    expect(sent).toEqual([{ chatId: 'u', kind: 'text', text: '第10条' }]);
+    expect(gate.shouldInterceptReply('u')).toBe(false);
+  });
+
+  it('flushes the buffered message WITH a hint once a follow-up actually arrives', async () => {
+    const { store, sent, gate } = setup();
+    store.setContextToken('u', 'ctx');
+    for (let i = 0; i < 9; i += 1) store.recordSent('u'); // remaining = 1
+    await gate.deliver('u', { kind: 'text', text: '第10条' });
+    await gate.deliver('u', { kind: 'text', text: '第11条' });
+    // A follow-up proves more is coming → hint rides the 10th, 11th queues.
     expect(sent).toEqual([{ chatId: 'u', kind: 'text', text: `第10条${CONTINUATION_HINT}` }]);
+    expect(store.peekOutbound('u')).toEqual([{ kind: 'text', text: '第11条' }]);
     expect(gate.shouldInterceptReply('u')).toBe(true);
     expect(gate.shouldInterceptReply('u')).toBe(false);
   });
@@ -112,7 +137,9 @@ describe('WeixinOutboundGate.drain', () => {
       store.setContextToken('u', 'ctx');
       for (let i = 0; i < 9; i += 1) store.recordSent('u');
 
+      // A follow-up makes the hint (and its intercept marker) real.
       await gate.deliver('u', { kind: 'text', text: '第10条' });
+      await gate.deliver('u', { kind: 'text', text: '第11条' });
       vi.advanceTimersByTime(2 * 60 * 60 * 1000 + 1);
 
       expect(gate.shouldInterceptReply('u')).toBe(false);
