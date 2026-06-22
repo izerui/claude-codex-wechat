@@ -128,17 +128,15 @@ describe('MessageRouter', () => {
     ]);
   });
 
-  it('re-asserts the typing indicator while a generation is still running', async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    class HangingProvider implements NativeProviderAdapter {
+  it('refreshes typing as provider events arrive and clears it when the turn ends', async () => {
+    class StreamingProvider implements NativeProviderAdapter {
       readonly id = 'claude-code' as const;
       private readonly sessions = new Map<string, ProviderSession>();
       async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
         const session: ProviderSession = {
           bridgeSessionId: input.bridgeSessionId,
           providerId: this.id,
-          providerSessionId: `hang_${input.bridgeSessionId}`,
+          providerSessionId: `stream_${input.bridgeSessionId}`,
           cwd: input.cwd,
           status: 'idle',
         };
@@ -147,7 +145,8 @@ describe('MessageRouter', () => {
       }
       async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
         if (!this.sessions.has(input.bridgeSessionId)) throw new Error('codex_session_not_found');
-        await gate;
+        yield { type: 'text_delta', text: 'a' };
+        yield { type: 'text_delta', text: 'b' };
         yield { type: 'message_done' };
       }
       async stopSession(bridgeSessionId: string): Promise<void> {
@@ -160,31 +159,81 @@ describe('MessageRouter', () => {
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
       channel,
-      providers: [new HangingProvider()],
+      providers: [new StreamingProvider()],
       sessions,
       resolveUser: () => authorizedUser,
-      typingKeepaliveMs: 10,
+      typingKeepaliveMs: 0, // no throttle: every event refreshes typing
     });
 
-    const done = router.handleMessage({
+    await router.handleMessage({
       id: 'm1',
       platform: 'weixin',
       chatId: 'chat-a',
       user: { id: 'wx_user_1' },
-      content: { type: 'text', text: 'slow' },
+      content: { type: 'text', text: 'hi' },
       timestamp: 1,
     });
-    // Let several keepalive ticks fire while the provider hangs.
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    const startsWhileHanging = typings.filter(Boolean).length;
-    release();
-    await done;
+    await new Promise((resolve) => setTimeout(resolve, 10)); // let fire-and-forget refreshes settle
 
-    // Initial start + at least one keepalive re-assert. Without keepalive only the
-    // single initial start fires, leaving WeChat's indicator to expire mid-turn.
-    expect(startsWhileHanging).toBeGreaterThanOrEqual(2);
-    // The generation's end still clears typing.
+    // Initial start + a refresh per arriving event (provider is alive).
+    expect(typings.filter(Boolean).length).toBeGreaterThanOrEqual(2);
+    // The turn's end still clears typing.
     expect(typings[typings.length - 1]).toBe(false);
+  });
+
+  it('stops refreshing typing once the provider goes silent (no timer keepalive)', async () => {
+    const neverResolves = new Promise<void>(() => {}); // provider hangs, emits nothing
+    class SilentProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `silent_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        if (!this.sessions.has(input.bridgeSessionId)) throw new Error('codex_session_not_found');
+        await neverResolves; // hangs without ever emitting an event
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+    }
+    const channel = new MockChannelAdapter();
+    const typings: boolean[] = [];
+    channel.onTyping(({ active }) => typings.push(active));
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new SilentProvider()],
+      sessions,
+      resolveUser: () => authorizedUser,
+      typingKeepaliveMs: 10, // a timer keepalive at this interval would have fired ~8 times below
+    });
+
+    // Fire-and-forget: this generation hangs forever. Typing is event-driven now,
+    // so there's no watchdog — that's intentional; a new message would preempt it,
+    // and meanwhile typing simply lapses via WeChat's TTL instead of sticking on.
+    void router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hang forever' },
+      timestamp: 1,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    // No events arrived, so only the single initial start fired. The old
+    // setInterval keepalive would have produced a growing series of starts here.
+    expect(typings.filter(Boolean).length).toBe(1);
   });
 
   it('flushes the final buffered text when a provider stream ends without message_done', async () => {

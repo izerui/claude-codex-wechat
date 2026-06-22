@@ -46,7 +46,12 @@ export class MessageRouter {
       events?: BridgeEventHub;
       defaults?: { defaultProvider: ProviderId; defaultWorkspace: string };
       outboundGate?: OutboundDeliveryGate;
-      /** Interval for re-asserting the typing indicator during a generation (ms). */
+      /**
+       * Minimum interval between typing re-assertions (ms). Typing is event-driven
+       * — refreshed as provider events arrive, throttled to this interval — so a
+       * silent or wedged provider simply stops refreshing and WeChat's ~60s TTL
+       * clears the indicator on its own. Default 5s.
+       */
       typingKeepaliveMs?: number;
     },
   ) {
@@ -297,19 +302,23 @@ export class MessageRouter {
     const isLive = () => this.activeGenerations.get(message.chatId)?.genId === genId
       && (this.latestMutatingSeq.get(message.chatId) ?? 0) <= seq;
     let bufferedText = '';
+    // Typing is event-driven: refreshed as provider events arrive (throttled to
+    // typingKeepaliveMs), never on a timer. A silent or wedged provider stops
+    // emitting → we stop refreshing → WeChat's ~60s TTL clears the indicator on
+    // its own. No setInterval to leak, no watchdog needed. Trade-off: a >60s gap
+    // between events (e.g. one long-running tool) lets typing lapse until the
+    // next event re-lights it.
+    const typingMinIntervalMs = this.options.typingKeepaliveMs ?? 5_000;
+    let lastTypingAt = Date.now();
     await this.options.channel.setTyping?.(message.chatId, true);
-    // Create the keepalive and the iterator INSIDE the try so a synchronous throw
-    // from provider.sendMessage can never orphan the keepalive interval; the finally
-    // always clears it. WeChat's indicator expires on its own, so without this
-    // re-assert it vanishes mid-turn on any generation longer than its TTL.
-    let typingKeepalive: ReturnType<typeof setInterval> | null = null;
+    const refreshTyping = () => {
+      const now = Date.now();
+      if (now - lastTypingAt < typingMinIntervalMs) return;
+      lastTypingAt = now;
+      void this.options.channel.setTyping?.(message.chatId, true);
+    };
     let iterator: AsyncIterator<ProviderEvent> | null = null;
     try {
-      typingKeepalive = this.options.channel.setTyping
-        ? setInterval(() => {
-            void this.options.channel.setTyping?.(message.chatId, true);
-          }, this.options.typingKeepaliveMs ?? 5_000)
-        : null;
       // 手动驱动迭代器并与 abort 信号竞速：被抢占时即便 provider 卡死、迭代器永不
       // 返回下一个事件，也能立即跳出循环、释放 sessionOpChain，后续聊天不再永久排队。
       iterator = provider.sendMessage({ bridgeSessionId: session.id, text })[Symbol.asyncIterator]();
@@ -317,6 +326,7 @@ export class MessageRouter {
         const step = await Promise.race([iterator.next(), aborted]);
         if (step === 'aborted' || step.done) break;
         if (!isLive()) break;
+        refreshTyping(); // an event arrived → provider is alive, keep typing lit (throttled)
         const event = step.value;
         if (event.type === 'text_delta' && event.text) {
           bufferedText += event.text;
@@ -362,7 +372,6 @@ export class MessageRouter {
       // 这里不能动，避免抹掉它的 entry 或清掉它的 typing。
       const stillMine = this.activeGenerations.get(message.chatId)?.genId === genId;
       if (stillMine) this.activeGenerations.delete(message.chatId);
-      if (typingKeepalive) clearInterval(typingKeepalive);
       // Flush any message held back on the final quota slot. The turn is over, so
       // it had no follow-up and goes out without a continuation hint. Best-effort:
       // a failed flush must not skip the typing reset below.
