@@ -147,7 +147,7 @@ Body: { "ilink_user_id": "<id>", "typing_ticket": "<ticket>", "status": 1|2, "ba
 
 - `status`：`1` = 开始输入，`2` = 停止输入。`[本地实现][协议]`
 - `typing_ticket` 按用户缓存约 **10 分钟**。`[本地文档]`
-- agent 处理期间应自动维持 typing（keepalive）。`[本地文档]`
+- `status=1` 下发后约 **60 秒自动消失**；若需持续显示，需在 60 秒内重发。`status=2` 立即清除，通常可按单次开始/结束 best-effort 使用。`[本地文档][协议]`
 
 ### 4.4 媒体上传 `getuploadurl` `[协议]`
 
@@ -298,7 +298,8 @@ iLink bot **不能脱离用户最近的上下文主动推送**——这是平台
 
 ### 7.7 typing ticket `[本地文档]`
 
-- `typing_ticket` 按用户缓存约 10 分钟；处理期间维持 typing keepalive。
+- `typing_ticket` 按用户缓存约 10 分钟。
+- typing 指示在 `status=1` 后约 60 秒自动消失；`status=2` 立即清除。
 
 ---
 

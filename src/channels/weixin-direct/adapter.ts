@@ -48,7 +48,6 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     stateStore?: WeixinStateStore;
     mediaDownloader?: WeixinMediaDownloader;
     mediaDir?: string;
-    typingStopBackoffMs?: number[];
   }) {
     const { api } = options;
     this.typing = api.getConfig && api.sendTyping
@@ -56,8 +55,6 @@ export class WeixinDirectAdapter implements ChannelAdapter {
           getConfig: (input) => api.getConfig!(input),
           sendTyping: (input) => api.sendTyping!(input),
           getContextToken: (chatId) => this.contextTokens.get(chatId),
-          persistTypingActive: (chatId, active) => this.options.stateStore?.setTypingActive(chatId, active),
-          ...(options.typingStopBackoffMs ? { stopBackoffMs: options.typingStopBackoffMs } : {}),
         })
       : null;
   }
@@ -85,9 +82,6 @@ export class WeixinDirectAdapter implements ChannelAdapter {
         this.contextTokens.set(userId, token);
       }
       if (persisted.cursor) this.buffer = persisted.cursor;
-      // Context tokens are restored above, so the reconciler can fetch tickets and
-      // clear any "正在输入" left stuck by a crash mid-generation.
-      this.typing?.reconcilePersisted(this.options.stateStore.getActiveTypingChats());
     }
     this.stopped = false;
     const loop = this.runLoop();
@@ -134,9 +128,8 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   }
 
   async setTyping(chatId: string, active: boolean): Promise<void> {
-    // The TypingController owns serialization, ticket caching, durable-stop retries
-    // and crash-leftover recovery — see typingController.ts. iLink typing never
-    // auto-expires, so the stop must be guaranteed to eventually land.
+    // Best-effort only: iLink typing auto-expires after roughly 60 seconds, so
+    // callers send one start and one stop without keepalive or durable retries.
     await this.typing?.set(chatId, active);
   }
 
@@ -199,9 +192,6 @@ export class WeixinDirectAdapter implements ChannelAdapter {
         if (message.contextToken) {
           this.contextTokens.set(message.chatId, message.contextToken);
           this.options.stateStore?.setContextToken(message.chatId, message.contextToken);
-          // A fresh token revives a stop that was stuck failing on an expired
-          // context (-3) — retry it now instead of waiting out the backoff.
-          this.typing?.flush(message.chatId);
         }
         // Dispatch without awaiting the full turn so the long-poll loop stays
         // responsive while a generation streams. Media download happens inside the

@@ -10,18 +10,13 @@ function makeDeps(overrides: Partial<{
   getConfig: GetConfig;
   sendTyping: SendTyping;
   getContextToken: (chatId: string) => string | undefined;
-  persistTypingActive: TypingControllerDeps['persistTypingActive'];
-  stopBackoffMs: number[];
 }> = {}): TypingControllerDeps {
   const getConfig: GetConfig = overrides.getConfig ?? vi.fn(async () => ({ typingTicket: 'ticket_1' }));
   const sendTyping: SendTyping = overrides.sendTyping ?? vi.fn(async () => {});
-  const persistTypingActive = overrides.persistTypingActive ?? vi.fn();
   return {
     getConfig,
     sendTyping,
     getContextToken: overrides.getContextToken ?? (() => 'ctx_1'),
-    persistTypingActive,
-    stopBackoffMs: overrides.stopBackoffMs ?? [5, 5],
   };
 }
 
@@ -59,10 +54,9 @@ describe('TypingController', () => {
     ctrl.dispose();
   });
 
-  it('keeps retrying the stop with a refreshed ticket until it lands', async () => {
+  it('swallows a failed stop without retrying', async () => {
     const getConfig = vi.fn()
-      .mockResolvedValueOnce({ typingTicket: 'ticket_stale' })
-      .mockResolvedValue({ typingTicket: 'ticket_fresh' });
+      .mockResolvedValueOnce({ typingTicket: 'ticket_stale' });
     const sendTyping = vi.fn(async ({ status, typingTicket }: SendTypingInput) => {
       if (status === 2 && typingTicket === 'ticket_stale') throw new Error('invalid_typing_ticket');
     });
@@ -71,108 +65,19 @@ describe('TypingController', () => {
     await ctrl.set('user_a', true);
     await ctrl.set('user_a', false);
 
-    await vi.waitFor(() => {
-      expect(sendTyping).toHaveBeenCalledWith({ ilinkUserId: 'user_a', typingTicket: 'ticket_fresh', status: 2 });
-    });
-    ctrl.dispose();
-  });
-
-  it('does not silently abandon the stop when the ticket comes back empty', async () => {
-    const getConfig = vi.fn()
-      .mockResolvedValueOnce({ typingTicket: '' })       // first stop → empty ticket
-      .mockResolvedValue({ typingTicket: 'ticket_2' });   // retry → valid
-    const sendTyping = vi.fn().mockResolvedValue(undefined);
-    const ctrl = new TypingController(makeDeps({ getConfig, sendTyping }));
-
-    // A leftover stop with no cached ticket: the empty ticket must be retried, not dropped.
-    await ctrl.set('user_a', false);
-
-    await vi.waitFor(() => {
-      expect(sendTyping).toHaveBeenCalledWith({ ilinkUserId: 'user_a', typingTicket: 'ticket_2', status: 2 });
-    });
-    ctrl.dispose();
-  });
-
-  it('flush() retries a pending stop immediately', async () => {
-    let failStop = true;
-    const sendTyping = vi.fn(async ({ status }: SendTypingInput) => {
-      if (status === 2 && failStop) throw new Error('boom');
-    });
-    // Long backoff so only flush() can make the retry land in time.
-    const ctrl = new TypingController(makeDeps({ sendTyping, stopBackoffMs: [60_000] }));
-
-    await ctrl.set('user_a', true);
-    await ctrl.set('user_a', false);
-    await vi.waitFor(() => expect(sendTyping).toHaveBeenCalledWith(expect.objectContaining({ status: 2 })));
-    const stopCallsBefore = sendTyping.mock.calls.filter(([c]) => c.status === 2).length;
-
-    failStop = false;
-    ctrl.flush('user_a');
-
-    await vi.waitFor(() => {
-      const after = sendTyping.mock.calls.filter(([c]) => c.status === 2).length;
-      expect(after).toBeGreaterThan(stopCallsBefore);
-    });
-    ctrl.dispose();
-  });
-
-  it('a new start cancels a pending stop retry', async () => {
-    const sendTyping = vi.fn(async ({ status }: SendTypingInput) => {
-      if (status === 2) throw new Error('boom'); // stop always fails
-    });
-    const ctrl = new TypingController(makeDeps({ sendTyping, stopBackoffMs: [10] }));
-
-    await ctrl.set('user_a', true);
-    await ctrl.set('user_a', false); // schedules a failing retry loop
-    await ctrl.set('user_a', true);  // must cancel the pending stop retries
-
-    const stopCalls = () => sendTyping.mock.calls.filter(([c]) => c.status === 2).length;
-    const baseline = stopCalls();
-    await new Promise((r) => setTimeout(r, 40));
-    expect(stopCalls()).toBe(baseline); // no further stop attempts fired
-    ctrl.dispose();
-  });
-
-  it('reconcilePersisted sends a stop for each leftover chat', async () => {
-    const sendTyping = vi.fn().mockResolvedValue(undefined);
-    const ctrl = new TypingController(makeDeps({ sendTyping }));
-
-    ctrl.reconcilePersisted(['user_a', 'user_b']);
-
-    await vi.waitFor(() => {
-      expect(sendTyping).toHaveBeenCalledWith(expect.objectContaining({ ilinkUserId: 'user_a', status: 2 }));
-      expect(sendTyping).toHaveBeenCalledWith(expect.objectContaining({ ilinkUserId: 'user_b', status: 2 }));
-    });
-    ctrl.dispose();
-  });
-
-  it('persists active on start and inactive only once the stop is confirmed', async () => {
-    const persistTypingActive = vi.fn();
-    const ctrl = new TypingController(makeDeps({ persistTypingActive }));
-
-    await ctrl.set('user_a', true);
-    await ctrl.set('user_a', true); // keepalive tick — must not re-persist
-    expect(persistTypingActive.mock.calls).toEqual([['user_a', true]]);
-
-    await ctrl.set('user_a', false);
-    await vi.waitFor(() => {
-      expect(persistTypingActive).toHaveBeenCalledWith('user_a', false);
-    });
+    expect(getConfig).toHaveBeenCalledTimes(1);
+    expect(sendTyping).toHaveBeenCalledTimes(2);
     ctrl.dispose();
   });
 
   it('dispose() stops any further typing writes', async () => {
-    const sendTyping = vi.fn(async ({ status }: SendTypingInput) => {
-      if (status === 2) throw new Error('boom');
-    });
-    const ctrl = new TypingController(makeDeps({ sendTyping, stopBackoffMs: [10] }));
+    const sendTyping = vi.fn().mockResolvedValue(undefined);
+    const ctrl = new TypingController(makeDeps({ sendTyping }));
 
+    ctrl.dispose();
     await ctrl.set('user_a', true);
     await ctrl.set('user_a', false);
-    ctrl.dispose();
 
-    const calls = sendTyping.mock.calls.length;
-    await new Promise((r) => setTimeout(r, 40));
-    expect(sendTyping.mock.calls.length).toBe(calls); // nothing fired after dispose
+    expect(sendTyping).not.toHaveBeenCalled();
   });
 });

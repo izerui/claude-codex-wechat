@@ -15,7 +15,6 @@ import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nati
 import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 
 export class MessageRouter {
-  private static readonly TYPING_KEEPALIVE_MS = 5_000;
   private static readonly SESSION_LIST_LIMIT = 8;
   private readonly providers = new Map<ProviderId, NativeProviderAdapter>();
   private readonly sessionListCache = new Map<string, { providerId: ProviderId; ids: string[] }>();
@@ -296,17 +295,8 @@ export class MessageRouter {
       && (this.latestMutatingSeq.get(message.chatId) ?? 0) <= seq;
     let bufferedText = '';
     await this.options.channel.setTyping?.(message.chatId, true);
-    // Create the keepalive and the iterator INSIDE the try so that a synchronous
-    // throw from provider.sendMessage can never orphan the keepalive interval (which
-    // would leave WeChat stuck showing "正在输入" forever); the finally always cleans up.
-    let typingKeepalive: ReturnType<typeof setInterval> | null = null;
     let iterator: AsyncIterator<ProviderEvent> | null = null;
     try {
-      typingKeepalive = this.options.channel.setTyping
-        ? setInterval(() => {
-            void this.options.channel.setTyping?.(message.chatId, true);
-          }, MessageRouter.TYPING_KEEPALIVE_MS)
-        : null;
       // 手动驱动迭代器并与 abort 信号竞速：被抢占时即便 provider 卡死、迭代器永不
       // 返回下一个事件，也能立即跳出循环、释放 sessionOpChain，后续聊天不再永久排队。
       iterator = provider.sendMessage({ bridgeSessionId: session.id, text })[Symbol.asyncIterator]();
@@ -359,7 +349,6 @@ export class MessageRouter {
       // 这里不能动，避免抹掉它的 entry 或清掉它的 typing。
       const stillMine = this.activeGenerations.get(message.chatId)?.genId === genId;
       if (stillMine) this.activeGenerations.delete(message.chatId);
-      if (typingKeepalive) clearInterval(typingKeepalive);
       if (stillMine) await this.options.channel.setTyping?.(message.chatId, false);
     }
   }

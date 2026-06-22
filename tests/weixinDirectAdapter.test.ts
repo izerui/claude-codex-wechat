@@ -359,110 +359,25 @@ describe('WeixinDirectAdapter', () => {
     await adapter.stop();
   });
 
-  it('retries typing stop with a refreshed ticket when the first stop fails', async () => {
+  it('swallows a failed typing stop without retrying', async () => {
     const api = {
       getUpdates: vi.fn().mockResolvedValue({ nextBuffer: 'buf_1', messages: [] }),
       sendTextMessage: vi.fn().mockResolvedValue(undefined),
-      getConfig: vi.fn()
-        .mockResolvedValueOnce({ typingTicket: 'ticket_stale' })
-        .mockResolvedValue({ typingTicket: 'ticket_fresh' }),
+      getConfig: vi.fn().mockResolvedValue({ typingTicket: 'ticket_stale' }),
       sendTyping: vi.fn().mockImplementation(async ({ status, typingTicket }: { status: 1 | 2; typingTicket: string }) => {
-        // A stale ticket (e.g. expired after ~10min) makes the stop fail. WeChat
-        // typing is sticky, so a swallowed stop leaves it stuck on "正在输入".
         if (status === 2 && typingTicket === 'ticket_stale') throw new Error('invalid_typing_ticket');
       }),
     };
 
-    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, typingStopBackoffMs: [5, 5] });
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1 });
     adapter.onMessage(async () => {});
     await adapter.start({ background: true });
 
     await adapter.setTyping('user_a', true);
     await adapter.setTyping('user_a', false);
 
-    await vi.waitFor(() => {
-      // The stop must actually land: after the stale-ticket failure the adapter
-      // refreshes the ticket and re-sends status 2.
-      expect(api.sendTyping).toHaveBeenCalledWith({
-        ilinkUserId: 'user_a',
-        typingTicket: 'ticket_fresh',
-        status: 2,
-      });
-    });
-
-    await adapter.stop();
-  });
-
-  it('clears a crash-leftover typing indicator on start', async () => {
-    const stateStore = {
-      load: vi.fn().mockReturnValue({ contextTokens: { user_a: 'ctx_123' }, cursor: '' }),
-      setContextToken: vi.fn(),
-      setCursor: vi.fn(),
-      canSend: vi.fn().mockReturnValue(true),
-      recordSent: vi.fn(),
-      getQuota: vi.fn(),
-      enqueueOutbound: vi.fn(),
-      peekOutbound: vi.fn().mockReturnValue([]),
-      shiftOutbound: vi.fn(),
-      hasPendingOutbound: vi.fn().mockReturnValue(false),
-      clearOutbound: vi.fn(),
-      setTypingActive: vi.fn(),
-      getActiveTypingChats: vi.fn().mockReturnValue(['user_a']),
-      clear: vi.fn(),
-    };
-    const api = {
-      getUpdates: vi.fn().mockResolvedValue({ nextBuffer: 'buf_1', messages: [] }),
-      sendTextMessage: vi.fn().mockResolvedValue(undefined),
-      getConfig: vi.fn().mockResolvedValue({ typingTicket: 'ticket_123' }),
-      sendTyping: vi.fn().mockResolvedValue(undefined),
-    };
-
-    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, stateStore });
-    adapter.onMessage(async () => {});
-    await adapter.start({ background: true });
-
-    await vi.waitFor(() => {
-      // A stop (status 2) is fired for the leftover chat, using its restored token.
-      expect(api.getConfig).toHaveBeenCalledWith({ ilinkUserId: 'user_a', contextToken: 'ctx_123' });
-      expect(api.sendTyping).toHaveBeenCalledWith({ ilinkUserId: 'user_a', typingTicket: 'ticket_123', status: 2 });
-    });
-
-    await adapter.stop();
-  });
-
-  it('flushes a stuck typing stop when a new inbound message refreshes the token', async () => {
-    let allowStop = false;
-    const api = {
-      getUpdates: vi.fn()
-        // First poll: nothing. The stop is fired before any inbound arrives.
-        .mockResolvedValueOnce({ nextBuffer: 'buf_1', messages: [] })
-        // Second poll: a new message refreshes the context token.
-        .mockResolvedValueOnce({
-          nextBuffer: 'buf_2',
-          messages: [{ id: 'm1', chatId: 'user_a', userId: 'user_a', text: 'hi', contextToken: 'ctx_new' }],
-        })
-        .mockResolvedValue({ nextBuffer: 'buf_2', messages: [] }),
-      sendTextMessage: vi.fn().mockResolvedValue(undefined),
-      getConfig: vi.fn().mockResolvedValue({ typingTicket: 'ticket_1' }),
-      sendTyping: vi.fn().mockImplementation(async ({ status }: { status: 1 | 2 }) => {
-        // The stop keeps failing (e.g. -3 expired context) until the token refreshes.
-        if (status === 2 && !allowStop) throw new Error('weixin_send_typing_failed:-3:unknown_error');
-      }),
-    };
-
-    // Huge backoff so only the token-refresh flush (not a timer) can land the stop.
-    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, typingStopBackoffMs: [600_000] });
-    adapter.onMessage(async () => { allowStop = true; });
-    await adapter.start({ background: true });
-
-    await adapter.setTyping('user_a', true);
-    await adapter.setTyping('user_a', false); // fails, schedules a far-future retry
-
-    await vi.waitFor(() => {
-      // The inbound message's token refresh flushed the pending stop and it landed.
-      const stopCalls = api.sendTyping.mock.calls.filter((call) => (call[0] as { status: 1 | 2 }).status === 2);
-      expect(stopCalls.length).toBeGreaterThanOrEqual(2);
-    });
+    expect(api.getConfig).toHaveBeenCalledTimes(1);
+    expect(api.sendTyping).toHaveBeenCalledTimes(2);
 
     await adapter.stop();
   });
