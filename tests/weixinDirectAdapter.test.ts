@@ -489,8 +489,6 @@ describe('WeixinDirectAdapter', () => {
       shiftOutbound: vi.fn(),
       hasPendingOutbound: vi.fn().mockReturnValue(false),
       clearOutbound: vi.fn(),
-      setTypingActive: vi.fn(),
-      getActiveTypingChats: vi.fn().mockReturnValue([]),
     };
     const api = {
       getUpdates: vi.fn().mockResolvedValue({ nextBuffer: 'buf_loaded', messages: [] }),
@@ -524,8 +522,6 @@ describe('WeixinDirectAdapter', () => {
       shiftOutbound: vi.fn(),
       hasPendingOutbound: vi.fn().mockReturnValue(false),
       clearOutbound: vi.fn(),
-      setTypingActive: vi.fn(),
-      getActiveTypingChats: vi.fn().mockReturnValue([]),
     };
     const api = {
       getUpdates: vi.fn()
@@ -559,8 +555,6 @@ describe('WeixinDirectAdapter', () => {
       shiftOutbound: vi.fn(),
       hasPendingOutbound: vi.fn().mockReturnValue(false),
       clearOutbound: vi.fn(),
-      setTypingActive: vi.fn(),
-      getActiveTypingChats: vi.fn().mockReturnValue([]),
     };
     const api = {
       getUpdates: vi.fn().mockResolvedValue({ nextBuffer: '', messages: [] }),
@@ -593,8 +587,6 @@ describe('WeixinDirectAdapter', () => {
       shiftOutbound: vi.fn(),
       hasPendingOutbound: vi.fn().mockReturnValue(false),
       clearOutbound: vi.fn(),
-      setTypingActive: vi.fn(),
-      getActiveTypingChats: vi.fn().mockReturnValue([]),
     };
     const api = {
       getUpdates: vi.fn().mockResolvedValue({ nextBuffer: '', messages: [] }),

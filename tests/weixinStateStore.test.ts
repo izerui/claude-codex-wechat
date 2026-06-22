@@ -131,50 +131,6 @@ describe('FileWeixinStateStore — proactive quota & 24h window', () => {
   });
 });
 
-describe('FileWeixinStateStore — typing active set', () => {
-  it('records and reports active typing chats across instances', () => {
-    const path = tempConfigPath();
-    const store = new FileWeixinStateStore(path);
-    expect(store.getActiveTypingChats()).toEqual([]);
-
-    store.setTypingActive('user_a', true);
-    store.setTypingActive('user_b', true);
-
-    const reopened = new FileWeixinStateStore(path);
-    expect(reopened.getActiveTypingChats().sort()).toEqual(['user_a', 'user_b']);
-  });
-
-  it('drops a chat once its typing is marked inactive', () => {
-    const path = tempConfigPath();
-    const store = new FileWeixinStateStore(path);
-    store.setTypingActive('user_a', true);
-    store.setTypingActive('user_b', true);
-    store.setTypingActive('user_a', false);
-    expect(new FileWeixinStateStore(path).getActiveTypingChats()).toEqual(['user_b']);
-  });
-
-  it('clear() wipes the active typing set', () => {
-    const path = tempConfigPath();
-    const store = new FileWeixinStateStore(path);
-    store.setTypingActive('user_a', true);
-    store.clear();
-    expect(store.getActiveTypingChats()).toEqual([]);
-  });
-
-  it('preserves context tokens / outbox when mutating typing state', () => {
-    const path = tempConfigPath();
-    const store = new FileWeixinStateStore(path);
-    store.setContextToken('user_a', 'ctx_1');
-    store.enqueueOutbound('user_a', { kind: 'text', text: 'm1' });
-    store.setTypingActive('user_a', true);
-
-    const reopened = new FileWeixinStateStore(path);
-    expect(reopened.load().contextTokens.user_a).toBe('ctx_1');
-    expect(reopened.peekOutbound('user_a')).toEqual([{ kind: 'text', text: 'm1' }]);
-    expect(reopened.getActiveTypingChats()).toEqual(['user_a']);
-  });
-});
-
 describe('FileWeixinStateStore — outbound queue', () => {
   it('enqueues, peeks, shifts and reports pending across instances', () => {
     const path = tempConfigPath();
