@@ -146,7 +146,7 @@ export class MessageRouter {
         try {
           await this.handleCommand(message.chatId, user, command);
         } finally {
-          await this.options.outboundGate?.finalize?.(message.chatId);
+          await Promise.resolve(this.options.outboundGate?.finalize?.(message.chatId)).catch(() => undefined);
           await this.options.channel.setTyping?.(message.chatId, false);
         }
       };
@@ -364,8 +364,9 @@ export class MessageRouter {
       if (stillMine) this.activeGenerations.delete(message.chatId);
       if (typingKeepalive) clearInterval(typingKeepalive);
       // Flush any message held back on the final quota slot. The turn is over, so
-      // it had no follow-up and goes out without a continuation hint.
-      await this.options.outboundGate?.finalize?.(message.chatId);
+      // it had no follow-up and goes out without a continuation hint. Best-effort:
+      // a failed flush must not skip the typing reset below.
+      await Promise.resolve(this.options.outboundGate?.finalize?.(message.chatId)).catch(() => undefined);
       if (stillMine) await this.options.channel.setTyping?.(message.chatId, false);
     }
   }
