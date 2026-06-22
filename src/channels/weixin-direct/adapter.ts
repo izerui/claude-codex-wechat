@@ -55,6 +55,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
           getConfig: (input) => api.getConfig!(input),
           sendTyping: (input) => api.sendTyping!(input),
           getContextToken: (chatId) => this.contextTokens.get(chatId),
+          log: (msg) => console.warn('[weixin][typing]', msg),
         })
       : null;
   }

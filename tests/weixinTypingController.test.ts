@@ -70,35 +70,60 @@ describe('TypingController', () => {
     ctrl.dispose();
   });
 
-  it('refreshes the ticket when the context token changes between turns', async () => {
+  it('reuses the cached ticket across context-token changes within the TTL', async () => {
     let currentToken = 'T1';
     const getConfig = vi.fn(async ({ contextToken }: { contextToken?: string }) => ({
       typingTicket: contextToken === 'T1' ? 'ticketA' : 'ticketB',
     }));
-    const sendTyping = vi.fn(async ({ status, typingTicket }: SendTypingInput) => {
-      // A typing_ticket is bound to the context_token it was fetched with. Once the
-      // user sends a new message the old token expires, so a start sent with the
-      // stale ticket is rejected (-3). This is what left every turn after the first
-      // stuck with no indicator.
-      if (status === 1 && typingTicket === 'ticketA' && currentToken !== 'T1') {
-        throw new Error('weixin_send_typing_failed:-3');
-      }
-    });
+    const sendTyping = vi.fn(async () => {});
     const ctrl = new TypingController(makeDeps({
       getConfig,
       sendTyping,
       getContextToken: () => currentToken,
     }));
 
-    // Turn 1 under token T1.
+    // Turn 1 under token T1: fetches ticketA.
     await ctrl.set('user_a', true);
     await ctrl.set('user_a', false);
-    // Turn 2: a new inbound message refreshed the context token.
+    // Turn 2: a new inbound message refreshed the context token. The ticket is a
+    // long-lived per-user credential, so it stays cached and is NOT refetched.
     currentToken = 'T2';
     await ctrl.set('user_a', true);
 
-    // The second start must use the refreshed ticketB, not the stale cached ticketA.
-    expect(sendTyping).toHaveBeenCalledWith({ ilinkUserId: 'user_a', typingTicket: 'ticketB', status: 1 });
+    expect(getConfig).toHaveBeenCalledTimes(1);
+    expect(sendTyping).toHaveBeenCalledWith({ ilinkUserId: 'user_a', typingTicket: 'ticketA', status: 1 });
+    ctrl.dispose();
+  });
+
+  it('does not refetch config after a send failure', async () => {
+    const getConfig = vi.fn(async () => ({ typingTicket: 'ticket_1' }));
+    const sendTyping = vi.fn(async ({ status }: SendTypingInput) => {
+      if (status === 1) throw new Error('weixin_send_typing_failed:-3');
+    });
+    const ctrl = new TypingController(makeDeps({ getConfig, sendTyping }));
+
+    await ctrl.set('user_a', true); // start fails
+    await ctrl.set('user_a', false); // stop still uses the kept ticket
+
+    // The failed send must not discard the ticket: config is fetched only once.
+    expect(getConfig).toHaveBeenCalledTimes(1);
+    expect(sendTyping).toHaveBeenNthCalledWith(2, { ilinkUserId: 'user_a', typingTicket: 'ticket_1', status: 2 });
+    ctrl.dispose();
+  });
+
+  it('backs off getConfig on fetch failure instead of refetching every send', async () => {
+    const getConfig = vi.fn(async () => { throw new Error('weixin_get_config_failed:-1'); });
+    const sendTyping = vi.fn(async () => {});
+    const ctrl = new TypingController(makeDeps({ getConfig, sendTyping }));
+
+    // Several sends in quick succession; the first miss schedules a backoff
+    // (>= 2s) so subsequent attempts within that window do not refetch.
+    await ctrl.set('user_a', true);
+    await ctrl.set('user_a', false);
+    await ctrl.set('user_a', true);
+
+    expect(getConfig).toHaveBeenCalledTimes(1);
+    expect(sendTyping).not.toHaveBeenCalled();
     ctrl.dispose();
   });
 
