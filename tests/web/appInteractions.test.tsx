@@ -197,6 +197,7 @@ function createFetchStub() {
           id: 'claude-session-1',
           providerId: 'claude-code',
           title: 'claude-session-1.jsonl',
+          cwd: '/tmp/project',
           resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test]',
           providerResumeTitleSynced: true,
           providerResumeRepairable: false,
@@ -338,7 +339,97 @@ describe('App admin interactions', () => {
     fireEvent.click(copyButtons.at(-1)!);
 
     await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith('claude --resume claude-session-1');
+      expect(writeText).toHaveBeenCalledWith("cd '/tmp/project' && claude --resume claude-session-1");
+    });
+  });
+
+  it('builds a Windows-friendly runnable resume command when cwd is a Windows path', async () => {
+    const writeText = vi.fn(async () => undefined);
+    const windowsFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/status')) {
+        return new Response(JSON.stringify({ ok: true, sessions: [], permissions: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/providers/status')) {
+        return new Response(JSON.stringify({ claude: { detected: true }, codex: { detected: true } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/active-user')) {
+        return new Response(JSON.stringify({
+          id: 'user_1',
+          platform: 'weixin',
+          platformUserId: 'wx_user_1',
+          role: 'user',
+          createdAt: 1,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/plugins')) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/state')) {
+        return new Response(JSON.stringify({
+          activeUser: {
+            id: 'user_1',
+            platform: 'weixin',
+            platformUserId: 'wx_user_1',
+            role: 'user',
+            createdAt: 1,
+          },
+          plugin: {
+            id: 'weixin',
+            type: 'weixin',
+            name: 'WeChat channel',
+            enabled: false,
+            connected: false,
+            status: 'disabled',
+            activeUsers: 1,
+            hasToken: false,
+          },
+          settings: { defaultProvider: 'claude-code', defaultWorkspace: 'C:\\\\work\\\\repo' },
+          runtimeConfig: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/providers/claude-code/recoverable-sessions')) {
+        return new Response(JSON.stringify([
+          {
+            id: 'claude-session-win',
+            providerId: 'claude-code',
+            title: 'claude-session-win.jsonl',
+            cwd: 'C:\\work\\repo',
+            providerResumeCommand: 'claude --resume claude-session-win',
+          },
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/current-session')) {
+        return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/sessions')) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/settings')) {
+        return new Response(JSON.stringify({ defaultProvider: 'claude-code', defaultWorkspace: 'C:\\\\work\\\\repo' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      throw new Error(`Unhandled fetch: ${init?.method ?? 'GET'} ${url}`);
+    });
+    vi.stubGlobal('fetch', windowsFetch as typeof fetch);
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText },
+    } as unknown as Navigator);
+    vi.stubGlobal('WebSocket', class {
+      addEventListener() {}
+      close() {}
+      constructor(_url: string) {}
+    } as unknown as typeof WebSocket);
+
+    render(<App />);
+
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 会话' });
+    fireEvent.click(claudeTabButtons.at(-1)!);
+
+    const copyButtons = await screen.findAllByRole('button', { name: '复制恢复命令' });
+    fireEvent.click(copyButtons.at(-1)!);
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('cd /d "C:\\work\\repo" && claude --resume claude-session-win');
     });
   });
 

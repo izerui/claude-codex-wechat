@@ -32,6 +32,23 @@ import {
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
 type SessionTab = 'claude-native' | 'codex-native' | 'help';
 
+function quoteShellArg(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function quoteCmdArg(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function buildRunnableResumeCommand(session: RecoverableProviderSessionView): string | null {
+  if (!session.providerResumeCommand) return null;
+  if (!session.cwd?.trim()) return session.providerResumeCommand;
+  const cwd = session.cwd.trim();
+  const isWindowsPath = /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith('\\\\');
+  if (isWindowsPath) return `cd /d ${quoteCmdArg(cwd)} && ${session.providerResumeCommand}`;
+  return `cd ${quoteShellArg(cwd)} && ${session.providerResumeCommand}`;
+}
+
 export function WeChatPanel(input: {
   providerStatus: ProviderStatusView | null;
   currentSession: CurrentSessionView | null;
@@ -383,15 +400,19 @@ export function WeChatPanel(input: {
                 <ul className="list-unstyled mb-0">
                   {filteredRecoverableSessions.map((session) => (
                     <li key={`${session.providerId}:${session.id}`} className="border rounded p-3 mb-2">
+                      {(() => {
+                        const runnableResumeCommand = buildRunnableResumeCommand(session);
+                        return (
+                          <>
                       <div className="fw-semibold">{session.title ?? session.id}</div>
                       <div className="small text-muted-soft">{session.id}</div>
-                      {session.providerResumeCommand ? (
+                      {runnableResumeCommand ? (
                         <div className="d-flex flex-wrap align-items-center gap-2">
-                          <span>按 ID 恢复：{session.providerResumeCommand}</span>
+                          <span>按 ID 恢复：{runnableResumeCommand}</span>
                           <button
                             className="resume-copy-btn"
                             aria-label="复制恢复命令"
-                            onClick={() => void copyResumeCommand(session.providerResumeCommand!)}
+                            onClick={() => void copyResumeCommand(runnableResumeCommand)}
                             title="复制恢复命令"
                             type="button"
                           >
@@ -409,6 +430,9 @@ export function WeChatPanel(input: {
                       >
                         {attachingSessionId === session.id ? '接入中...' : '接入会话'}
                       </button>
+                          </>
+                        );
+                      })()}
                     </li>
                   ))}
                 </ul>

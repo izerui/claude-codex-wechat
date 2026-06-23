@@ -154,6 +154,29 @@ describe('recoverable provider session ordering', () => {
     ]);
   });
 
+  it('reads Codex cwd from session_meta payload when top-level cwd is absent', async () => {
+    const home = trackTempDir('codex-recoverable-payload-cwd-');
+    const codexHome = join(home, '.codex');
+    const sessionDir = join(codexHome, 'sessions', '2026', '06', '23');
+    mkdirSync(sessionDir, { recursive: true });
+
+    const rolloutPath = join(sessionDir, 'rollout-2026-06-23T10-00-00-codex-payload-cwd.jsonl');
+    writeFileSync(rolloutPath, JSON.stringify({
+      timestamp: '2026-06-23T10:00:00.000Z',
+      type: 'session_meta',
+      payload: { id: 'codex-payload-cwd', cwd: '/tmp/payload-codex-project' },
+    }), 'utf8');
+
+    const sessions = await listRecoverableCodexSessions({ HOME: home, CODEX_HOME: codexHome });
+
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        id: 'codex-payload-cwd',
+        cwd: '/tmp/payload-codex-project',
+      }),
+    ]);
+  });
+
   it('lists Claude sessions in descending updateTime order', async () => {
     const home = trackTempDir('claude-recoverable-order-');
     const projectDir = join(home, '.claude', 'projects', '-tmp-project');

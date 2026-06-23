@@ -158,6 +158,13 @@ async function readCodexSessionMeta(filePath: string): Promise<{ cwd?: string; l
           cwd = record.cwd.trim();
           break;
         }
+        if (record.payload && typeof record.payload === 'object') {
+          const payload = record.payload as Record<string, unknown>;
+          if (typeof payload.cwd === 'string' && payload.cwd.trim()) {
+            cwd = payload.cwd.trim();
+            break;
+          }
+        }
       } catch {
         // Ignore malformed lines.
       }

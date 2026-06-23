@@ -902,6 +902,7 @@ describe('channel admin routes', () => {
           type: 'session_meta',
           payload: {
             id: 'codex-session-1',
+            cwd: '/tmp/codex-project',
           },
         }),
       ].join('\n'), 'utf8');
@@ -925,6 +926,7 @@ describe('channel admin routes', () => {
         expect.objectContaining({
           id: 'codex-session-1',
           providerId: 'codex',
+          cwd: '/tmp/codex-project',
           preferredResumeMode: 'title',
           title: '微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
           resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
