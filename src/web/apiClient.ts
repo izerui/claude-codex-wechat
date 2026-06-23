@@ -91,6 +91,11 @@ export type RecoverableProviderSessionView = {
   providerResumeRepairable?: boolean;
 };
 
+export type RecoverableProviderSessionPage = {
+  items: RecoverableProviderSessionView[];
+  nextCursor: string | null;
+};
+
 export type ProviderStatusView = {
   claude?: unknown;
   codex?: unknown;
@@ -286,8 +291,19 @@ export async function fetchCurrentSession(): Promise<CurrentSessionView | null> 
   return legacy?.[0] ?? null;
 }
 
-export async function fetchRecoverableProviderSessions(providerId: 'claude-code' | 'codex'): Promise<RecoverableProviderSessionView[]> {
-  return await requestJson(`/api/channel/providers/${encodeURIComponent(providerId)}/recoverable-sessions`);
+export async function fetchRecoverableProviderSessions(
+  providerId: 'claude-code' | 'codex',
+  input?: { limit?: number; cursor?: string | null },
+): Promise<RecoverableProviderSessionPage> {
+  const params = new URLSearchParams();
+  if (typeof input?.limit === 'number' && input.limit > 0) params.set('limit', String(input.limit));
+  if (input?.cursor) params.set('cursor', input.cursor);
+  const query = params.size > 0 ? `?${params.toString()}` : '';
+  const payload = await requestJson<RecoverableProviderSessionView[] | RecoverableProviderSessionPage>(
+    `/api/channel/providers/${encodeURIComponent(providerId)}/recoverable-sessions${query}`,
+  );
+  if (Array.isArray(payload)) return { items: payload, nextCursor: null };
+  return payload;
 }
 
 export async function attachProviderSession(input: {

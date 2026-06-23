@@ -680,6 +680,54 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
+  it('paginates recoverable native provider sessions with nextCursor', async () => {
+    class ManyRecoverableProvider extends FakeProviderAdapter {
+      override async listRecoverableSessions() {
+        return [
+          { id: 'claude-code_recoverable_4', providerId: 'claude-code' as const, title: 'session 4' },
+          { id: 'claude-code_recoverable_3', providerId: 'claude-code' as const, title: 'session 3' },
+          { id: 'claude-code_recoverable_2', providerId: 'claude-code' as const, title: 'session 2' },
+          { id: 'claude-code_recoverable_1', providerId: 'claude-code' as const, title: 'session 1' },
+        ];
+      }
+    }
+
+    const provider = new ManyRecoverableProvider('claude-code');
+    const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
+    activeUserStore.setActiveUser({
+      platform: 'weixin',
+      platformUserId: 'wx_user_1',
+      role: 'user',
+    });
+
+    const firstPage = await app.inject({
+      method: 'GET',
+      url: '/api/channel/providers/claude-code/recoverable-sessions?limit=2',
+    });
+    expect(firstPage.statusCode).toBe(200);
+    expect(firstPage.json()).toEqual({
+      items: [
+        expect.objectContaining({ id: 'claude-code_recoverable_4' }),
+        expect.objectContaining({ id: 'claude-code_recoverable_3' }),
+      ],
+      nextCursor: 'claude-code_recoverable_3',
+    });
+
+    const secondPage = await app.inject({
+      method: 'GET',
+      url: '/api/channel/providers/claude-code/recoverable-sessions?limit=2&cursor=claude-code_recoverable_3',
+    });
+    expect(secondPage.statusCode).toBe(200);
+    expect(secondPage.json()).toEqual({
+      items: [
+        expect.objectContaining({ id: 'claude-code_recoverable_2' }),
+      ],
+      nextCursor: null,
+    });
+
+    await app.close();
+  });
+
   it('rejects attaching a recoverable session when no active wechat user is authorized', async () => {
     const provider = new FakeProviderAdapter('claude-code');
     const store = createRuntimeUserStore('bridge-admin-reattach-wechat-user-');

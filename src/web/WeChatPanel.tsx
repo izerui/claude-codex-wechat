@@ -31,6 +31,7 @@ import {
 
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
 type SessionTab = 'claude-native' | 'codex-native' | 'help';
+const RECOVERABLE_SESSIONS_PAGE_SIZE = 20;
 
 function quoteShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -62,6 +63,7 @@ export function WeChatPanel(input: {
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
   const [lastProviderSessions, setLastProviderSessions] = useState<Partial<Record<'claude-code' | 'codex', LastProviderSessionView>>>({});
   const [recoverableSessions, setRecoverableSessions] = useState<RecoverableProviderSessionView[]>([]);
+  const [recoverableNextCursor, setRecoverableNextCursor] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SessionTab>('help');
   const [loginState, setLoginState] = useState<LoginState>('idle');
   const [qrcodeData, setQrcodeData] = useState<string | null>(null);
@@ -69,6 +71,7 @@ export function WeChatPanel(input: {
   const [busy, setBusy] = useState(false);
   const [attachingSessionId, setAttachingSessionId] = useState<string | null>(null);
   const [creatingProvider, setCreatingProvider] = useState<'claude-code' | 'codex' | null>(null);
+  const [loadingMoreRecoverable, setLoadingMoreRecoverable] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const refresh = useCallback(async () => {
@@ -94,11 +97,30 @@ export function WeChatPanel(input: {
 
   const scanRecoverableSessions = useCallback(async (providerId: 'claude-code' | 'codex') => {
     try {
-      setRecoverableSessions(await fetchRecoverableProviderSessions(providerId));
+      const page = await fetchRecoverableProviderSessions(providerId, { limit: RECOVERABLE_SESSIONS_PAGE_SIZE });
+      setRecoverableSessions(page.items);
+      setRecoverableNextCursor(page.nextCursor);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, []);
+
+  const loadMoreRecoverableSessions = useCallback(async (providerId: 'claude-code' | 'codex') => {
+    if (!recoverableNextCursor || loadingMoreRecoverable) return;
+    setLoadingMoreRecoverable(true);
+    try {
+      const page = await fetchRecoverableProviderSessions(providerId, {
+        limit: RECOVERABLE_SESSIONS_PAGE_SIZE,
+        cursor: recoverableNextCursor,
+      });
+      setRecoverableSessions((current) => [...current, ...page.items]);
+      setRecoverableNextCursor(page.nextCursor);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingMoreRecoverable(false);
+    }
+  }, [loadingMoreRecoverable, recoverableNextCursor]);
 
   const copyResumeCommand = useCallback(async (command: string) => {
     try {
@@ -397,8 +419,9 @@ export function WeChatPanel(input: {
           ) : (
             <>
               {filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复会话。</p> : (
-                <ul className="list-unstyled mb-0">
-                  {filteredRecoverableSessions.map((session) => (
+                <>
+                  <ul className="list-unstyled mb-0">
+                    {filteredRecoverableSessions.map((session) => (
                     <li key={`${session.providerId}:${session.id}`} className="border rounded p-3 mb-2">
                       {(() => {
                         const runnableResumeCommand = buildRunnableResumeCommand(session);
@@ -434,8 +457,21 @@ export function WeChatPanel(input: {
                         );
                       })()}
                     </li>
-                  ))}
-                </ul>
+                    ))}
+                  </ul>
+                  {recoverableNextCursor ? (
+                    <div className="recoverable-load-more-wrap">
+                      <button
+                        className="recoverable-load-more-btn"
+                        disabled={loadingMoreRecoverable}
+                        onClick={() => void loadMoreRecoverableSessions(activeTab === 'codex-native' ? 'codex' : 'claude-code')}
+                        type="button"
+                      >
+                        {loadingMoreRecoverable ? '加载中...' : '加载更多'}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
               )}
             </>
           )}

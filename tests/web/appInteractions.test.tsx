@@ -191,34 +191,60 @@ function createFetchStub() {
     if (url.endsWith('/api/channel/plugins/disable') && method === 'POST') {
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/channel/providers/claude-code/recoverable-sessions')) {
-      return new Response(JSON.stringify([
-        {
-          id: 'claude-session-1',
-          providerId: 'claude-code',
-          title: 'claude-session-1.jsonl',
-          cwd: '/tmp/project',
-          resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test]',
-          providerResumeTitleSynced: true,
-          providerResumeRepairable: false,
-          preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
-          providerResumeCommand: 'claude --resume claude-session-1',
-          providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
-        },
-      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (url.includes('/api/channel/providers/claude-code/recoverable-sessions')) {
+      const cursor = new URL(url, 'http://localhost').searchParams.get('cursor');
+      if (cursor === 'claude-session-1') {
+        return new Response(JSON.stringify({
+          items: [
+            {
+              id: 'claude-session-2',
+              providerId: 'claude-code',
+              title: 'claude-session-2.jsonl',
+              cwd: '/tmp/project-2',
+              resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test-2]',
+              providerResumeTitleSynced: true,
+              providerResumeRepairable: false,
+              preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test-2]',
+              providerResumeCommand: 'claude --resume claude-session-2',
+              providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test-2]',
+            },
+          ],
+          nextCursor: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        items: [
+          {
+            id: 'claude-session-1',
+            providerId: 'claude-code',
+            title: 'claude-session-1.jsonl',
+            cwd: '/tmp/project',
+            resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test]',
+            providerResumeTitleSynced: true,
+            providerResumeRepairable: false,
+            preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
+            providerResumeCommand: 'claude --resume claude-session-1',
+            providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
+          },
+        ],
+        nextCursor: 'claude-session-1',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/channel/providers/codex/recoverable-sessions')) {
-      return new Response(JSON.stringify([
-        {
-          id: 'codex-session-1',
-          providerId: 'codex',
-          title: 'codex-session-1',
-          resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
-          preferredResumeCommand: 'codex resume 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
-          providerResumeCommand: 'codex resume codex-session-1',
-          providerResumeByTitleCommand: 'codex resume 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
-        },
-      ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (url.includes('/api/channel/providers/codex/recoverable-sessions')) {
+      return new Response(JSON.stringify({
+        items: [
+          {
+            id: 'codex-session-1',
+            providerId: 'codex',
+            title: 'codex-session-1',
+            resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
+            preferredResumeCommand: 'codex resume 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
+            providerResumeCommand: 'codex resume codex-session-1',
+            providerResumeByTitleCommand: 'codex resume 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
+          },
+        ],
+        nextCursor: null,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/providers/claude-code/recoverable-sessions/claude-session-1/repair-native-resume') && method === 'POST') {
       return new Response(JSON.stringify({ ok: true, repaired: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -388,7 +414,7 @@ describe('App admin interactions', () => {
           runtimeConfig: null,
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-      if (url.endsWith('/api/channel/providers/claude-code/recoverable-sessions')) {
+      if (url.includes('/api/channel/providers/claude-code/recoverable-sessions')) {
         return new Response(JSON.stringify([
           {
             id: 'claude-session-win',
@@ -484,13 +510,13 @@ describe('App admin interactions', () => {
     expect(claudeTab.className).toContain('active');
     expect((await screen.findAllByText('wx_user_1')).length).toBeGreaterThan(0);
     await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions') && call.method === 'GET')).toBe(true);
+      expect(calls.some((call) => call.url.includes('/api/channel/providers/claude-code/recoverable-sessions') && call.method === 'GET')).toBe(true);
     });
     expect((await screen.findAllByText('claude-session-1')).length).toBeGreaterThan(0);
 
     fireEvent.click((await screen.findAllByRole('button', { name: 'Codex 会话' })).at(-1)!);
     await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/providers/codex/recoverable-sessions') && call.method === 'GET')).toBe(true);
+      expect(calls.some((call) => call.url.includes('/api/channel/providers/codex/recoverable-sessions') && call.method === 'GET')).toBe(true);
     });
     expect((await screen.findAllByText('codex-session-1')).length).toBeGreaterThan(0);
   });
@@ -758,7 +784,7 @@ describe('App admin interactions', () => {
     fireEvent.click(claudeTabButtons.at(-1)!);
 
     await waitFor(() => {
-      expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions') && call.method === 'GET')).toBe(true);
+      expect(calls.some((call) => call.url.includes('/api/channel/providers/claude-code/recoverable-sessions') && call.method === 'GET')).toBe(true);
     });
 
     const recoverableTitles = await screen.findAllByText('claude-session-1.jsonl');
@@ -770,6 +796,28 @@ describe('App admin interactions', () => {
     const panelRoot = claudeTabButtons.at(-1)?.closest('section');
     if (!panelRoot) throw new Error('wechat_panel_not_found');
     expect(within(panelRoot).queryByText('批量修复 Claude 恢复')).toBeNull();
+    expect(within(panelRoot).queryByRole('button', { name: '加载更多' })).toBeTruthy();
+  });
+
+  it('loads more recoverable sessions when clicking load more', async () => {
+    const { fetchImpl, calls } = createFetchStub();
+    vi.stubGlobal('fetch', fetchImpl as typeof fetch);
+    vi.stubGlobal('WebSocket', class {
+      addEventListener() {}
+      close() {}
+      constructor(_url: string) {}
+    } as unknown as typeof WebSocket);
+
+    render(<App />);
+
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 会话' });
+    fireEvent.click(claudeTabButtons.at(-1)!);
+
+    expect(await screen.findByText('claude-session-1.jsonl')).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多' }));
+
+    expect(await screen.findByText('claude-session-2.jsonl')).toBeTruthy();
+    expect(calls.some((call) => call.url.includes('/api/channel/providers/claude-code/recoverable-sessions?limit=20&cursor=claude-session-1'))).toBe(true);
   });
 
   it('does not attempt to attach a recoverable session when the active wechat user is unavailable', async () => {
@@ -828,7 +876,7 @@ describe('App admin interactions', () => {
 
     const repairableFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/api/channel/providers/claude-code/recoverable-sessions') && (!init?.method || init.method === 'GET')) {
+      if (url.includes('/api/channel/providers/claude-code/recoverable-sessions') && (!init?.method || init.method === 'GET')) {
         return new Response(JSON.stringify([
           {
             id: 'claude-session-1',
@@ -860,7 +908,7 @@ describe('App admin interactions', () => {
     const { fetchImpl, calls } = createFetchStub();
     const repairableFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/api/channel/providers/claude-code/recoverable-sessions') && (!init?.method || init.method === 'GET')) {
+      if (url.includes('/api/channel/providers/claude-code/recoverable-sessions') && (!init?.method || init.method === 'GET')) {
         return new Response(JSON.stringify([
           {
             id: 'claude-session-1',

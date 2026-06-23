@@ -370,6 +370,45 @@ h1, h2, h3, h4, h5, h6 {
   display: block;
 }
 
+.recoverable-load-more-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.recoverable-load-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 108px;
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 84%, var(--accent) 16%);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.recoverable-load-more-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface) 70%, var(--accent) 30%);
+  border-color: color-mix(in srgb, var(--primary) 38%, transparent);
+  transform: translateY(-1px);
+}
+
+.recoverable-load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.recoverable-load-more-btn:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: 2px;
+}
+
 @media (max-width: 768px) {
   .engine-bays {
     flex-direction: column;

@@ -166,12 +166,12 @@ export function registerChannelAdminRoutes(input: {
 
   input.app.get('/api/channel/active-user', async () => input.users.getActiveUser());
 
-  input.app.get<{ Params: { providerId: string } }>('/api/channel/providers/:providerId/recoverable-sessions', async (request, reply) => {
+  input.app.get<{ Params: { providerId: string }; Querystring: { limit?: string; cursor?: string } }>('/api/channel/providers/:providerId/recoverable-sessions', async (request, reply) => {
     const provider = input.providers?.find((candidate) => candidate.id === request.params.providerId);
     if (!provider?.listRecoverableSessions) {
       return reply.code(404).send({ ok: false, error: 'provider_session_listing_not_supported' });
     }
-    return await Promise.all((await listUnattachedRecoverableSessions({
+    const sessions = await Promise.all((await listUnattachedRecoverableSessions({
       provider,
       providerId: request.params.providerId === 'codex' ? 'codex' : 'claude-code',
       currentSession: input.conversation?.getCurrent(),
@@ -185,6 +185,14 @@ export function registerChannelAdminRoutes(input: {
       providerResumeHistorySynced: await resolveRecoverableProviderResumeHistorySynced(session),
       providerResumeRepairable: session.providerId === 'claude-code' && Boolean(session.id && session.resumeTitle && await findRecoverableClaudeSessionPath(session.id)),
     })));
+    const limit = Number.parseInt(request.query.limit ?? '', 10);
+    if (!Number.isFinite(limit) || limit <= 0) return sessions;
+    const cursor = typeof request.query.cursor === 'string' && request.query.cursor.trim() ? request.query.cursor.trim() : null;
+    const startIndex = cursor ? sessions.findIndex((session) => session.id === cursor) + 1 : 0;
+    const safeStart = startIndex > 0 ? startIndex : 0;
+    const items = sessions.slice(safeStart, safeStart + limit);
+    const nextCursor = safeStart + items.length < sessions.length ? items.at(-1)?.id ?? null : null;
+    return { items, nextCursor };
   });
 
   input.app.post<{ Body: {
