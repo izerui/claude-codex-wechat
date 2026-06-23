@@ -4,7 +4,7 @@ export type BridgeCommand =
   | { kind: 'help' }
   | { kind: 'status' }
   | { kind: 'new_session'; providerId: ProviderId | null; cwd: string | null }
-  | { kind: 'list_sessions'; scope: 'all'; keyword: string | null }
+  | { kind: 'list_sessions'; scope: 'all'; keyword: string | null; page: number }
   | { kind: 'resume_session'; ref: string }
   | { kind: 'cancel_generation' }
   | { kind: 'chat'; text: string };
@@ -32,8 +32,15 @@ export function parseBridgeCommand(input: string): BridgeCommand {
 
   if (command === '/sessions') {
     if (first === 'mine') return { kind: 'chat', text };
-    const keyword = rest.join(' ').trim();
-    return { kind: 'list_sessions', scope: 'all', keyword: keyword || null };
+    let page = 1;
+    let parts = rest;
+    const last = rest.at(-1);
+    if (last && /^p[1-9]\d*$/i.test(last)) {
+      page = Number.parseInt(last.slice(1), 10);
+      parts = rest.slice(0, -1);
+    }
+    const keyword = parts.join(' ').trim();
+    return { kind: 'list_sessions', scope: 'all', keyword: keyword || null, page };
   }
 
   if (command === '/resume') {

@@ -471,17 +471,23 @@ export class MessageRouter {
         );
       }
       candidates.sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
-      const shown = candidates.slice(0, MessageRouter.SESSION_LIST_LIMIT);
+      const totalPages = Math.max(1, Math.ceil(candidates.length / MessageRouter.SESSION_LIST_LIMIT));
+      const page = Math.min(command.page, totalPages);
+      const start = (page - 1) * MessageRouter.SESSION_LIST_LIMIT;
+      const shown = candidates.slice(start, start + MessageRouter.SESSION_LIST_LIMIT);
       if (shown.length === 0) {
         await this.sendToChat({ chatId, kind: 'status', text: '没有可恢复的会话' });
         return;
       }
       this.sessionListCache.set(chatId, { providerId, ids: shown.map((candidate) => candidate.id) });
-      const lines = [`**可恢复会话（${providerId}）**`, ''];
+      const lines = [`**可恢复会话（${providerId}）**`, `第 ${page}/${totalPages} 页`, ''];
       shown.forEach((candidate, index) => {
         lines.push(`${index + 1}. ${this.formatSessionLine(candidate)}`);
       });
-      if (candidates.length > shown.length) {
+      if (page < totalPages) {
+        const nextPageCommand = command.keyword ? `/sessions ${command.keyword} p${page + 1}` : `/sessions p${page + 1}`;
+        lines.push('', `回复 \`${nextPageCommand}\` 查看下一页`);
+      } else if (candidates.length > shown.length) {
         lines.push('', `（还有 ${candidates.length - shown.length} 条，用 \`/sessions <关键词>\` 筛选）`);
       }
       lines.push('', '回复 `/resume <编号>` 恢复');

@@ -39,9 +39,15 @@ describe('parseBridgeCommand', () => {
   });
 
   it('parses session listing commands', () => {
-    expect(parseBridgeCommand('/sessions')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: null });
+    expect(parseBridgeCommand('/sessions')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: null, page: 1 });
     expect(parseBridgeCommand('/sessions mine')).toEqual({ kind: 'chat', text: '/sessions mine' });
-    expect(parseBridgeCommand('/sessions 登录 重构')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: '登录 重构' });
+    expect(parseBridgeCommand('/sessions 登录 重构')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: '登录 重构', page: 1 });
+  });
+
+  it('parses paginated session listing commands with p<number>', () => {
+    expect(parseBridgeCommand('/sessions p2')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: null, page: 2 });
+    expect(parseBridgeCommand('/sessions 题库 p3')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: '题库', page: 3 });
+    expect(parseBridgeCommand('/sessions 题库 2')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: '题库 2', page: 1 });
   });
 
   it('parses resume commands by list number or id', () => {
@@ -68,6 +74,8 @@ describe('parseBridgeCommand', () => {
     expect(help).toContain('中断当前正在生成的回复（会话保留）');
     expect(help).not.toContain('`/cancel`');
     expect(help).not.toContain('`/sessions mine`');
+    expect(help).toContain('`/sessions p2`');
+    expect(help).toContain('`/sessions <关键词> p2`');
     expect(help).not.toContain('`/use claude|codex`');
     expect(help).toContain('`/resume <编号>`');
     expect(help).not.toContain('`/archive [编号]`');

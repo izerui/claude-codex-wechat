@@ -1034,6 +1034,94 @@ describe('MessageRouter', () => {
     expect(conversation.getCurrent()?.cwd).toBe('/Users/liuyuhua/github/question-bank');
   });
 
+  it('lists the requested /sessions page with p<number> and resumes against that page numbering', async () => {
+    class RecoverableProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      readonly attached: string[] = [];
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `claude_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(): AsyncIterable<ProviderEvent> {
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+      async listRecoverableSessions() {
+        return [
+          { id: 'sess_12', providerId: this.id, resumeTitle: '12', cwd: '/12', lastActivityAt: 12000 },
+          { id: 'sess_11', providerId: this.id, resumeTitle: '11', cwd: '/11', lastActivityAt: 11000 },
+          { id: 'sess_10', providerId: this.id, resumeTitle: '10', cwd: '/10', lastActivityAt: 10000 },
+          { id: 'sess_9', providerId: this.id, resumeTitle: '9', cwd: '/9', lastActivityAt: 9000 },
+          { id: 'sess_8', providerId: this.id, resumeTitle: '8', cwd: '/8', lastActivityAt: 8000 },
+          { id: 'sess_7', providerId: this.id, resumeTitle: '7', cwd: '/7', lastActivityAt: 7000 },
+          { id: 'sess_6', providerId: this.id, resumeTitle: '6', cwd: '/6', lastActivityAt: 6000 },
+          { id: 'sess_5', providerId: this.id, resumeTitle: '5', cwd: '/5', lastActivityAt: 5000 },
+          { id: 'sess_4', providerId: this.id, resumeTitle: '4', cwd: '/4', lastActivityAt: 4000 },
+          { id: 'sess_3', providerId: this.id, resumeTitle: '3', cwd: '/3', lastActivityAt: 3000 },
+          { id: 'sess_2', providerId: this.id, resumeTitle: '2', cwd: '/2', lastActivityAt: 2000 },
+          { id: 'sess_1', providerId: this.id, resumeTitle: '1', cwd: '/1', lastActivityAt: 1000 },
+        ];
+      }
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        this.attached.push(input.candidateId);
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: input.candidateId,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+    }
+
+    const conversation = new CurrentConversationStore(
+      createRuntimeUserStore('message-router-sessions-page-').configPath,
+      { defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' },
+    );
+    const channel = new MockChannelAdapter();
+    const provider = new RecoverableProvider();
+    const router = new MessageRouter({
+      channel,
+      providers: [provider],
+      conversation,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-page',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/sessions p2' }, timestamp: 1,
+    });
+
+    const listMessage = sent.at(-1)?.text ?? '';
+    expect(listMessage).toContain('1. 4');
+    expect(listMessage).toContain('4. 1');
+    expect(listMessage).toContain('第 2/2 页');
+
+    await router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-page',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/resume 2' }, timestamp: 2,
+    });
+
+    expect(provider.attached).toEqual(['sess_3']);
+    expect(conversation.getCurrent()?.providerSessionId).toBe('sess_3');
+    expect(conversation.getCurrent()?.cwd).toBe('/3');
+  });
+
   it('asks the user to list /sessions first when resuming a number with no cached list', async () => {
     class RecoverableProvider implements NativeProviderAdapter {
       readonly id = 'codex' as const;
