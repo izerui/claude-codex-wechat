@@ -375,6 +375,64 @@ describe('channel message flow', () => {
     }
   });
 
+  it('normalizes a Claude session that is only written mid-turn so claude -r lists it', async () => {
+    const previousHome = process.env.HOME;
+    process.env.HOME = mkdtempSync(`${tmpdir()}/bridge-wechat-claude-race-`);
+    try {
+      const sessionId = 'claude-mid-turn-1';
+      const projectDir = join(process.env.HOME, '.claude', 'projects', '-tmp-project');
+      mkdirSync(projectDir, { recursive: true });
+
+      // The Claude CLI writes the session .jsonl *during* the turn, after the
+      // bridge has already persisted once on session start. Its records carry the
+      // sdk-cli entrypoint, which claude -r hides until normalized to cli. A short
+      // one-shot turn must still end up normalized.
+      class MidTurnWritingRunner extends FakeClaudeRunner {
+        async *sendMessage(input: { bridgeSessionId: string; text: string }) {
+          writeFileSync(join(projectDir, `${sessionId}.jsonl`), [
+            JSON.stringify({ type: 'user', entrypoint: 'sdk-cli', sessionId, cwd: '/tmp/project', message: { role: 'user', content: input.text } }),
+            JSON.stringify({ type: 'assistant', entrypoint: 'sdk-cli', sessionId, message: { content: [{ type: 'text', text: 'ok' }] } }),
+            JSON.stringify({ type: 'result', entrypoint: 'sdk-cli', session_id: sessionId }),
+          ].join('\n') + '\n');
+          yield { type: 'text_delta', text: 'ok' } as const;
+          yield { type: 'message_done' } as const;
+        }
+      }
+
+      const channel = new MockChannelAdapter();
+      const provider = new ClaudeCodeProvider({ runner: new MidTurnWritingRunner() });
+      const originalStartSession = provider.startSession.bind(provider);
+      vi.spyOn(provider, 'startSession').mockImplementation(async (input) => ({
+        ...(await originalStartSession(input)),
+        providerSessionId: sessionId,
+      }));
+
+      const { app } = createDaemonServer({
+        channel,
+        providers: [provider],
+        bridgeDefaults: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+      });
+
+      await channel.emitIncoming({
+        id: 'm1',
+        platform: PRIMARY_WEIXIN_PLATFORM,
+        chatId: 'chat-race',
+        user: { id: 'wx_user_race', displayName: 'Race User' },
+        content: { type: 'text', text: '分析项目' },
+        timestamp: 1,
+      });
+
+      const content = readFileSync(join(projectDir, `${sessionId}.jsonl`), 'utf8');
+      expect(content).toContain('"entrypoint":"cli"');
+      expect(content).not.toContain('"entrypoint":"sdk-cli"');
+      expect(content).toContain('"type":"permission-mode"');
+
+      await app.close();
+    } finally {
+      process.env.HOME = previousHome;
+    }
+  });
+
   it('starts a fresh provider session on the first authorized message when no binding exists', async () => {
     const { activeUserStore, configPath } = seededUsers();
     const channel = new MockChannelAdapter();

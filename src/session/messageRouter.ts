@@ -366,6 +366,17 @@ export class MessageRouter {
         await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
         bufferedText = '';
       }
+      // The session .jsonl is only fully on disk once the turn ends. Re-persist
+      // now so normalizeClaudeSessionFileForResume can rewrite the just-flushed
+      // sdk-cli entrypoint records to cli; the in-turn persist (on session_state)
+      // fires before those records exist, which left short one-shot sessions
+      // stuck as sdk-cli and hidden from `claude -r`.
+      if (isLive()) {
+        const finalBinding = this.conversation.getCurrent();
+        if (finalBinding?.id === session.id && finalBinding.providerSessionId) {
+          await this.persistBridgeMetadata(finalBinding).catch(() => undefined);
+        }
+      }
     } finally {
       void iterator?.return?.().catch(() => undefined);
       // 只有当 entry 仍是本次生成时才清除并复位 typing；被抢占时新生成会自行管理，
