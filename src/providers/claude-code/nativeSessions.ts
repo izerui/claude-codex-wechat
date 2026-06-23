@@ -87,19 +87,26 @@ export async function ensureClaudeSessionBridgeMetadata(input: {
   env?: NodeJS.ProcessEnv;
 }): Promise<boolean> {
   const env = input.env ?? process.env;
+  // The native resume list is backed by history.jsonl, so its display entry must
+  // be written even when the session .jsonl has not been flushed to disk yet
+  // (the bridge mints the id and persists ahead of the Claude CLI's first write).
+  // The file-dependent steps below are best-effort and get retried on a later
+  // persist once the file lands.
   const sessionPath = await findRecoverableClaudeSessionPath(input.sessionId, env);
-  if (!sessionPath) return false;
-  const normalizedSessionFile = await normalizeClaudeSessionFileForResume(sessionPath);
-  const metadata = await readClaudeSessionMetadata(sessionPath).catch(() => null);
-  let changed = normalizedSessionFile;
-  if (metadata?.sessionName !== input.resumeTitle) {
-    const suffix = [
-      JSON.stringify({ type: 'custom-title', customTitle: input.resumeTitle, sessionId: input.sessionId }),
-      JSON.stringify({ type: 'agent-name', agentName: input.resumeTitle, sessionId: input.sessionId }),
-    ].join('\n');
-    const prefix = (await readFile(sessionPath, 'utf8')).endsWith('\n') ? '' : '\n';
-    await appendFile(sessionPath, `${prefix}${suffix}\n`, 'utf8');
-    changed = true;
+  let changed = false;
+  let metadata: Awaited<ReturnType<typeof readClaudeSessionMetadata>> | null = null;
+  if (sessionPath) {
+    changed = await normalizeClaudeSessionFileForResume(sessionPath);
+    metadata = await readClaudeSessionMetadata(sessionPath).catch(() => null);
+    if (metadata?.sessionName !== input.resumeTitle) {
+      const suffix = [
+        JSON.stringify({ type: 'custom-title', customTitle: input.resumeTitle, sessionId: input.sessionId }),
+        JSON.stringify({ type: 'agent-name', agentName: input.resumeTitle, sessionId: input.sessionId }),
+      ].join('\n');
+      const prefix = (await readFile(sessionPath, 'utf8')).endsWith('\n') ? '' : '\n';
+      await appendFile(sessionPath, `${prefix}${suffix}\n`, 'utf8');
+      changed = true;
+    }
   }
   changed = await upsertClaudeHistoryDisplay({
     sessionId: input.sessionId,

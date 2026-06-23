@@ -132,6 +132,31 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
     expect(history).toContain(`"project":"/tmp/claude-codex-wechat"`);
   });
 
+  it('writes Claude history display even when the session .jsonl has not been flushed yet', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'claude-native-sessions-'));
+    tempDirs.push(home);
+    // Bridge mints the session id and persists metadata as soon as it learns the
+    // id, which can race ahead of the Claude CLI flushing the projects .jsonl. The
+    // native resume list is backed by history.jsonl, so the display entry must be
+    // written regardless of whether the session file exists yet.
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(join(home, '.claude'), { recursive: true }));
+    const sessionId = 'not-flushed-yet-1';
+    const resumeTitle = '微信会话 · 图片';
+
+    const changed = await ensureClaudeSessionBridgeMetadata({
+      sessionId,
+      resumeTitle,
+      cwd: '/tmp/claude-codex-wechat',
+      env: { HOME: home },
+    });
+
+    expect(changed).toBe(true);
+    const history = await readFile(join(home, '.claude', 'history.jsonl'), 'utf8');
+    expect(history).toContain(`"sessionId":"${sessionId}"`);
+    expect(history).toContain(`"display":"${resumeTitle}"`);
+    expect(history).toContain(`"project":"/tmp/claude-codex-wechat"`);
+  });
+
   it('normalizes bridge-created Claude session files so resume UI can treat them like cli sessions', async () => {
     const home = await mkdtemp(join(tmpdir(), 'claude-native-sessions-'));
     tempDirs.push(home);

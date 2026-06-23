@@ -234,7 +234,7 @@ export class MessageRouter {
       platform: 'weixin',
       platformUserId: message.user.id,
       chatId: message.chatId,
-      summary: summarizeResumeTitle(text),
+      summary: resumeTitleFromContent(message.content),
     });
     let session = this.conversation.getCurrent();
     if (!session) {
@@ -548,6 +548,23 @@ function summarizeResumeTitle(text: string): string | undefined {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return undefined;
   return normalized.length > 32 ? `${normalized.slice(0, 32).trimEnd()}…` : normalized;
+}
+
+// Title for the session as shown in Claude's native resume list. Prefer the
+// user's own words; for attachment-only messages fall back to a clean type
+// label (e.g. 微信会话 · 图片) instead of leaking the raw `@/path` placeholder
+// that composeInboundText would otherwise produce.
+export function resumeTitleFromContent(content: ChannelIncomingMessage['content']): string {
+  const fromText = summarizeResumeTitle(content.text ?? '');
+  if (fromText) return fromText;
+  const kinds = new Set((content.attachments ?? []).map((att) => att.kind));
+  const labels: string[] = [];
+  if (kinds.has('image')) labels.push('图片');
+  if (kinds.has('video')) labels.push('视频');
+  if (kinds.has('file')) labels.push('文件');
+  if (labels.length) return `微信会话 · ${labels.join('、')}`;
+  if (content.quoted) return '微信会话 · 引用';
+  return '微信会话';
 }
 
 // Commands that may run while a generation is in flight: /stop must (to
