@@ -928,8 +928,8 @@ describe('channel admin routes', () => {
           preferredResumeMode: 'title',
           title: '微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
           resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
-          providerResumeCommand: 'codex exec resume --json --last codex-session-1',
-          providerResumeByTitleCommand: 'codex exec resume --json --last 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
+          providerResumeCommand: 'codex resume codex-session-1',
+          providerResumeByTitleCommand: 'codex resume 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
         }),
       ]);
 

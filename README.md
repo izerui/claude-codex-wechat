@@ -40,8 +40,8 @@
   - `claude --resume <sessionId>`
   - `claude -r '<完整标题>'`
 - Codex 原生恢复能力：
-  - `codex exec resume --json --last <sessionId>`
-  - `codex exec resume --json --last '<thread_name>'`
+  - `codex resume <sessionId>`
+  - `codex resume '<thread_name>'`
 
 ---
 
@@ -337,13 +337,13 @@ claude -r '<完整标题>'
 按 session id：
 
 ```bash
-codex exec resume --json --last <providerSessionId>
+codex resume <providerSessionId>
 ```
 
 按 bridge thread name：
 
 ```bash
-codex exec resume --json --last '<thread_name>'
+codex resume '<thread_name>'
 ```
 
 ---
@@ -423,7 +423,7 @@ BRIDGE_PORT=8788 WAIT_SECONDS=120 bash ./scripts/check-codex-wechat-flow.sh
 
 如果要验 Codex，则再满足：
 
-5. `codex exec resume --json --last '<thread_name>'` 真能恢复
+5. `codex resume '<thread_name>'` 真能恢复
 
 ---
 

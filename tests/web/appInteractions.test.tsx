@@ -212,9 +212,9 @@ function createFetchStub() {
           providerId: 'codex',
           title: 'codex-session-1',
           resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
-          preferredResumeCommand: 'codex exec resume --json --last 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
-          providerResumeCommand: 'codex exec resume --json --last codex-session-1',
-          providerResumeByTitleCommand: 'codex exec resume --json --last 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
+          preferredResumeCommand: 'codex resume 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
+          providerResumeCommand: 'codex resume codex-session-1',
+          providerResumeByTitleCommand: 'codex resume 微信 · wx_user_1 · [claude-codex-wechat:codex-test]',
         },
       ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }

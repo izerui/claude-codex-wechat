@@ -418,14 +418,14 @@ function toWechatPluginStatus(wechat: WeixinConfig | undefined, activeUserStore:
 function buildProviderResumeCommand(providerId: string, providerSessionId: string | undefined): string | undefined {
   if (!providerSessionId) return undefined;
   if (providerId === 'claude-code') return `claude --resume ${providerSessionId}`;
-  if (providerId === 'codex') return `codex exec resume --json --last ${providerSessionId}`;
+  if (providerId === 'codex') return `codex resume ${providerSessionId}`;
   return undefined;
 }
 
 function buildProviderResumeByTitleCommand(providerId: string, title: string | undefined): string | undefined {
   if (!title) return undefined;
   if (providerId === 'claude-code') return `claude -r ${title}`;
-  if (providerId === 'codex') return `codex exec resume --json --last ${title}`;
+  if (providerId === 'codex') return `codex resume ${title}`;
   return undefined;
 }
 
