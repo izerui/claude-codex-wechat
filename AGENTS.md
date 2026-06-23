@@ -260,9 +260,12 @@ Bridge-created Claude sessions also need to look like native CLI sessions closel
 - do not leave bridge-created Claude session records with `entrypoint: "sdk-cli"` once recovery metadata is being normalized
 - ensure a `permission-mode` record exists for normalized bridge-created Claude sessions
 
+**Normalization timing is part of the invariant, not just normalization itself.** `claude -r` hides sessions whose records carry `entrypoint: "sdk-cli"`; `normalizeClaudeSessionFileForResume` is what rewrites them to `cli` (and prepends `permission-mode`) so the resume picker lists them. The trap: the Claude CLI writes those `sdk-cli` records to the session `.jsonl` *as the turn streams*, but the in-turn persist fires on the `session_state` event, which is emitted at turn start (`system`/`init`) — before any `sdk-cli` record exists on disk. If normalization only ever runs then, `sawSdkCliEntrypoint` is false, nothing is converted, and a short one-shot WeChat turn stays `sdk-cli` forever (hidden from `claude -r`). Long multi-turn sessions only got fixed by luck, because a later turn's persist ran after earlier content had flushed. Therefore: **persist/normalize must also run once after the turn completes (post-flush)**, not only on `session_state`. `runChatGeneration` re-calls `persistBridgeMetadata` after the generation loop for exactly this reason — do not remove it. Relatedly, `ensureClaudeSessionBridgeMetadata` must write the `history.jsonl` display entry even when the `.jsonl` is not on disk yet (early race), instead of bailing out. `tests/channelMessageFlow.test.ts` ("normalizes a Claude session that is only written mid-turn") and `tests/claudeNativeSessions.test.ts` ("writes Claude history display even when the session .jsonl has not been flushed yet") pin this — do not regress them.
+
 If you touch Claude recovery behavior, validate against:
 
 - `tests/claudeNativeSessions.test.ts`
+- `tests/channelMessageFlow.test.ts`
 - `tests/daemonSessionRecovery.test.ts`
 - the relevant Claude recovery cases in `tests/channelAdminRoutes.test.ts`
 
