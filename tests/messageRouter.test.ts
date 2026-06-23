@@ -961,6 +961,79 @@ describe('MessageRouter', () => {
     expect(sent.some((m) => m.text.includes('已恢复会话'))).toBe(true);
   });
 
+  it('resumes against the keyword-filtered list so the number maps to the shown subset', async () => {
+    class RecoverableProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      readonly attached: string[] = [];
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `claude_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(): AsyncIterable<ProviderEvent> {
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+      async listRecoverableSessions() {
+        return [
+          { id: 'sess_alpha', providerId: this.id, resumeTitle: 'alpha task', cwd: '/x', lastActivityAt: 3000 },
+          { id: 'sess_qb', providerId: this.id, resumeTitle: '题库批量提交审核', cwd: '/Users/liuyuhua/github/question-bank', lastActivityAt: 2000 },
+          { id: 'sess_gamma', providerId: this.id, resumeTitle: 'gamma', cwd: '/y', lastActivityAt: 1000 },
+        ];
+      }
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        this.attached.push(input.candidateId);
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: input.candidateId,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+    }
+
+    const conversation = new CurrentConversationStore(
+      createRuntimeUserStore('message-router-resume-keyword-').configPath,
+      { defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' },
+    );
+    const channel = new MockChannelAdapter();
+    const provider = new RecoverableProvider();
+    const router = new MessageRouter({
+      channel,
+      providers: [provider],
+      conversation,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+    });
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-kw',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/sessions 题库' }, timestamp: 1,
+    });
+    await router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-kw',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/resume 1' }, timestamp: 2,
+    });
+
+    // 全量列表 #1 是 sess_alpha；但关键词「题库」筛选后只剩 sess_qb，
+    // /resume 1 必须命中筛选后的 #1（sess_qb），而非全量的 #1。
+    expect(provider.attached).toEqual(['sess_qb']);
+    expect(conversation.getCurrent()?.providerSessionId).toBe('sess_qb');
+    expect(conversation.getCurrent()?.cwd).toBe('/Users/liuyuhua/github/question-bank');
+  });
+
   it('asks the user to list /sessions first when resuming a number with no cached list', async () => {
     class RecoverableProvider implements NativeProviderAdapter {
       readonly id = 'codex' as const;
