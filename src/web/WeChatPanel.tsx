@@ -31,7 +31,7 @@ import {
 
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
 type SessionTab = 'claude-native' | 'codex-native' | 'help';
-const RECOVERABLE_SESSIONS_PAGE_SIZE = 20;
+const RECOVERABLE_SESSIONS_PAGE_SIZE = 10;
 
 function quoteShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;

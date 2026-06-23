@@ -817,7 +817,7 @@ describe('App admin interactions', () => {
     fireEvent.click(await screen.findByRole('button', { name: '加载更多' }));
 
     expect(await screen.findByText('claude-session-2.jsonl')).toBeTruthy();
-    expect(calls.some((call) => call.url.includes('/api/channel/providers/claude-code/recoverable-sessions?limit=20&cursor=claude-session-1'))).toBe(true);
+    expect(calls.some((call) => call.url.includes('/api/channel/providers/claude-code/recoverable-sessions?limit=10&cursor=claude-session-1'))).toBe(true);
   });
 
   it('does not attempt to attach a recoverable session when the active wechat user is unavailable', async () => {
