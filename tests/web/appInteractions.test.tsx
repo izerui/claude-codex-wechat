@@ -201,6 +201,7 @@ function createFetchStub() {
           providerResumeTitleSynced: true,
           providerResumeRepairable: false,
           preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
+          providerResumeCommand: 'claude --resume claude-session-1',
           providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
         },
       ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -315,6 +316,32 @@ afterEach(async () => {
 });
 
 describe('App admin interactions', () => {
+  it('copies the resume-by-id command from a recoverable session card', async () => {
+    const { fetchImpl } = createFetchStub();
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal('fetch', fetchImpl as typeof fetch);
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText },
+    } as unknown as Navigator);
+    vi.stubGlobal('WebSocket', class {
+      addEventListener() {}
+      close() {}
+      constructor(_url: string) {}
+    } as unknown as typeof WebSocket);
+
+    render(<App />);
+
+    const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 会话' });
+    fireEvent.click(claudeTabButtons.at(-1)!);
+
+    const copyButtons = await screen.findAllByRole('button', { name: '复制恢复命令' });
+    fireEvent.click(copyButtons.at(-1)!);
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('claude --resume claude-session-1');
+    });
+  });
+
   it('does not render stop, revoke or archive controls and never calls the stop endpoint', async () => {
     const { fetchImpl, calls } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);

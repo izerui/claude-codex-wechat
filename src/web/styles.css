@@ -339,6 +339,37 @@ h1, h2, h3, h4, h5, h6 {
   cursor: default;
 }
 
+.resume-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 58%, var(--muted) 42%);
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0.88;
+  transition: color 150ms ease, opacity 150ms ease;
+}
+
+.resume-copy-btn:hover {
+  color: var(--primary);
+  opacity: 1;
+}
+
+.resume-copy-btn:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.resume-copy-btn svg {
+  display: block;
+}
+
 @media (max-width: 768px) {
   .engine-bays {
     flex-direction: column;

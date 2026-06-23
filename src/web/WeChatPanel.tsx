@@ -83,6 +83,15 @@ export function WeChatPanel(input: {
     }
   }, []);
 
+  const copyResumeCommand = useCallback(async (command: string) => {
+    try {
+      await navigator.clipboard.writeText(command);
+      input.onNotice?.('已复制恢复命令');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [input]);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -376,7 +385,20 @@ export function WeChatPanel(input: {
                     <li key={`${session.providerId}:${session.id}`} className="border rounded p-3 mb-2">
                       <div className="fw-semibold">{session.title ?? session.id}</div>
                       <div className="small text-muted-soft">{session.id}</div>
-                      {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
+                      {session.providerResumeCommand ? (
+                        <div className="d-flex flex-wrap align-items-center gap-2">
+                          <span>按 ID 恢复：{session.providerResumeCommand}</span>
+                          <button
+                            className="resume-copy-btn"
+                            aria-label="复制恢复命令"
+                            onClick={() => void copyResumeCommand(session.providerResumeCommand!)}
+                            title="复制恢复命令"
+                            type="button"
+                          >
+                            <i className="bi bi-copy" aria-hidden="true" />
+                          </button>
+                        </div>
+                      ) : null}
                       {session.cwd ? <div className="small text-muted-soft">{session.cwd}</div> : null}
                       {session.lastActivityAt ? <div className="small text-muted-soft">最后活跃 {formatTimestamp(session.lastActivityAt)}</div> : null}
                       <button
