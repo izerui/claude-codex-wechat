@@ -376,9 +376,7 @@ export function WeChatPanel(input: {
                     <li key={`${session.providerId}:${session.id}`} className="border rounded p-3 mb-2">
                       <div className="fw-semibold">{session.title ?? session.id}</div>
                       <div className="small text-muted-soft">{session.id}</div>
-                      {session.preferredResumeCommand ? <div>推荐恢复：{session.preferredResumeCommand}</div> : null}
                       {session.providerResumeCommand ? <div>按 ID 恢复：{session.providerResumeCommand}</div> : null}
-                      {session.providerResumeByTitleCommand ? <div>按标题恢复：{session.providerResumeByTitleCommand}</div> : null}
                       {session.cwd ? <div className="small text-muted-soft">{session.cwd}</div> : null}
                       {session.lastActivityAt ? <div className="small text-muted-soft">最后活跃 {formatTimestamp(session.lastActivityAt)}</div> : null}
                       <button
