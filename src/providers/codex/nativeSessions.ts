@@ -1,4 +1,6 @@
+import Database from 'better-sqlite3';
 import { readdir, readFile, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { ProviderSessionCandidate } from '../types';
@@ -22,6 +24,7 @@ function extractCodexSessionId(name: string): string | null {
 export async function listRecoverableCodexSessions(env: NodeJS.ProcessEnv = process.env): Promise<ProviderSessionCandidate[]> {
   const root = resolveCodexSessionsRoot(env);
   const index = await readCodexSessionIndex(env);
+  const threadMeta = readCodexThreadMetadata(env);
   const candidates: ProviderSessionCandidate[] = [];
 
   async function walk(currentDir: string, depth: number): Promise<void> {
@@ -39,14 +42,17 @@ export async function listRecoverableCodexSessions(env: NodeJS.ProcessEnv = proc
       const sessionId = extractCodexSessionId(name);
       if (!sessionId) continue;
       const indexed = index.get(sessionId);
+      const threaded = threadMeta.get(sessionId);
       const sessionMeta = await readCodexSessionMeta(path);
+      const resolvedTitle = indexed?.threadName ?? threaded?.title ?? name;
+      const resolvedLastActivityAt = indexed?.updatedAtMs ?? threaded?.updatedAtMs ?? sessionMeta.lastActivityAt;
       candidates.push({
         id: sessionId,
         providerId: 'codex',
         ...(sessionMeta.cwd ? { cwd: sessionMeta.cwd } : {}),
-        ...(sessionMeta.lastActivityAt ? { lastActivityAt: sessionMeta.lastActivityAt } : {}),
-        title: indexed?.threadName ?? name,
-        ...(indexed?.threadName ? { resumeTitle: indexed.threadName } : {}),
+        ...(resolvedLastActivityAt ? { lastActivityAt: resolvedLastActivityAt } : {}),
+        title: resolvedTitle,
+        ...((indexed?.threadName ?? threaded?.title) ? { resumeTitle: indexed?.threadName ?? threaded?.title } : {}),
       });
     }
   }
@@ -84,9 +90,9 @@ export async function findRecoverableCodexSessionPath(
   return await walk(root, 0);
 }
 
-async function readCodexSessionIndex(env: NodeJS.ProcessEnv): Promise<Map<string, { threadName?: string }>> {
+async function readCodexSessionIndex(env: NodeJS.ProcessEnv): Promise<Map<string, { threadName?: string; updatedAtMs?: number }>> {
   const indexPath = join(env.CODEX_HOME || join(env.HOME || homedir(), '.codex'), 'session_index.jsonl');
-  const index = new Map<string, { threadName?: string }>();
+  const index = new Map<string, { threadName?: string; updatedAtMs?: number }>();
   try {
     const content = await readFile(indexPath, 'utf8');
     for (const line of content.split(/\r?\n/)) {
@@ -94,8 +100,12 @@ async function readCodexSessionIndex(env: NodeJS.ProcessEnv): Promise<Map<string
       try {
         const record = JSON.parse(line) as Record<string, unknown>;
         if (typeof record.id !== 'string' || !record.id.trim()) continue;
+        const updatedAtMs = typeof record.updated_at === 'string'
+          ? Date.parse(record.updated_at)
+          : undefined;
         index.set(record.id.trim(), {
           threadName: typeof record.thread_name === 'string' && record.thread_name.trim() ? record.thread_name.trim() : undefined,
+          updatedAtMs: Number.isFinite(updatedAtMs) ? Math.trunc(updatedAtMs as number) : undefined,
         });
       } catch {
         // Ignore malformed index lines and continue.
@@ -105,6 +115,35 @@ async function readCodexSessionIndex(env: NodeJS.ProcessEnv): Promise<Map<string
     return index;
   }
   return index;
+}
+
+function readCodexThreadMetadata(env: NodeJS.ProcessEnv): Map<string, { title?: string; updatedAtMs?: number }> {
+  const dbPath = join(env.CODEX_HOME || join(env.HOME || homedir(), '.codex'), 'state_5.sqlite');
+  const metadata = new Map<string, { title?: string; updatedAtMs?: number }>();
+  if (!existsSync(dbPath)) return metadata;
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    const columns = db.prepare('PRAGMA table_info(threads)').all() as Array<{ name?: string }>;
+    if (!columns.some((column) => column.name === 'id')) return metadata;
+    const rows = db.prepare('SELECT id, title, updated_at_ms FROM threads').all() as Array<Record<string, unknown>>;
+    for (const row of rows) {
+      if (typeof row.id !== 'string' || !row.id.trim()) continue;
+      metadata.set(row.id.trim(), {
+        title: typeof row.title === 'string' && row.title.trim() ? row.title.trim() : undefined,
+        updatedAtMs: typeof row.updated_at_ms === 'number'
+          ? Math.trunc(row.updated_at_ms)
+          : typeof row.updated_at_ms === 'bigint'
+            ? Number(row.updated_at_ms)
+            : undefined,
+      });
+    }
+  } catch {
+    return metadata;
+  } finally {
+    db?.close();
+  }
+  return metadata;
 }
 
 async function readCodexSessionMeta(filePath: string): Promise<{ cwd?: string; lastActivityAt?: number }> {
