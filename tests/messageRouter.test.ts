@@ -885,6 +885,143 @@ describe('MessageRouter', () => {
     releaseResume();
   });
 
+  it('resumes the session shown at a list number and switches to its working directory', async () => {
+    class RecoverableProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      readonly attached: string[] = [];
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `claude_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        if (!this.sessions.has(input.bridgeSessionId)) throw new Error('claude_session_not_found');
+        yield { type: 'text_delta', text: `收到：${input.text}` };
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+      async listRecoverableSessions() {
+        return [
+          { id: 'sess_qb', providerId: this.id, resumeTitle: '题库批量提交审核', cwd: '/Users/liuyuhua/github/question-bank', lastActivityAt: 2000 },
+          { id: 'sess_menu', providerId: this.id, resumeTitle: '菜单迁移', cwd: '/Users/liuyuhua/github/other', lastActivityAt: 1000 },
+        ];
+      }
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        this.attached.push(input.candidateId);
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: input.candidateId,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+    }
+
+    const conversation = new CurrentConversationStore(
+      createRuntimeUserStore('message-router-resume-number-').configPath,
+      { defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' },
+    );
+    const channel = new MockChannelAdapter();
+    const provider = new RecoverableProvider();
+    const router = new MessageRouter({
+      channel,
+      providers: [provider],
+      conversation,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-r',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/sessions' }, timestamp: 1,
+    });
+    await router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-r',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/resume 1' }, timestamp: 2,
+    });
+
+    // 列表 #1 是最近活跃的 sess_qb：必须被恢复，且 current 切到它的工作目录。
+    expect(provider.attached).toEqual(['sess_qb']);
+    expect(conversation.getCurrent()?.providerSessionId).toBe('sess_qb');
+    expect(conversation.getCurrent()?.cwd).toBe('/Users/liuyuhua/github/question-bank');
+    expect(sent.some((m) => m.text.includes('已恢复会话'))).toBe(true);
+  });
+
+  it('asks the user to list /sessions first when resuming a number with no cached list', async () => {
+    class RecoverableProvider implements NativeProviderAdapter {
+      readonly id = 'codex' as const;
+      readonly attached: string[] = [];
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `codex_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(): AsyncIterable<ProviderEvent> {
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+      async listRecoverableSessions() {
+        return [{ id: 'sess_qb', providerId: this.id, resumeTitle: '题库', cwd: '/tmp/qb', lastActivityAt: 2000 }];
+      }
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        this.attached.push(input.candidateId);
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: input.candidateId,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+    }
+
+    const channel = new MockChannelAdapter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
+    const provider = new RecoverableProvider();
+    const router = new MessageRouter({
+      channel,
+      providers: [provider],
+      sessions,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'codex', defaultWorkspace: '/tmp/project' },
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-nolist',
+      user: { id: 'wx_user_1' }, content: { type: 'text', text: '/resume 1' }, timestamp: 1,
+    });
+
+    expect(provider.attached).toEqual([]);
+    expect(sent.some((m) => m.text.includes('/sessions'))).toBe(true);
+  });
+
   it('does not let an in-flight auto-attach overwrite a session chosen by a concurrent command', async () => {
     // Codex P1：auto-attach 在做 provider I/O 期间若有 /new 到达，attach 完成后
     // 不得用恢复出的会话覆盖 /new 选定的会话（shouldCommit 守卫）。
@@ -946,8 +1083,7 @@ describe('MessageRouter', () => {
   });
 
 
-  it('persists bridge binding metadata when a new WeChat Claude session is created', async () => {
-    const store = createRuntimeUserStore('message-router-last-provider-');
+  it('persists bridge binding metadata when a new WeChat Claude session is created', async () => {    const store = createRuntimeUserStore('message-router-last-provider-');
     const bindingRepository = new LastProviderSessionStore(store.configPath);
     const conversation = new CurrentConversationStore(store.configPath, {
       defaultCwd: '/tmp/project',

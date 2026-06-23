@@ -484,7 +484,7 @@ export class MessageRouter {
       if (candidates.length > shown.length) {
         lines.push('', `（还有 ${candidates.length - shown.length} 条，用 \`/sessions <关键词>\` 筛选）`);
       }
-      lines.push('', '回复 `/resume <id>` 恢复');
+      lines.push('', '回复 `/resume <编号>` 恢复');
       await this.sendToChat({ chatId, kind: 'markdown', text: lines.join('\n') });
       return;
     }
@@ -492,18 +492,35 @@ export class MessageRouter {
     if (command.kind === 'resume_session') {
       const ref = command.ref.trim();
       if (!ref) {
-        await this.sendToChat({ chatId, kind: 'status', text: '用法：/resume <id>' });
+        await this.sendToChat({ chatId, kind: 'status', text: '用法：/resume <编号>' });
         return;
       }
       await this.preemptActiveGeneration(chatId);
-      const providerId = this.conversation.getCurrent()?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
+      let providerId = this.conversation.getCurrent()?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
+      // 纯数字按最近一次 /sessions 列表的编号解析：用缓存翻译成真实会话 id，
+      // 并沿用列表当时的 provider（列表与恢复之间 current 可能已变）。
+      let resolvedId = ref;
+      if (/^\d+$/.test(ref)) {
+        const cached = this.sessionListCache.get(chatId);
+        if (!cached) {
+          await this.sendToChat({ chatId, kind: 'status', text: '请先用 /sessions 列出会话，再用 /resume <编号> 恢复' });
+          return;
+        }
+        const target = cached.ids[Number(ref) - 1];
+        if (!target) {
+          await this.sendToChat({ chatId, kind: 'status', text: `编号 ${ref} 超出范围，请用 /sessions 重新列出` });
+          return;
+        }
+        resolvedId = target;
+        providerId = cached.providerId;
+      }
       const previousCwd = this.conversation.getCurrent()?.cwd;
       const provider = this.providers.get(providerId);
       if (!provider?.attachSession || !provider.listRecoverableSessions) {
         await this.sendToChat({ chatId, kind: 'status', text: `当前 provider（${providerId}）不支持会话恢复` });
         return;
       }
-      const candidate = (await provider.listRecoverableSessions()).find((item) => item.id === ref);
+      const candidate = (await provider.listRecoverableSessions()).find((item) => item.id === resolvedId);
       if (!candidate) {
         await this.sendToChat({ chatId, kind: 'status', text: `找不到会话 ${ref}` });
         return;
@@ -515,7 +532,7 @@ export class MessageRouter {
         provider,
         user,
         providerId,
-        providerSessionId: ref,
+        providerSessionId: resolvedId,
         chatId,
         cwd: candidate.cwd ?? this.options.defaults?.defaultWorkspace ?? defaultWorkspaceDir(),
         recoverySource: 'manual_attach',

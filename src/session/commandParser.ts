@@ -37,7 +37,6 @@ export function parseBridgeCommand(input: string): BridgeCommand {
   }
 
   if (command === '/resume') {
-    if (first && /^\d+$/.test(first)) return { kind: 'chat', text };
     return { kind: 'resume_session', ref: first ?? '' };
   }
 

@@ -44,8 +44,8 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/sessions 登录 重构')).toEqual({ kind: 'list_sessions', scope: 'all', keyword: '登录 重构' });
   });
 
-  it('parses resume commands by id only', () => {
-    expect(parseBridgeCommand('/resume 3')).toEqual({ kind: 'chat', text: '/resume 3' });
+  it('parses resume commands by list number or id', () => {
+    expect(parseBridgeCommand('/resume 3')).toEqual({ kind: 'resume_session', ref: '3' });
     expect(parseBridgeCommand('/resume bs_abc')).toEqual({ kind: 'resume_session', ref: 'bs_abc' });
     expect(parseBridgeCommand('/resume')).toEqual({ kind: 'resume_session', ref: '' });
   });
@@ -69,7 +69,7 @@ describe('parseBridgeCommand', () => {
     expect(help).not.toContain('`/cancel`');
     expect(help).not.toContain('`/sessions mine`');
     expect(help).not.toContain('`/use claude|codex`');
-    expect(help).not.toContain('`/resume <编号>`');
+    expect(help).toContain('`/resume <编号>`');
     expect(help).not.toContain('`/archive [编号]`');
     expect(help).not.toContain('`/approve <id>`');
     expect(help).not.toContain('`/always <id>`');
