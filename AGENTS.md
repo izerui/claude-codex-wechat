@@ -301,6 +301,9 @@ These product decisions are intentional and should not be “fixed” back to th
 - Provider permission prompts should be decided by the WeChat user in the WeChat conversation itself. Prefer clear text instructions and replyable commands in WeChat over restoring a web-admin approval workflow.
 - It is acceptable for the web admin UI to omit permission-decision controls and pairing-approval controls when the WeChat flow is the intended control surface.
 - The current development setup may intentionally accept the Vite `allowedHosts` risk for local use. Do not “fix” that by default unless the user explicitly asks for the tighter host-validation posture.
+- Keep the Claude and Codex native-session lists in the admin UI functionally aligned unless the user explicitly asks for a provider-specific divergence. In practice this means the same core fields and actions should appear for both providers when the underlying data exists: session title/id, cwd when known, last-activity time, a direct attach action, and a copyable resume command.
+- The recoverable-session copy action should continue to copy a command that is directly runnable in a terminal, not just a bare resume subcommand. If `cwd` is known, prefer a composed command that enters the session directory and then resumes in one step. Preserve cross-platform behavior: POSIX paths should produce `cd '<cwd>' && ...`; Windows paths should produce `cd /d "<cwd>" && ...`.
+- Do not casually remove, rename, or split existing recoverable-session controls independently for Claude vs Codex. If a UI simplification is required, verify that it does not regress current resume, copy, cwd visibility, or attach flows for either provider, and update the affected tests in the same change.
 
 ## Where to look first for common changes
 
