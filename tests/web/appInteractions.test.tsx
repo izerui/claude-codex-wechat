@@ -643,8 +643,8 @@ describe('App admin interactions', () => {
       expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions') && call.method === 'GET')).toBe(true);
     });
 
-    const syncedStates = await screen.findAllByText('原生恢复状态：已同步');
-    const recoverableItem = syncedStates.at(-1)?.closest('li');
+    const recoverableCommands = await screen.findAllByText('推荐恢复：claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]');
+    const recoverableItem = recoverableCommands.at(-1)?.closest('li');
     if (!recoverableItem) throw new Error('recoverable_item_not_found');
     expect(within(recoverableItem).queryByRole('button', { name: '修复原生恢复' })).toBeNull();
     const panelRoot = claudeTabButtons.at(-1)?.closest('section');
@@ -729,7 +729,7 @@ describe('App admin interactions', () => {
     const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 会话' });
     fireEvent.click(claudeTabButtons.at(-1)!);
 
-    expect((await screen.findAllByText('原生恢复状态：待修复')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('推荐恢复：claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '修复原生恢复' })).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions/claude-session-1/repair-native-resume'))).toBe(false);
   });
@@ -765,7 +765,7 @@ describe('App admin interactions', () => {
 
     const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 会话' });
     fireEvent.click(claudeTabButtons.at(-1)!);
-    expect((await screen.findAllByText('原生恢复状态：待修复')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('推荐恢复：claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]')).toBeTruthy();
 
     expect(screen.queryByText('批量修复 Claude 恢复')).toBeNull();
     expect(calls.some((call) => call.url.endsWith('/api/channel/providers/claude-code/recoverable-sessions/repair-native-resume'))).toBe(false);
