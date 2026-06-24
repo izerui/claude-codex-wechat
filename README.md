@@ -299,15 +299,21 @@ HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 npm publish -
 ```bash
 cd /Users/liuyuhua/github/claude-codex-wechat
 chmod +x release.sh
-./release.sh --access public --registry=https://registry.npmjs.org/
+./release.sh
 ```
 
-如果必须走代理：
+脚本默认会使用本地代理：
+
+```text
+http://127.0.0.1:7890
+```
+
+如果你要覆盖默认代理：
 
 ```bash
 cd /Users/liuyuhua/github/claude-codex-wechat
 chmod +x release.sh
-HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 ./release.sh --access public --registry=https://registry.npmjs.org/
+HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 ./release.sh
 ```
 
 这个脚本会：
@@ -316,7 +322,7 @@ HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 ./release.sh 
 - 再执行 `pnpm test`
 - 再执行 `pnpm build`
 - 提交当前改动
-- 执行 `npm publish`
+- 以默认参数执行 `npm publish --access public --registry=https://registry.npmjs.org/`
 - 提交自动 bump 后的 `package.json`
 - 推送到当前分支
 

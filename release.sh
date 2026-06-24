@@ -14,6 +14,13 @@ fi
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+DEFAULT_REGISTRY="https://registry.npmjs.org/"
+DEFAULT_PROXY="http://127.0.0.1:7890"
+DEFAULT_PUBLISH_ARGS=(
+  "--access"
+  "public"
+  "--registry=${DEFAULT_REGISTRY}"
+)
 
 PRE_PUBLISH_COMMIT_MESSAGE="${1:-release: prepare v${PACKAGE_VERSION}}"
 POST_PUBLISH_COMMIT_MESSAGE=""
@@ -27,9 +34,16 @@ if [[ $# -gt 0 ]]; then
   shift
 fi
 
-PUBLISH_ARGS=("$@")
+PUBLISH_ARGS=("${DEFAULT_PUBLISH_ARGS[@]}" "$@")
+
+export HTTPS_PROXY="${HTTPS_PROXY:-${https_proxy:-${HTTP_PROXY:-${http_proxy:-${DEFAULT_PROXY}}}}}"
+export HTTP_PROXY="${HTTP_PROXY:-${http_proxy:-${HTTPS_PROXY}}}"
+export https_proxy="${https_proxy:-${HTTPS_PROXY}}"
+export http_proxy="${http_proxy:-${HTTP_PROXY}}"
 
 echo "==> 当前分支: ${CURRENT_BRANCH}"
+echo "==> npm registry: ${DEFAULT_REGISTRY}"
+echo "==> 使用代理: HTTPS_PROXY=${HTTPS_PROXY} HTTP_PROXY=${HTTP_PROXY}"
 echo "==> 执行发布前校验"
 pnpm typecheck
 pnpm test
@@ -44,13 +58,8 @@ else
   git commit -m "${PRE_PUBLISH_COMMIT_MESSAGE}"
 fi
 
-if [[ ${#PUBLISH_ARGS[@]} -gt 0 ]]; then
-  echo "==> 执行 npm publish ${PUBLISH_ARGS[*]}"
-  npm publish "${PUBLISH_ARGS[@]}"
-else
-  echo "==> 执行 npm publish"
-  npm publish
-fi
+echo "==> 执行 npm publish ${PUBLISH_ARGS[*]}"
+npm publish "${PUBLISH_ARGS[@]}"
 
 UPDATED_PACKAGE_VERSION="$(node -p "require('./package.json').version")"
 FINAL_COMMIT_MESSAGE="${POST_PUBLISH_COMMIT_MESSAGE:-release: v${UPDATED_PACKAGE_VERSION}}"
