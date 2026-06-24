@@ -1,39 +1,54 @@
 {
   "name": "claude-codex-wechat",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
+  "bin": {
+    "claude-codex-wechat": "./dist/server/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "config.example.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx src/main.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "build:web": "vite build"
+    "build:web": "vite build",
+    "build:server": "node scripts/build-server.mjs",
+    "build": "vite build && node scripts/build-server.mjs",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@fastify/middie": "^9.3.2",
-    "@microsoft/fetch-event-source": "^2.0.1",
-    "@vitejs/plugin-react": "latest",
+    "@fastify/static": "^9.1.3",
     "better-sqlite3": "latest",
-    "bootstrap": "^5.3.3",
-    "bootstrap-icons": "^1.11.3",
     "fastify": "latest",
-    "nanoid": "latest",
-    "qrcode.react": "^4.2.0",
-    "react": "latest",
-    "react-dom": "latest",
-    "tsx": "latest",
-    "vite": "latest",
-    "zod": "latest"
+    "nanoid": "latest"
   },
   "devDependencies": {
+    "@fastify/middie": "^9.3.2",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/better-sqlite3": "latest",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "bootstrap": "^5.3.3",
+    "bootstrap-icons": "^1.11.3",
+    "esbuild": "^0.28.1",
     "jsdom": "^29.1.1",
+    "qrcode.react": "^4.2.0",
+    "react": "latest",
+    "react-dom": "latest",
+    "tsx": "latest",
     "typescript": "latest",
+    "vite": "latest",
     "vitest": "latest"
   }
 }

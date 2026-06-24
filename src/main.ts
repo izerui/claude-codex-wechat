@@ -1,70 +1,24 @@
-import { createDaemonServer } from './daemon/server';
-import { defaultConfigPath, loadBridgeConfig } from './daemon/config';
-import { persistProviderCommandsToConfigFile } from './daemon/configPersistence';
 import middie from '@fastify/middie';
 import { createServer as createViteServer } from 'vite';
-import { networkInterfaces } from 'node:os';
-import { findExecutable } from './shared/platform';
+import { startDaemon } from './daemon/bootstrap';
 
-const port = Number(process.env.BRIDGE_PORT ?? 8787);
-const configPath = process.env.BRIDGE_CONFIG ?? defaultConfigPath();
-const config = loadBridgeConfig(configPath);
-const providerCommands = await resolveProviderCommands(config.providers);
-await persistProviderCommandsToConfigFile({
-  configPath,
-  providers: providerCommands,
-});
-const { app } = createDaemonServer({
-  wechat: config.wechat,
-  providerCommands,
-  bridgeDefaults: {
-    defaultProvider: config.bridge?.defaultProvider ?? 'claude-code',
-    defaultWorkspace: config.bridge?.defaultWorkspace ?? process.cwd(),
+// 开发入口：用 tsx 直接运行，前端以 Vite middleware 模式内嵌，支持 HMR。
+// 生产入口见 src/cli.ts（用 @fastify/static 服务构建产物，不启动 Vite）。
+await startDaemon({
+  attachFrontend: async (app) => {
+    // /api/* 由 Fastify 路由处理，其余请求（页面、模块、HMR）交给 Vite。
+    // HMR websocket 复用 Fastify 的 HTTP server，避免额外端口、确保局域网访问可热更新。
+    const vite = await createViteServer({
+      server: { middlewareMode: true, hmr: { server: app.server } },
+      appType: 'spa',
+    });
+    await app.register(middie);
+    app.use((req, res, next) => {
+      if (req.url?.startsWith('/api')) return next();
+      vite.middlewares(req, res, next);
+    });
+    app.addHook('onClose', async () => {
+      await vite.close();
+    });
   },
-  configPath,
 });
-
-// 将前端开发服务器以 Vite middleware 模式嵌入同一进程：
-// /api/* 由 Fastify 路由处理，其余请求（页面、模块、HMR）交给 Vite。
-// HMR websocket 复用 Fastify 的 HTTP server，避免额外端口、确保局域网访问可热更新。
-const vite = await createViteServer({
-  server: { middlewareMode: true, hmr: { server: app.server } },
-  appType: 'spa',
-});
-await app.register(middie);
-app.use((req, res, next) => {
-  // /api/* 交给 Fastify 路由；其余请求由 Vite 处理（含 SPA fallback）。
-  if (req.url?.startsWith('/api')) return next();
-  vite.middlewares(req, res, next);
-});
-app.addHook('onClose', async () => {
-  await vite.close();
-});
-
-await app.listen({ host: '0.0.0.0', port });
-console.log('claude-codex-wechat listening:');
-console.log(`  Local:   http://127.0.0.1:${port}`);
-for (const ip of listLanIpv4Addresses()) {
-  console.log(`  Network: http://${ip}:${port}`);
-}
-console.log(`config path: ${configPath}`);
-
-function listLanIpv4Addresses(): string[] {
-  return Object.values(networkInterfaces())
-    .flat()
-    .filter((iface): iface is NonNullable<typeof iface> => Boolean(iface))
-    .filter((iface) => iface.family === 'IPv4' && !iface.internal)
-    .map((iface) => iface.address);
-}
-
-async function resolveProviderCommands(
-  providers: ReturnType<typeof loadBridgeConfig>['providers'] | undefined,
-): Promise<ReturnType<typeof loadBridgeConfig>['providers']> {
-  const claudeCommand = providers?.claude?.command ?? await findExecutable('claude');
-  const codexCommand = providers?.codex?.command ?? await findExecutable('codex');
-  if (!claudeCommand && !codexCommand) return undefined;
-  return {
-    ...(claudeCommand ? { claude: { command: claudeCommand } } : {}),
-    ...(codexCommand ? { codex: { command: codexCommand } } : {}),
-  };
-}

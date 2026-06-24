@@ -94,14 +94,40 @@
 
 ## 安装
 
+### 方式 A：作为 npm 包全局安装（推荐普通用户）
+
 ```bash
-cd /Users/liuyuhua/github/claude-codex-wechat
+npm install -g claude-codex-wechat
+# 或
+pnpm add -g claude-codex-wechat
+```
+
+> 该包依赖原生模块 `better-sqlite3`，安装时会优先下载预编译二进制；少数环境（非主流架构 / 离线）可能需要本地编译工具链（Node ≥ 20、Python、C++ 编译器）。
+
+安装后会得到一个全局命令 `claude-codex-wechat`：
+
+```bash
+claude-codex-wechat init      # 在 ~/.claude-codex-wechat/ 写入默认配置
+claude-codex-wechat doctor    # 检查配置、前端产物、claude/codex 可执行文件
+claude-codex-wechat start     # 前台启动 daemon（默认命令）
+claude-codex-wechat print-config   # 打印当前配置
+claude-codex-wechat help      # 查看全部命令
+```
+
+启动后访问 `http://127.0.0.1:8787`（端口由 `BRIDGE_PORT` 控制）。
+
+前置条件：本机已安装并登录好 `Claude Code` / `Codex CLI`，且准备好微信 bot 的 `token` / `accountId`。
+
+### 方式 B：从源码开发
+
+```bash
+cd /path/to/claude-codex-wechat
 pnpm install
 ```
 
 ---
 
-## 本地启动
+## 本地启动（开发模式）
 
 一条命令同时启动后端与前端管理页（前端以 Vite middleware 模式嵌入同一进程，含热更新）：
 
@@ -111,13 +137,18 @@ pnpm dev
 
 启动后访问 `http://127.0.0.1:8787`（端口由 `BRIDGE_PORT` 控制）。
 
-基础校验：
+基础校验与构建：
 
 ```bash
 pnpm typecheck
 pnpm test
-pnpm build:web
+pnpm build        # = vite build（前端 -> dist/web）+ esbuild（server -> dist/server/cli.js）
 ```
+
+构建产物：
+
+- `dist/web/` —— 前端静态资源（生产态由 `@fastify/static` 服务）
+- `dist/server/cli.js` —— CLI / daemon 入口（对应 `bin` 字段）
 
 ---
 
@@ -168,6 +199,99 @@ cp config.example.json ~/.claude-codex-wechat/config.json
 - `BRIDGE_WECHAT_ACCOUNT_ID`
 - `BRIDGE_CLAUDE_COMMAND`
 - `BRIDGE_CODEX_COMMAND`
+
+---
+
+## 常驻运行（守护进程）
+
+`claude-codex-wechat start` 默认前台运行。npm 本身不负责守护，长期常驻建议交给成熟的进程管理器。下面三种任选其一。
+
+### 方式一：pm2（跨平台，最简单）
+
+```bash
+npm install -g pm2
+pm2 start claude-codex-wechat --name ccwx -- start
+pm2 logs ccwx          # 看日志
+pm2 restart ccwx       # 重启
+pm2 startup && pm2 save # 开机自启
+```
+
+如需自定义端口 / 配置：
+
+```bash
+BRIDGE_PORT=8787 pm2 start claude-codex-wechat --name ccwx -- start
+```
+
+### 方式二：systemd（Linux）
+
+创建 `/etc/systemd/system/claude-codex-wechat.service`（把 `User` 和 `ExecStart` 路径换成你的实际值，`which claude-codex-wechat` 可查路径）：
+
+```ini
+[Unit]
+Description=claude-codex-wechat bridge daemon
+After=network.target
+
+[Service]
+Type=simple
+User=youruser
+Environment=BRIDGE_PORT=8787
+# 如需指定配置文件：Environment=BRIDGE_CONFIG=/home/youruser/.claude-codex-wechat/config.json
+ExecStart=/usr/bin/claude-codex-wechat start
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+启用：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now claude-codex-wechat
+sudo journalctl -u claude-codex-wechat -f   # 看日志
+```
+
+### 方式三：launchd（macOS）
+
+创建 `~/Library/LaunchAgents/com.claude-codex-wechat.plist`（把 `ProgramArguments` 第一项换成 `which claude-codex-wechat` 的实际路径）：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claude-codex-wechat</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/claude-codex-wechat</string>
+    <string>start</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BRIDGE_PORT</key>
+    <string>8787</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/claude-codex-wechat.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/claude-codex-wechat.err.log</string>
+</dict>
+</plist>
+```
+
+加载：
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.claude-codex-wechat.plist
+launchctl list | grep claude-codex-wechat   # 确认在跑
+# 卸载：launchctl unload ~/Library/LaunchAgents/com.claude-codex-wechat.plist
+```
 
 ---
 
@@ -429,5 +553,6 @@ BRIDGE_PORT=8788 WAIT_SECONDS=120 bash ./scripts/check-codex-wechat-flow.sh
 
 ## 更多文档
 
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) —— 架构总览：整体架构、数据流、目录结构
 - [docs/README.md](./docs/README.md)
 - [scripts/README.md](./scripts/README.md)

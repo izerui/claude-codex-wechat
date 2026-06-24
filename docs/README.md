@@ -1,5 +1,7 @@
 # claude-codex-wechat 运行说明
 
+> 想先了解整体架构 / 数据流 / 目录结构？见 [ARCHITECTURE.md](./ARCHITECTURE.md)。本文聚焦运行与排障操作。
+
 ## 1. 项目定位
 
 `claude-codex-wechat` 是一个本地运行的桥接层，用来把：
