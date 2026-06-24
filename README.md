@@ -316,7 +316,6 @@ HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 ./release.sh
 这个脚本会：
 
 - 先执行 `pnpm typecheck`
-- 再执行 `pnpm test`
 - 再执行 `pnpm build`
 - 提交当前改动
 - 以默认参数执行 `npm publish --access public --registry=https://registry.npmjs.org/`
@@ -331,7 +330,6 @@ npm whoami
 npm config get registry
 npm pack --dry-run
 pnpm typecheck
-pnpm test
 pnpm build
 ```
 

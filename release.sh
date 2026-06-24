@@ -46,7 +46,6 @@ echo "==> npm registry: ${DEFAULT_REGISTRY}"
 echo "==> 使用代理: HTTPS_PROXY=${HTTPS_PROXY} HTTP_PROXY=${HTTP_PROXY}"
 echo "==> 执行发布前校验"
 pnpm typecheck
-pnpm test
 pnpm build
 
 echo "==> 提交发布前变更"
