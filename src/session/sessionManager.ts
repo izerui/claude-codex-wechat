@@ -2,15 +2,16 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProviderId } from '../providers/types';
-import { defaultWorkspaceDir } from '../shared/platform';
 import { CurrentConversationStore, type CurrentConversationBinding } from './currentConversationStore';
 
 export type BridgeSessionRecord = CurrentConversationBinding;
 
 export class SessionManager {
   readonly store: CurrentConversationStore;
+  private readonly defaults: { defaultCwd: string; defaultProviderId: ProviderId };
 
   constructor(defaults: { defaultCwd: string; defaultProviderId: ProviderId; configPath?: string }) {
+    this.defaults = defaults;
     this.store = new CurrentConversationStore(
       defaults.configPath ?? join(mkdtempSync(join(tmpdir(), 'claude-codex-wechat-session-manager-')), 'config.json'),
       defaults,
@@ -28,8 +29,8 @@ export class SessionManager {
     return this.createSession({
       chatId: input.chatId,
       ownerUserId: input.ownerUserId,
-      providerId: input.providerId ?? 'claude-code',
-      cwd: input.cwd ?? defaultWorkspaceDir(),
+      providerId: input.providerId ?? this.defaults.defaultProviderId,
+      cwd: input.cwd ?? this.defaults.defaultCwd,
     });
   }
 

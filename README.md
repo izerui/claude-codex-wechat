@@ -1,100 +1,50 @@
 # claude-codex-wechat
 
-`claude-codex-wechat` 是一个本地桥接服务，用来把：
+`claude-codex-wechat` 是一个本地 bridge daemon。它把：
 
-- 微信 bot 通道
-- 本地原生 `Claude Code`
-- 本地原生 `Codex CLI`
+- WeChat direct 通道
+- 本机原生 `Claude Code`
+- 本机原生 `Codex CLI`
 
-接起来，让你可以直接在微信里和本机上的 `Claude Code` / `Codex` 对话，并保留本地原生会话恢复能力。
+接起来，让 WeChat 用户可以直接驱动本机上的原生 CLI 会话，并尽量保留原生 resume 能力。
 
-这个项目的定位是：
+这个仓库的定位不是另起一套 agent runtime，也不是 ACP bridge。它的目标一直是：
 
-- **本地运行**
-- **微信 -> 本地原生 CLI**
-- **Native Provider Bridge**
-- **不是 ACP bridge**
+- WeChat 作为人类控制面
+- 本地原生 CLI 作为真实执行面
+- 两边尽量共享同一条原生会话恢复链路
 
----
+## 当前能力
 
-## 项目做什么
+当前实现覆盖的主能力：
 
-这个仓库当前已经实现的主能力有：
+- WeChat direct 模式接入
+- WeChat 轮询收消息与主动回消息
+- 本地原生 `Claude Code` / `Codex CLI` 会话桥接
+- 会话持久化与当前会话恢复
+- 原生 Claude / Codex recoverable session 列表与 attach
+- 本地管理页
+- npm 全局安装与生产 CLI 入口
+- 本地发布 npm 包
 
-- 微信 direct 模式接入，走官方 `getupdates` / `sendmessage`
-- 微信扫码登录与 bot token 获取
-- 微信消息路由到本地 `Claude Code` / `Codex CLI`
-- 会话持久化到 SQLite
-- 原生 Claude / Codex 会话扫描
-- 原生会话手动接入
-- 原生会话自动接入
-- 桥接会话与原生会话绑定持久化
-- 管理页支持：
-  - pairing 审批
-  - 授权用户管理
-  - provider 切换
-  - 会话停止 / 归档
-  - 权限审批
-  - 原生恢复修复
-- Claude 原生恢复能力：
-  - `claude --resume <sessionId>`
-  - `claude -r '<完整标题>'`
-- Codex 原生恢复能力：
-  - `codex resume <sessionId>`
-  - `codex resume '<thread_name>'`
-
----
-
-## 当前实现目标
-
-这个仓库的核心目标不是“做一个微信聊天 UI”，而是：
-
-1. 把微信消息稳定接进本地 bridge
-2. 把 bridge 会话稳定映射到本地原生 Claude / Codex 会话
-3. 让微信侧会话尽可能和本地原生会话恢复链路对齐
-
-其中 Claude 这条链路尤其强调：
-
-- bridge session 有自己的 `resumeTitle`
-- 原生会话文件里有对应标题
-- `~/.claude/history.jsonl` 里也有对应标题
-
-只有这几层都对齐，`claude -r '<完整标题>'` 才真正可用。
-
----
-
-## 目录说明
+## 项目结构
 
 主要目录：
 
 - `src/`
-  - bridge 主实现
-  - 微信通道
-  - provider 接入
-  - daemon / admin routes / web
+  - daemon、provider、session、channel、web 主实现
 - `tests/`
-  - 单元测试
-  - bridge 运行态测试
-  - 微信 direct 流程测试
-  - 前端交互测试
+  - 单元测试、运行态测试、前端测试
 - `scripts/`
-  - 正式恢复入口
-  - 联调启动脚本
-  - 诊断脚本
+  - 诊断与辅助脚本
 - `docs/`
-  - 详细运行说明
-  - 对齐过程文档
-  - 参考实现文档
+  - 设计说明、对齐文档、参考资料
 
-脚本分层索引见：
-
-- [scripts/README.md](./scripts/README.md)
-
----
+脚本说明见 [scripts/README.md](./scripts/README.md)。
 
 ## 安装
 
-### 方式 A：作为 npm 包全局安装（推荐普通用户）
+### 作为 npm 包安装
 
 ```bash
 npm install -g claude-codex-wechat
@@ -102,55 +52,50 @@ npm install -g claude-codex-wechat
 pnpm add -g claude-codex-wechat
 ```
 
-> 该包依赖原生模块 `better-sqlite3`，安装时会优先下载预编译二进制；少数环境（非主流架构 / 离线）可能需要本地编译工具链（Node ≥ 20、Python、C++ 编译器）。
-
-安装后会得到一个全局命令 `claude-codex-wechat`：
+安装后会得到全局命令：
 
 ```bash
-claude-codex-wechat init      # 在 ~/.claude-codex-wechat/ 写入默认配置
-claude-codex-wechat doctor    # 检查配置、前端产物、claude/codex 可执行文件
-claude-codex-wechat start     # 前台启动 daemon（默认命令）
-claude-codex-wechat print-config   # 打印当前配置
-claude-codex-wechat help      # 查看全部命令
+claude-codex-wechat help
+claude-codex-wechat init
+claude-codex-wechat doctor
+claude-codex-wechat start
+claude-codex-wechat print-config
 ```
 
-启动后访问 `http://127.0.0.1:8787`（端口由 `BRIDGE_PORT` 控制）。
+说明：
 
-前置条件：本机已安装并登录好 `Claude Code` / `Codex CLI`，且准备好微信 bot 的 `token` / `accountId`。
+- 该包依赖 `better-sqlite3`
+- 大多数常见平台会直接下载预编译二进制
+- 少数环境可能需要本地编译工具链
+- Node 版本要求：`>=20`
 
-### 方式 B：从源码开发
+### 从源码安装
 
 ```bash
-cd /path/to/claude-codex-wechat
+cd /Users/liuyuhua/github/claude-codex-wechat
 pnpm install
 ```
 
----
+## CLI 命令
 
-## 本地启动（开发模式）
+生产态 CLI 入口在 `dist/server/cli.js`，通过 `bin` 暴露为 `claude-codex-wechat`。
 
-一条命令同时启动后端与前端管理页（前端以 Vite middleware 模式嵌入同一进程，含热更新）：
+可用命令：
 
-```bash
-pnpm dev
-```
+- `claude-codex-wechat start`
+  - 前台启动 daemon
+- `claude-codex-wechat init`
+  - 写默认配置到 `~/.claude-codex-wechat/config.json`
+- `claude-codex-wechat doctor`
+  - 检查配置、前端产物、`claude`/`codex` 可执行文件
+- `claude-codex-wechat print-config`
+  - 打印当前配置文件
+- `claude-codex-wechat help`
+  - 显示帮助
 
-启动后访问 `http://127.0.0.1:8787`（端口由 `BRIDGE_PORT` 控制）。
+默认监听地址：
 
-基础校验与构建：
-
-```bash
-pnpm typecheck
-pnpm test
-pnpm build        # = vite build（前端 -> dist/web）+ esbuild（server -> dist/server/cli.js）
-```
-
-构建产物：
-
-- `dist/web/` —— 前端静态资源（生产态由 `@fastify/static` 服务）
-- `dist/server/cli.js` —— CLI / daemon 入口（对应 `bin` 字段）
-
----
+- `http://127.0.0.1:8787`
 
 ## 配置
 
@@ -160,18 +105,16 @@ pnpm build        # = vite build（前端 -> dist/web）+ esbuild（server -> di
 ~/.claude-codex-wechat/config.json
 ```
 
-可以从示例复制：
+推荐先初始化：
 
 ```bash
-mkdir -p ~/.claude-codex-wechat
-cp config.example.json ~/.claude-codex-wechat/config.json
+claude-codex-wechat init
 ```
 
 最小配置示例：
 
 ```json
 {
-  "databasePath": "/Users/you/.claude-codex-wechat/bridge.sqlite",
   "wechat": {
     "enabled": true,
     "baseUrl": "https://ilinkai.weixin.qq.com",
@@ -185,11 +128,15 @@ cp config.example.json ~/.claude-codex-wechat/config.json
     "codex": {
       "command": "/opt/homebrew/bin/codex"
     }
+  },
+  "bridge": {
+    "defaultProvider": "claude-code",
+    "defaultWorkspace": "/absolute/path/to/workspace"
   }
 }
 ```
 
-常用环境变量：
+环境变量：
 
 - `BRIDGE_PORT`
 - `BRIDGE_CONFIG`
@@ -200,31 +147,62 @@ cp config.example.json ~/.claude-codex-wechat/config.json
 - `BRIDGE_CLAUDE_COMMAND`
 - `BRIDGE_CODEX_COMMAND`
 
----
+## 本地开发
 
-## 常驻运行（守护进程）
+开发模式启动：
 
-`claude-codex-wechat start` 默认前台运行。npm 本身不负责守护，长期常驻建议交给成熟的进程管理器。下面三种任选其一。
+```bash
+pnpm dev
+```
 
-### 方式一：pm2（跨平台，最简单）
+这会：
+
+- 启动 daemon
+- 在同一进程里挂 Vite middleware
+- 提供本地管理页与前端热更新
+
+开发检查：
+
+```bash
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+构建产物：
+
+- `dist/web/`
+  - 前端静态资源
+- `dist/server/cli.js`
+  - 生产 CLI / daemon 入口
+
+## 生产运行
+
+生产态通常按下面方式运行：
+
+```bash
+claude-codex-wechat start
+```
+
+注意：
+
+- 这是前台进程
+- npm 本身不负责守护
+- 长期常驻建议交给进程管理器
+
+### pm2
 
 ```bash
 npm install -g pm2
 pm2 start claude-codex-wechat --name ccwx -- start
-pm2 logs ccwx          # 看日志
-pm2 restart ccwx       # 重启
-pm2 startup && pm2 save # 开机自启
+pm2 logs ccwx
+pm2 restart ccwx
+pm2 startup && pm2 save
 ```
 
-如需自定义端口 / 配置：
+### systemd
 
-```bash
-BRIDGE_PORT=8787 pm2 start claude-codex-wechat --name ccwx -- start
-```
-
-### 方式二：systemd（Linux）
-
-创建 `/etc/systemd/system/claude-codex-wechat.service`（把 `User` 和 `ExecStart` 路径换成你的实际值，`which claude-codex-wechat` 可查路径）：
+示例：
 
 ```ini
 [Unit]
@@ -235,7 +213,6 @@ After=network.target
 Type=simple
 User=youruser
 Environment=BRIDGE_PORT=8787
-# 如需指定配置文件：Environment=BRIDGE_CONFIG=/home/youruser/.claude-codex-wechat/config.json
 ExecStart=/usr/bin/claude-codex-wechat start
 Restart=on-failure
 RestartSec=5
@@ -244,17 +221,9 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-启用：
+### launchd
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now claude-codex-wechat
-sudo journalctl -u claude-codex-wechat -f   # 看日志
-```
-
-### 方式三：launchd（macOS）
-
-创建 `~/Library/LaunchAgents/com.claude-codex-wechat.plist`（把 `ProgramArguments` 第一项换成 `which claude-codex-wechat` 的实际路径）：
+示例：
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -277,282 +246,145 @@ sudo journalctl -u claude-codex-wechat -f   # 看日志
   <true/>
   <key>KeepAlive</key>
   <true/>
-  <key>StandardOutPath</key>
-  <string>/tmp/claude-codex-wechat.out.log</string>
-  <key>StandardErrorPath</key>
-  <string>/tmp/claude-codex-wechat.err.log</string>
 </dict>
 </plist>
 ```
 
-加载：
+## 发布 npm 包
+
+当前仓库只保留本地发布流，不再使用 GitHub Action 自动发布。
+
+### 发布行为
+
+本地执行 `npm publish` 时，会自动触发：
+
+- `npm version patch --no-git-tag-version`
+- `pnpm typecheck`
+- `pnpm test`
+- `pnpm build`
+
+也就是说：
+
+- 每次成功发布都会自动把版本加一位 `patch`
+- 发布前会跑完整的类型、测试、构建校验
+
+当前逻辑定义在 [package.json](./package.json) 的 `prepublishOnly`。
+
+### 直接发布
+
+如果不需要自动提交版本变更：
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.claude-codex-wechat.plist
-launchctl list | grep claude-codex-wechat   # 确认在跑
-# 卸载：launchctl unload ~/Library/LaunchAgents/com.claude-codex-wechat.plist
+cd /Users/liuyuhua/github/claude-codex-wechat
+npm publish --access public --registry=https://registry.npmjs.org/
 ```
 
----
-
-## 正常使用路径
-
-### 1. 首次使用或微信 token 失效后恢复
-
-最推荐的正式入口：
+如果必须走代理：
 
 ```bash
-bash ./scripts/recover-weixin-runtime.sh
+cd /Users/liuyuhua/github/claude-codex-wechat
+HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 npm publish --access public --registry=https://registry.npmjs.org/
 ```
 
-如果你要直接做 Codex 验收模式：
+### 使用 release.sh
+
+如果希望：
+
+- 发布前先提交当前工作区
+- 发布后把自动 bump 的版本提交回当前分支
+- 自动 `git push`
+
+使用：
 
 ```bash
-BRIDGE_DEFAULT_PROVIDER=codex bash ./scripts/recover-weixin-runtime.sh
+cd /Users/liuyuhua/github/claude-codex-wechat
+chmod +x release.sh
+./release.sh --access public --registry=https://registry.npmjs.org/
 ```
 
-这条命令会自动完成：
-
-1. 拉取新的微信登录二维码
-2. 生成并自动打开二维码 SVG
-3. 等待扫码确认
-4. 写出新的微信凭据文件
-5. 启动最新 bridge runtime
-
-如果设置了：
+如果必须走代理：
 
 ```bash
-BRIDGE_DEFAULT_PROVIDER=codex
+cd /Users/liuyuhua/github/claude-codex-wechat
+chmod +x release.sh
+HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 ./release.sh --access public --registry=https://registry.npmjs.org/
 ```
 
-那么 runtime 启动后会自动把默认 provider 切到 `codex`。
+这个脚本会：
 
-二维码文件默认路径：
+- 先执行 `pnpm typecheck`
+- 再执行 `pnpm test`
+- 再执行 `pnpm build`
+- 提交当前改动
+- 执行 `npm publish`
+- 提交自动 bump 后的 `package.json`
+- 推送到当前分支
 
-```text
-/tmp/bridge-weixin-login-qr.svg
-```
-
-扫码状态文件默认路径：
-
-```text
-/tmp/bridge-weixin-login-state.json
-```
-
-凭据文件默认路径：
-
-```text
-/tmp/bridge-weixin-credentials.json
-/tmp/bridge-weixin.env
-```
-
-注意：
-
-- 这两个 `/tmp` 文件仍然会生成，方便联调和显式 `source`
-- 扫码成功后，helper 现在也会自动把新凭据回写到 `~/.claude-codex-wechat/config.json`
-- 之后直接执行 `pnpm dev`，默认就会继续读取这份正式配置
-
-最少要同步这几个字段：
-
-- `wechat.baseUrl`
-- `wechat.token`
-- `wechat.accountId`
-
-否则你会看到一种典型现象：
-
-- 扫码后当前 runtime 能用
-- 重启 `pnpm dev` 后又读不到刚才的新凭据
-- 看起来像“每次重启都要重新扫码”
-
-### 2. 启动成功后检查 bridge 是否真的连通
+### 发布前建议检查
 
 ```bash
-BRIDGE_PORT=8788 bash ./scripts/check-runtime-readiness.sh
+cd /Users/liuyuhua/github/claude-codex-wechat
+npm whoami
+npm config get registry
+npm pack --dry-run
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
-重点看：
-
-- `weixin_connected`
-- `weixin_status`
-- `weixin_last_error`
-
-如果是正常连通，通常应该看到：
-
-- `weixin_connected=true`
-- `weixin_status=connected`
-
-### 3. 发微信消息开始对话
-
-给当前 bot 账号发一条文本消息。
-
-bridge 收到消息后会：
-
-- 自动授权用户（如果设置中开启）
-- 创建或接入 bridge session
-- 默认用当前设置的 provider 对话
-
----
-
-## 管理页有哪些功能
-
-当前管理页主要分成 4 块：
-
-### 1. Dashboard
-
-- daemon 状态
-- provider 状态
-- 活跃会话数
-- 待处理权限数
-
-### 2. WeChatPanel
-
-- 微信扫码登录
-- pairing 待审批列表
-- 批准 / 拒绝 pairing
-- 已授权用户管理
-- 撤销授权
-- 扫描可恢复原生会话
-- 手动接入原生会话
-- 自动接入原生会话
-- Claude recoverable session 修复
-
-### 3. SessionsPanel
-
-- 查看 bridge 会话
-- 查看推荐恢复命令
-- 查看 provider resume 命令
-- 停止会话
-- 归档会话
-- 查看原生可达路径
-- 查看绑定来源
-- 单个 / 批量修复 Claude 原生恢复元数据
-
-### 4. PermissionsPanel
-
-- 批准 / 拒绝 / 中止高风险权限请求
-
----
-
-## 原生恢复能力
-
-### Claude
-
-当前仓库支持两种恢复方式：
-
-按原生 session id：
+如果包名是否可用要先确认：
 
 ```bash
-claude --resume <providerSessionId>
+npm view claude-codex-wechat
 ```
 
-按 bridge 标题：
+## 常见问题
+
+### `npm publish` 报 `EPERM scandir ~/.Trash`
+
+一般是因为你不在项目目录，而是在家目录执行了 `npm publish`。
+
+先确认：
 
 ```bash
-claude -r '<完整标题>'
+pwd
 ```
 
-要让 `claude -r` 真正可用，通常至少要满足：
-
-- `providerResumeTitleSynced = true`
-- `providerResumeHistorySynced = true`
-
-### Codex
-
-按 session id：
+应该在：
 
 ```bash
-codex resume <providerSessionId>
+/Users/liuyuhua/github/claude-codex-wechat
 ```
 
-按 bridge thread name：
+### `Public registration is not allowed`
+
+通常是下面几类问题：
+
+- `registry` 不是官方 npm
+- 正在往私有 registry 发包
+- scoped package 没带 `--access public`
+- 账号没有该包名或 scope 的发布权限
+
+检查：
 
 ```bash
-codex resume '<thread_name>'
+npm config get registry
+npm whoami
+node -p "require('./package.json').name"
 ```
 
----
+### 本地必须走代理
 
-## 脚本怎么分
-
-### 正式使用入口
-
-- `scripts/recover-weixin-runtime.sh`
-  最推荐的恢复入口
-- `scripts/weixin-login-helper.ts`
-  单独扫码与落盘凭据
-- `scripts/start-runtime-check.sh`
-  启动最新 runtime 并打印关键状态
-
-### 诊断 / 验收工具
-
-- `scripts/check-runtime-readiness.sh`
-  看 bridge 是否真的连通
-- `scripts/check-runtime-recovery.sh`
-  看 bridge session 恢复字段
-- `scripts/check-weixin-updates.ts`
-  直接打微信官方 `getupdates`
-
-如果只想记一个命令：
+临时发布可直接这样：
 
 ```bash
-bash ./scripts/recover-weixin-runtime.sh
+HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 npm publish --access public --registry=https://registry.npmjs.org/
 ```
 
-如果要直接推进 Codex 的真实闭环验收，建议用这一组：
+## 相关文件
 
-```bash
-BRIDGE_DEFAULT_PROVIDER=codex bash ./scripts/recover-weixin-runtime.sh
-BRIDGE_PORT=8788 WAIT_SECONDS=120 bash ./scripts/check-codex-wechat-flow.sh
-```
-
----
-
-## 当前已知边界
-
-这个仓库当前已经把工程内能做的链路基本铺平了，但仍有一个非常现实的边界：
-
-- 微信 bot 新授权出来的 token 可能会很快再次 `session timeout`
-
-也就是说，即使：
-
-- 扫码成功
-- 新 token 落盘成功
-- 最新 runtime 能启动
-
-微信官方 `getupdates` 会话本身仍可能在很短时间后再次失效。
-
-如果出现：
-
-- `weixin_connected=false`
-- `weixin_status=session_timeout`
-- `weixin_last_error=weixin_get_updates_failed:-14:session timeout`
-
-这更像是微信侧登录 / updates 会话稳定性问题，而不一定是这个 bridge 的业务逻辑问题。
-
----
-
-## 怎么判断真正成功
-
-一个最小闭环应至少满足：
-
-1. `check-runtime-readiness.sh` 显示：
-   - `weixin_connected=true`
-   - `weixin_status=connected`
-2. 给 bot 发一条真实微信消息后：
-   - `/api/channel/sessions` 出现新会话
-3. Claude 会话里看到：
-   - `providerResumeTitleSynced=true`
-   - `providerResumeHistorySynced=true`
-4. `claude -r '<完整标题>'` 真能恢复
-
-如果要验 Codex，则再满足：
-
-5. `codex resume '<thread_name>'` 真能恢复
-
----
-
-## 更多文档
-
-- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) —— 架构总览：整体架构、数据流、目录结构
-- [docs/README.md](./docs/README.md)
+- [package.json](./package.json)
+- [release.sh](./release.sh)
 - [scripts/README.md](./scripts/README.md)
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- [docs/wechatbot-usage-guide.md](./docs/wechatbot-usage-guide.md)

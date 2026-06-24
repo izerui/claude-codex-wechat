@@ -236,11 +236,12 @@ describe('daemon WeChat runtime channel', () => {
     await app.ready();
 
     await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalled();
+      const sendCalls = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/ilink/bot/sendmessage'));
+      expect(sendCalls).toHaveLength(1);
     });
 
     const sendCalls = fetchMock.mock.calls.filter((call) => String(call[0]).endsWith('/ilink/bot/sendmessage'));
-    expect(sendCalls).toHaveLength(2);
+    expect(sendCalls).toHaveLength(1);
     expect(String((sendCalls[0]?.[1] as RequestInit | undefined)?.body)).toContain('"context_token":"ctx_456"');
 
     await app.close();

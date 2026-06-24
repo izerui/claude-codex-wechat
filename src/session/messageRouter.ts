@@ -252,8 +252,8 @@ export class MessageRouter {
         ?? this.conversation.create({
           chatId: message.chatId,
           ownerUserId: user.id,
-          providerId: this.options.defaults?.defaultProvider ?? 'claude-code',
-          cwd: this.options.defaults?.defaultWorkspace ?? defaultWorkspaceDir(),
+          ...(this.options.defaults?.defaultProvider ? { providerId: this.options.defaults.defaultProvider } : {}),
+          ...(this.options.defaults?.defaultWorkspace ? { cwd: this.options.defaults.defaultWorkspace } : {}),
           resumeTitle: sessionResumeTitle,
         });
     }

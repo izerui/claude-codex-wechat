@@ -721,6 +721,7 @@ describe('channel admin routes', () => {
     expect(secondPage.json()).toEqual({
       items: [
         expect.objectContaining({ id: 'claude-code_recoverable_2' }),
+        expect.objectContaining({ id: 'claude-code_recoverable_1' }),
       ],
       nextCursor: null,
     });

@@ -521,6 +521,45 @@ describe('App admin interactions', () => {
     expect((await screen.findAllByText('codex-session-1')).length).toBeGreaterThan(0);
   });
 
+  it('leaves recoverable session titles intact when they are within the display limit', async () => {
+    const { fetchImpl } = createFetchStub();
+    const longTitle = 'claude 的会话 列表都对了， 但是codex 会话列表不对啊，无法显示 微信中最新的会话';
+    const customFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/channel/providers/codex/recoverable-sessions')) {
+        return new Response(JSON.stringify({
+          items: [{
+            id: 'codex-session-long',
+            providerId: 'codex',
+            title: longTitle,
+            resumeTitle: longTitle,
+            providerResumeCommand: 'codex resume codex-session-long',
+            providerResumeByTitleCommand: `codex resume ${longTitle}`,
+            preferredResumeCommand: `codex resume ${longTitle}`,
+            cwd: '/tmp/project',
+            lastActivityAt: 2,
+          }],
+          nextCursor: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return await fetchImpl(input, init);
+    });
+    vi.stubGlobal('fetch', customFetch as typeof fetch);
+    vi.stubGlobal('WebSocket', class {
+      addEventListener() {}
+      close() {}
+      constructor(_url: string) {}
+    } as unknown as typeof WebSocket);
+
+    render(<App />);
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Codex 会话' })).at(-1)!);
+
+    const title = await screen.findByTitle(longTitle);
+    expect(title.textContent).toBe(longTitle);
+    expect(await screen.findByText("按 ID 恢复：cd '/tmp/project' && codex resume codex-session-long")).toBeTruthy();
+  });
+
   it('renders a simplified bridge sessions table without duplicate recovery columns', async () => {
     const { fetchImpl } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);

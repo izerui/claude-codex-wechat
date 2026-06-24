@@ -39,9 +39,8 @@ export function createDaemonServer(options: {
     defaultWorkspace: options.bridgeDefaults?.defaultWorkspace ?? process.cwd(),
   };
   const configPath = options.configPath
-    ?? (options.activeUserStore ? join(mkdtempSync(join(tmpdir(), 'claude-codex-wechat-')), 'config.json') : undefined)
     ?? process.env.BRIDGE_CONFIG
-    ?? defaultConfigPath();
+    ?? join(mkdtempSync(join(tmpdir(), 'claude-codex-wechat-')), 'config.json');
   const conversation = new CurrentConversationStore(configPath, {
     defaultCwd: bridgeDefaults.defaultWorkspace,
     defaultProviderId: bridgeDefaults.defaultProvider,

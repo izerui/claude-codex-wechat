@@ -32,6 +32,7 @@ import {
 type LoginState = 'idle' | 'loading_qr' | 'showing_qr' | 'scanned' | 'connected';
 type SessionTab = 'claude-native' | 'codex-native' | 'help';
 const RECOVERABLE_SESSIONS_PAGE_SIZE = 10;
+const RECOVERABLE_SESSION_TITLE_LIMIT = 100;
 
 function quoteShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -48,6 +49,11 @@ function buildRunnableResumeCommand(session: RecoverableProviderSessionView): st
   const isWindowsPath = /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith('\\\\');
   if (isWindowsPath) return `cd /d ${quoteCmdArg(cwd)} && ${session.providerResumeCommand}`;
   return `cd ${quoteShellArg(cwd)} && ${session.providerResumeCommand}`;
+}
+
+function truncateRecoverableSessionTitle(value: string, limit = RECOVERABLE_SESSION_TITLE_LIMIT): string {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, Math.max(0, limit - 1))}…`;
 }
 
 export function WeChatPanel(input: {
@@ -427,7 +433,9 @@ export function WeChatPanel(input: {
                         const runnableResumeCommand = buildRunnableResumeCommand(session);
                         return (
                           <>
-                      <div className="fw-semibold">{session.title ?? session.id}</div>
+                      <div className="fw-semibold" title={session.title ?? session.id}>
+                        {truncateRecoverableSessionTitle(session.title ?? session.id)}
+                      </div>
                       <div className="small text-muted-soft">{session.id}</div>
                       {runnableResumeCommand ? (
                         <div className="d-flex flex-wrap align-items-center gap-2">
