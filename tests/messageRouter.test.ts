@@ -263,6 +263,85 @@ describe('MessageRouter', () => {
     ]);
   });
 
+  it('notifies the user when a turn ends without any text output', async () => {
+    // 场景 A：一轮正常结束但 provider 没有发任何 text_delta（只 message_done）。
+    // 微信侧此前什么都收不到、typing 自行熄灭，用户只能干等；这里要求发一条兜底状态。
+    class SilentDoneProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `silent_done_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        if (!this.sessions.has(input.bridgeSessionId)) throw new Error('claude_session_not_found');
+        yield { type: 'message_done' }; // 只结束，不产出任何文本
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+    }
+
+    const channel = new MockChannelAdapter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new SilentDoneProvider()],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-silent',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'do something quiet' },
+      timestamp: 1,
+    });
+
+    expect(sent).toEqual([
+      { kind: 'status', text: '✅ 本轮已结束（无文本输出）' },
+    ]);
+  });
+
+  it('does not add a no-output notice when the turn only reported an error', async () => {
+    // 兜底提示不得与错误提示重复：一轮只发 error 时，用户已被告知，不再追加「无文本输出」。
+    const channel = new MockChannelAdapter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new ErrorProviderAdapter()],
+      sessions,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'codex', defaultWorkspace: '/tmp/project' },
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-error-only',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'boom' },
+      timestamp: 1,
+    });
+
+    expect(sent).toEqual([
+      { kind: 'status', text: 'Provider error: provider_failed:boom' },
+    ]);
+  });
+
   it('interrupts an in-flight generation on /stop and keeps the session', async () => {
     let releaseGate: () => void = () => {};
     const gate = new Promise<void>((resolve) => { releaseGate = resolve; });

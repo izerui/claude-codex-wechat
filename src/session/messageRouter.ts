@@ -302,6 +302,9 @@ export class MessageRouter {
     const isLive = () => this.activeGenerations.get(message.chatId)?.genId === genId
       && (this.latestMutatingSeq.get(message.chatId) ?? 0) <= seq;
     let bufferedText = '';
+    // 本轮是否给微信发过任何「结果性」消息（正文或错误）。一轮结束时若全程没发过，
+    // 微信侧此前什么都收不到、typing 已自行熄灭，用户只能干等；补一条兜底状态告知结束。
+    let producedOutput = false;
     // Typing is event-driven: refreshed as provider events arrive (throttled to
     // typingKeepaliveMs), never on a timer. A silent or wedged provider stops
     // emitting → we stop refreshing → WeChat's ~60s TTL clears the indicator on
@@ -334,6 +337,7 @@ export class MessageRouter {
         if (event.type === 'message_done' && bufferedText.trim()) {
           await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
           bufferedText = '';
+          producedOutput = true;
         }
         if (event.type === 'session_state') {
           const updated = this.conversation.update({
@@ -353,6 +357,7 @@ export class MessageRouter {
           if (bufferedText.trim()) {
             await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
             bufferedText = '';
+            producedOutput = true;
           }
           const errorText = `Provider error: ${event.error}`;
           await this.sendToChat({
@@ -360,11 +365,23 @@ export class MessageRouter {
             kind: 'status',
             text: errorText,
           });
+          producedOutput = true;
         }
       }
       if (isLive() && bufferedText.trim()) {
         await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
         bufferedText = '';
+        producedOutput = true;
+      }
+      // 兜底：一轮正常结束（仍存活、未被命令/新生成取代）却全程没发过任何结果消息时，
+      // 微信侧会一直没有回复、typing 也已熄灭。补一条状态告知本轮已结束，避免用户干等。
+      if (isLive() && !producedOutput) {
+        await this.sendToChat({
+          chatId: message.chatId,
+          kind: 'status',
+          text: '✅ 本轮已结束（无文本输出）',
+        });
+        producedOutput = true;
       }
       // The session .jsonl is only fully on disk once the turn ends. Re-persist
       // now so normalizeClaudeSessionFileForResume can rewrite the just-flushed
