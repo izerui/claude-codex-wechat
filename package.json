@@ -1,6 +1,6 @@
 {
   "name": "claude-codex-wechat",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": false,
   "type": "module",
   "bin": {
@@ -21,7 +21,7 @@
     "build:web": "vite build",
     "build:server": "node scripts/build-server.mjs",
     "build": "vite build && node scripts/build-server.mjs",
-    "prepublishOnly": "npm version patch --no-git-tag-version && pnpm typecheck && pnpm test && pnpm build"
+    "prepublishOnly": "npm version patch --no-git-tag-version"
   },
   "dependencies": {
     "@fastify/static": "^9.1.3",

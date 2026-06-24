@@ -259,16 +259,13 @@ WantedBy=multi-user.target
 本地执行 `npm publish` 时，会自动触发：
 
 - `npm version patch --no-git-tag-version`
-- `pnpm typecheck`
-- `pnpm test`
-- `pnpm build`
 
 也就是说：
 
 - 每次成功发布都会自动把版本加一位 `patch`
-- 发布前会跑完整的类型、测试、构建校验
+- 版本 bump 发生在真正 publish 之前
 
-当前逻辑定义在 [package.json](./package.json) 的 `prepublishOnly`。
+完整的发布前校验定义在 [release.sh](./release.sh)，`prepublishOnly` 只负责自动递增版本，避免在 `npm publish` 阶段重复再跑一遍测试和构建。
 
 ### 直接发布
 
