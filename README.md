@@ -347,6 +347,7 @@ HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890 ./release.sh
 
 这个脚本会：
 
+- 先检查 `npm whoami`
 - 先执行 `pnpm typecheck`
 - 再执行 `pnpm build`
 - 提交当前改动
