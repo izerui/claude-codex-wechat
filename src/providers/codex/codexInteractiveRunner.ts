@@ -5,9 +5,12 @@ import { syncCodexThreadForResume } from './nativeThreads';
 type StoredSession = ProviderSession & {
   threadId?: string;
   client?: CodexAppServerClient;
-  pendingMessages: Array<{ itemId: string; text: string }>;
+  pendingEvents: ProviderEvent[];
+  activeMessage?: { itemId: string; text: string };
   activeTurnId?: string;
   sessionName?: string;
+  turnClosed: boolean;
+  eventResolver?: () => void;
   turnCompletedResolver?: () => void;
   turnCompletedPromise?: Promise<void>;
 };
@@ -77,7 +80,8 @@ export class CodexInteractiveRunner {
       sessionName: input.options?.sessionName,
       cwd: input.cwd,
       status: 'idle',
-      pendingMessages: [],
+      pendingEvents: [],
+      turnClosed: false,
     };
     this.sessions.set(input.bridgeSessionId, session);
     return session;
@@ -88,8 +92,10 @@ export class CodexInteractiveRunner {
     if (!session) throw new Error(`codex_session_not_found:${input.bridgeSessionId}`);
     const client = await this.ensureClient(session);
 
-    session.pendingMessages = [];
+    session.pendingEvents = [];
+    session.activeMessage = undefined;
     session.activeTurnId = undefined;
+    session.turnClosed = false;
     session.turnCompletedPromise = new Promise<void>((resolve) => {
       session.turnCompletedResolver = resolve;
     });
@@ -131,6 +137,11 @@ export class CodexInteractiveRunner {
     });
     const maybeTurnId = readTurnId(response);
     if (maybeTurnId) session.activeTurnId = maybeTurnId;
+    for (;;) {
+      const event = await this.takeNextEvent(session);
+      if (!event) break;
+      yield event;
+    }
     await session.turnCompletedPromise;
     if (session.threadId) {
       await this.syncThreadForResume({
@@ -138,12 +149,6 @@ export class CodexInteractiveRunner {
         resumeTitle: session.sessionName ?? input.text,
         cwd: session.cwd,
       });
-    }
-
-    for (const message of session.pendingMessages) {
-      if (!message.text) continue;
-      yield { type: 'text_delta', text: message.text };
-      yield { type: 'message_done' };
     }
     yield {
       type: 'session_state',
@@ -172,6 +177,10 @@ export class CodexInteractiveRunner {
         turnId: session.activeTurnId,
       }).catch(() => undefined);
     }
+    this.flushActiveMessage(session);
+    session.turnClosed = true;
+    session.eventResolver?.();
+    session.eventResolver = undefined;
     // Unblock the in-flight sendMessage await so the turn ends cleanly even if
     // the app-server does not emit a turn/completed for the interrupted turn.
     session.turnCompletedResolver?.();
@@ -198,19 +207,23 @@ export class CodexInteractiveRunner {
     client.onNotification('item/agentMessage/delta', (params) => {
       const record = params as Record<string, unknown>;
       if (typeof record.delta !== 'string' || !record.delta) return;
-      const itemId = readAgentMessageItemId(record) ?? `fallback-${session.pendingMessages.length}`;
-      const last = session.pendingMessages.at(-1);
-      if (last?.itemId === itemId) {
-        last.text += record.delta;
+      const itemId = readAgentMessageItemId(record) ?? `fallback-${session.pendingEvents.length}`;
+      if (session.activeMessage?.itemId === itemId) {
+        session.activeMessage.text += record.delta;
         return;
       }
-      session.pendingMessages.push({ itemId, text: record.delta });
+      this.flushActiveMessage(session);
+      session.activeMessage = { itemId, text: record.delta };
     });
     client.onNotification('turn/started', (params) => {
       const turnId = readTurnId(params);
       if (turnId) session.activeTurnId = turnId;
     });
     client.onNotification('turn/completed', () => {
+      this.flushActiveMessage(session);
+      session.turnClosed = true;
+      session.eventResolver?.();
+      session.eventResolver = undefined;
       session.turnCompletedResolver?.();
       session.turnCompletedResolver = undefined;
     });
@@ -222,5 +235,29 @@ export class CodexInteractiveRunner {
     });
     session.client = client;
     return client;
+  }
+
+  private flushActiveMessage(session: StoredSession): void {
+    if (!session.activeMessage?.text) return;
+    this.enqueueEvent(session, { type: 'text_delta', text: session.activeMessage.text });
+    this.enqueueEvent(session, { type: 'message_done' });
+    session.activeMessage = undefined;
+  }
+
+  private enqueueEvent(session: StoredSession, event: ProviderEvent): void {
+    session.pendingEvents.push(event);
+    session.eventResolver?.();
+    session.eventResolver = undefined;
+  }
+
+  private async takeNextEvent(session: StoredSession): Promise<ProviderEvent | null> {
+    for (;;) {
+      const next = session.pendingEvents.shift();
+      if (next) return next;
+      if (session.turnClosed) return null;
+      await new Promise<void>((resolve) => {
+        session.eventResolver = resolve;
+      });
+    }
   }
 }

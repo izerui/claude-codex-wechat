@@ -184,4 +184,59 @@ describe('CodexInteractiveRunner', () => {
       },
     ]);
   });
+
+  it('flushes the previous agent message immediately when itemId changes', async () => {
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    const syncThreadForResume = vi.fn(async () => true);
+    const request = vi.fn(async (method: string, _params?: unknown) => {
+      if (method === 'initialize') return { serverInfo: { name: 'fake-codex-app-server', version: '0.0.0' } };
+      if (method === 'thread/start') return { threadId: 'thread-immediate-flush' };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: '先发这一条' });
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-2', delta: '再发下一条' });
+          queueMicrotask(() => {
+            notificationHandlers.get('turn/completed')?.({ threadId: 'thread-immediate-flush', turn: { id: 'turn-immediate' } });
+          });
+        });
+        return { turn: { id: 'turn-immediate' } };
+      }
+      return {};
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(request);
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => {
+        notificationHandlers.delete(method);
+      };
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+    const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume });
+    await runner.startSession({
+      bridgeSessionId: 'bs_immediate',
+      cwd: '/tmp/project',
+      options: { sessionName: '微信 · immediate flush · [claude-codex-wechat:immediate]' },
+    });
+
+    const iterator = runner.sendMessage({ bridgeSessionId: 'bs_immediate', text: 'hello' })[Symbol.asyncIterator]();
+    expect(await iterator.next()).toEqual({
+      value: {
+        type: 'session_state',
+        state: expect.objectContaining({ providerSessionId: 'thread-immediate-flush', cwd: '/tmp/project' }),
+      },
+      done: false,
+    });
+    expect(await iterator.next()).toEqual({
+      value: { type: 'text_delta', text: '先发这一条' },
+      done: false,
+    });
+    expect(await iterator.next()).toEqual({
+      value: { type: 'message_done' },
+      done: false,
+    });
+  });
 });
