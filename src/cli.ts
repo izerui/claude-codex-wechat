@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startDaemon } from './daemon/bootstrap';
-import { findListeningProcess } from './daemon/portGuard';
 import { attachStaticFrontend } from './daemon/staticFrontend';
 import { defaultConfigPath, loadBridgeConfig } from './daemon/config';
 import {
@@ -29,17 +28,36 @@ async function main(): Promise<void> {
     case 'start':
       await cmdStart();
       return;
+    case 'stop':
+      await cmdStop();
+      return;
+    case 'restart':
+      await cmdRestart();
+      return;
+    case 'status':
+      await cmdStatus();
+      return;
+    case 'logs':
+      await cmdLogs();
+      return;
+    case 'tail':
+      await cmdTail();
+      return;
     case 'init':
       cmdInit();
       return;
     case 'doctor':
       await cmdDoctor();
       return;
-    case 'service':
-      await cmdService(process.argv.slice(3));
+    case 'uninstall':
+      await cmdUninstall();
       return;
     case 'print-config':
       cmdPrintConfig();
+      return;
+    // 内部命令：service 文件实际拉起的前台 daemon 进程，不对外暴露。
+    case '__daemon':
+      await cmdDaemon();
       return;
     case 'help':
     case '--help':
@@ -56,24 +74,46 @@ async function main(): Promise<void> {
 async function cmdStart(): Promise<void> {
   if (!existsSync(webRoot)) {
     console.error(`找不到前端构建产物: ${webRoot}`);
-    console.error('请先运行构建 (pnpm build) 后再启动，或重新安装完整的 npm 包。');
+    console.error('请重新安装完整的 npm 包。');
     process.exitCode = 1;
     return;
   }
   const context = createServiceContext();
-  const port = context.port ?? 8787;
-  const occupiedBy = await findListeningProcess(port);
-  if (occupiedBy) {
-    const serviceStatus = await readServiceStatus(context).catch(() => null);
-    if (serviceStatus?.installed && serviceStatus.running) {
-      console.log(`端口 ${port} 已被后台服务占用，先停止服务再以前台模式启动。`);
-      await stopManagedService(context);
-    } else {
-      console.error(`端口 ${port} 已被占用: PID=${occupiedBy.pid} COMMAND=${occupiedBy.command}`);
-      console.error('请先停止占用进程，或改用 `claude-codex-wechat service stop` 停掉后台服务。');
-      process.exitCode = 1;
-      return;
-    }
+  const status = await readServiceStatus(context).catch(() => null);
+  const result = status?.installed
+    ? await startManagedService(context)
+    : await installService(context);
+  printServiceStatus('service started', result);
+}
+
+async function cmdStop(): Promise<void> {
+  const status = await stopManagedService(createServiceContext());
+  printServiceStatus('service stopped', status);
+}
+
+async function cmdRestart(): Promise<void> {
+  const status = await restartManagedService(createServiceContext());
+  printServiceStatus('service restarted', status);
+}
+
+async function cmdStatus(): Promise<void> {
+  const status = await readServiceStatus(createServiceContext());
+  printServiceStatus('service status', status);
+}
+
+async function cmdLogs(): Promise<void> {
+  console.log(await readServiceLogs(createServiceContext()));
+}
+
+async function cmdTail(): Promise<void> {
+  await tailServiceLogs(createServiceContext());
+}
+
+async function cmdDaemon(): Promise<void> {
+  if (!existsSync(webRoot)) {
+    console.error(`找不到前端构建产物: ${webRoot}`);
+    process.exitCode = 1;
+    return;
   }
   await startDaemon({
     attachFrontend: attachStaticFrontend(webRoot),
@@ -134,54 +174,9 @@ function cmdPrintConfig(): void {
   console.log(readFileSync(configPath, 'utf8'));
 }
 
-async function cmdService(args: string[]): Promise<void> {
-  const action = args[0] ?? 'status';
-  const context = createServiceContext();
-
-  switch (action) {
-    case 'install': {
-      const status = await installService(context);
-      printServiceStatus('service installed', status);
-      return;
-    }
-    case 'start': {
-      const status = await startManagedService(context);
-      printServiceStatus('service started', status);
-      return;
-    }
-    case 'stop': {
-      const status = await stopManagedService(context);
-      printServiceStatus('service stopped', status);
-      return;
-    }
-    case 'restart': {
-      const status = await restartManagedService(context);
-      printServiceStatus('service restarted', status);
-      return;
-    }
-    case 'logs': {
-      console.log(await readServiceLogs(context));
-      return;
-    }
-    case 'tail': {
-      await tailServiceLogs(context);
-      return;
-    }
-    case 'uninstall': {
-      const status = await uninstallService(context);
-      printServiceStatus('service uninstalled', status);
-      return;
-    }
-    case 'status': {
-      const status = await readServiceStatus(context);
-      printServiceStatus('service status', status);
-      return;
-    }
-    default:
-      console.error(`未知 service 子命令: ${action}\n`);
-      printUsage();
-      process.exitCode = 1;
-  }
+async function cmdUninstall(): Promise<void> {
+  const status = await uninstallService(createServiceContext());
+  printServiceStatus('service uninstalled', status);
 }
 
 function createServiceContext() {
@@ -215,19 +210,21 @@ function printUsage(): void {
   claude-codex-wechat <command>
 
 命令:
-  start          启动 daemon（默认命令，前台运行）
-  init           在 ~/.claude-codex-wechat/ 创建默认配置
+  start          后台启动服务（未安装则自动安装，默认命令）
+  stop           停止后台服务
+  restart        重启后台服务
+  status         查看运行状态
+  logs           打印最近日志
+  tail           实时跟随日志
   doctor         检查配置、前端产物与 claude/codex 可执行文件
-  service        管理后台服务（install/start/stop/restart/status/logs/tail/uninstall）
+  init           在 ~/.claude-codex-wechat/ 创建默认配置
+  uninstall      卸载后台服务
   print-config   打印当前配置文件内容
   help           显示本帮助
 
 环境变量:
   BRIDGE_PORT    监听端口（默认 8787）
-  BRIDGE_CONFIG  配置文件路径（默认 ~/.claude-codex-wechat/config.json）
-
-常驻运行请用进程管理器托管，例如:
-  pm2 start claude-codex-wechat -- start`);
+  BRIDGE_CONFIG  配置文件路径（默认 ~/.claude-codex-wechat/config.json）`);
 }
 
 await main();

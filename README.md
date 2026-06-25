@@ -83,11 +83,21 @@ pnpm install
 可用命令：
 
 - `claude-codex-wechat start`
-  - 前台启动 daemon
-- `claude-codex-wechat init`
-  - 写默认配置到 `~/.claude-codex-wechat/config.json`
+  - 后台启动服务（未安装则自动注册系统服务），默认命令
+- `claude-codex-wechat stop`
+  - 停止后台服务
+- `claude-codex-wechat restart`
+  - 重启后台服务
+- `claude-codex-wechat status`
+  - 查看运行状态
+- `claude-codex-wechat logs` / `tail`
+  - 打印 / 实时跟随日志
 - `claude-codex-wechat doctor`
   - 检查配置、前端产物、`claude`/`codex` 可执行文件
+- `claude-codex-wechat init`
+  - 写默认配置到 `~/.claude-codex-wechat/config.json`
+- `claude-codex-wechat uninstall`
+  - 卸载后台服务
 - `claude-codex-wechat print-config`
   - 打印当前配置文件
 - `claude-codex-wechat help`
@@ -178,35 +188,24 @@ pnpm build
 
 ## 生产运行
 
-生产态通常按下面方式运行：
+安装后直接后台启动即可，`start` 会把当前 CLI 注册成操作系统服务并拉起：
 
 ```bash
-claude-codex-wechat start
+claude-codex-wechat init      # 首次：写配置，填好 token / accountId
+claude-codex-wechat start     # 后台启动（自动安装服务）
+claude-codex-wechat status    # 查看状态
 ```
 
-注意：
-
-- 这是前台进程
-- npm 本身不负责守护
-- 长期常驻建议交给进程管理器
-- 如果默认端口已被本程序的后台服务占用，`start` 会先停掉后台服务，再以前台模式启动
-- 如果端口被别的进程占用，`start` 会直接报出占用 PID 和命令，不会强杀陌生进程
-
-### 安装后后台运行
-
-参考 `happier` 的方式，这个仓库现在提供 `service` 命令，把当前 CLI 注册成操作系统服务，而不是在 Node 进程里自己 daemonize。
-
-常用命令：
+常用管理命令：
 
 ```bash
-claude-codex-wechat service install
-claude-codex-wechat service start
-claude-codex-wechat service restart
-claude-codex-wechat service status
-claude-codex-wechat service logs
-claude-codex-wechat service tail
-claude-codex-wechat service stop
-claude-codex-wechat service uninstall
+claude-codex-wechat start      # 后台启动 / 启动已安装服务
+claude-codex-wechat restart    # 重启
+claude-codex-wechat status     # 状态
+claude-codex-wechat logs       # 最近日志
+claude-codex-wechat tail       # 实时日志
+claude-codex-wechat stop       # 停止
+claude-codex-wechat uninstall  # 卸载服务
 ```
 
 当前支持：
@@ -214,73 +213,7 @@ claude-codex-wechat service uninstall
 - macOS：`launchd`（`~/Library/LaunchAgents/`）
 - Linux：`systemd --user`（`~/.config/systemd/user/`）
 
-推荐安装后直接这样：
-
-```bash
-claude-codex-wechat init
-claude-codex-wechat service install
-claude-codex-wechat service status
-```
-
-### pm2
-
-```bash
-npm install -g pm2
-pm2 start claude-codex-wechat --name ccwx -- start
-pm2 logs ccwx
-pm2 restart ccwx
-pm2 startup && pm2 save
-```
-
-### systemd
-
-示例：
-
-```ini
-[Unit]
-Description=claude-codex-wechat bridge daemon
-After=network.target
-
-[Service]
-Type=simple
-User=youruser
-Environment=BRIDGE_PORT=8787
-ExecStart=/usr/bin/claude-codex-wechat start
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### launchd
-
-示例：
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.claude-codex-wechat</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/opt/homebrew/bin/claude-codex-wechat</string>
-    <string>start</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>BRIDGE_PORT</key>
-    <string>8787</string>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-</dict>
-</plist>
-```
+服务会以 `KeepAlive` / `Restart=on-failure` 守护，崩溃后自动拉起，无需额外进程管理器。
 
 ## 发布 npm 包
 

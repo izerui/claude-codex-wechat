@@ -212,7 +212,7 @@ function buildLaunchdSpec(context: ServiceContext): LaunchdSpec {
   return {
     label: 'com.claude-codex-wechat',
     plistPath: join(homedir(), 'Library', 'LaunchAgents', 'com.claude-codex-wechat.plist'),
-    programArgs: [context.nodePath ?? process.execPath, context.cliEntrypointPath, 'start'],
+    programArgs: [context.nodePath ?? process.execPath, context.cliEntrypointPath, '__daemon'],
     workingDirectory: homedir(),
     stdoutPath: join(stateDir, 'logs', 'service.stdout.log'),
     stderrPath: join(stateDir, 'logs', 'service.stderr.log'),
@@ -225,7 +225,7 @@ function buildSystemdUserSpec(context: ServiceContext): SystemdUserSpec {
   return {
     unitName: 'claude-codex-wechat.service',
     unitPath: join(homedir(), '.config', 'systemd', 'user', 'claude-codex-wechat.service'),
-    execStart: [context.nodePath ?? process.execPath, context.cliEntrypointPath, 'start'],
+    execStart: [context.nodePath ?? process.execPath, context.cliEntrypointPath, '__daemon'],
     workingDirectory: homedir(),
     stdoutPath: join(stateDir, 'logs', 'service.stdout.log'),
     stderrPath: join(stateDir, 'logs', 'service.stderr.log'),
