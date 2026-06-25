@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import Fastify from 'fastify';
 import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
 import { registerSettingsRoutes } from '../admin/settingsRoutes';
+import { registerFsBrowseRoutes } from '../admin/fsBrowseRoutes';
 import type { ChannelAdapter, ChannelOutgoingMessage } from '../channels/types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { ManagedWeixinDirectAdapter } from '../channels/weixin-direct/managedAdapter';
@@ -176,6 +177,8 @@ export function createDaemonServer(options: {
     defaults: bridgeDefaults,
     configPath,
   });
+
+  registerFsBrowseRoutes({ app });
 
   app.get('/api/status', async () => ({
     ok: true,

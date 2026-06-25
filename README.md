@@ -52,22 +52,47 @@ npm install -g claude-codex-wechat
 pnpm add -g claude-codex-wechat
 ```
 
-安装后会得到全局命令：
-
-```bash
-claude-codex-wechat help
-claude-codex-wechat init
-claude-codex-wechat doctor
-claude-codex-wechat start
-claude-codex-wechat print-config
-```
-
 说明：
 
 - 该包依赖 `better-sqlite3`
 - 大多数常见平台会直接下载预编译二进制
 - 少数环境可能需要本地编译工具链
 - Node 版本要求：`>=20`
+
+## 快速开始
+
+安装后按以下顺序跑通：
+
+```bash
+# 1. 生成默认配置
+claude-codex-wechat init
+
+# 2. 编辑 ~/.claude-codex-wechat/config.json，填入微信 token / accountId
+#    （配置说明见下方「配置」一节）
+
+# 3. 检查环境（配置、前端产物、claude/codex 是否就绪）
+claude-codex-wechat doctor
+
+# 4. 后台启动（首次会自动注册为系统服务并守护运行）
+claude-codex-wechat start
+
+# 5. 查看状态 / 日志
+claude-codex-wechat status
+claude-codex-wechat logs
+```
+
+启动后：
+
+- 管理页：`http://127.0.0.1:8787`
+- 微信侧即可直接给机器人发消息，驱动本机 `Claude Code` / `Codex CLI` 会话
+
+停止 / 重启 / 卸载：
+
+```bash
+claude-codex-wechat restart
+claude-codex-wechat stop
+claude-codex-wechat uninstall
+```
 
 ### 从源码安装
 
@@ -188,13 +213,7 @@ pnpm build
 
 ## 生产运行
 
-安装后直接后台启动即可，`start` 会把当前 CLI 注册成操作系统服务并拉起：
-
-```bash
-claude-codex-wechat init      # 首次：写配置，填好 token / accountId
-claude-codex-wechat start     # 后台启动（自动安装服务）
-claude-codex-wechat status    # 查看状态
-```
+首次跑通流程见上方「快速开始」。`start` 会把当前 CLI 注册成操作系统服务并守护拉起。
 
 常用管理命令：
 

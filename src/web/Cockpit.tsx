@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChannelPluginView, CurrentSessionView, ActiveWeChatUserView, ProviderStatusView, LastProviderSessionView, WeixinQuotaView } from './apiClient';
+import { DirectoryPicker } from './DirectoryPicker';
 import {
   ELLIPSIS,
   formatPluginBadge,
@@ -170,20 +171,17 @@ function EngineBay(input: {
         </div>
       ) : null}
       {input.canCreate ? (
-        <div className="engine-create mt-2 pt-2 d-flex gap-2 align-items-center">
-          <input
-            className="form-control form-control-sm"
+        <div className="engine-create mt-2 pt-2 d-flex flex-column gap-2">
+          <DirectoryPicker
             value={cwdInput}
-            onChange={(event) => {
+            ariaLabel={`${input.name} 工作目录`}
+            onChange={(path) => {
               cwdEditedRef.current = true;
-              setCwdInput(event.target.value);
+              setCwdInput(path);
             }}
-            placeholder="工作目录"
-            aria-label={`${input.name} 工作目录`}
-            type="text"
           />
           <button
-            className="engine-create-btn d-inline-flex align-items-center flex-shrink-0"
+            className="engine-create-btn d-inline-flex align-items-center align-self-end flex-shrink-0"
             disabled={input.creating || !cwdInput.trim()}
             onClick={submitCreate}
             title={input.active ? '新开会话' : '新建会话'}

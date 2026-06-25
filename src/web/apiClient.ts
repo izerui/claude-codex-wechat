@@ -190,6 +190,24 @@ export async function fetchProviderStatus(): Promise<ProviderStatusView> {
   return await requestJson('/api/providers/status');
 }
 
+export type DirectoryEntryView = {
+  name: string;
+  path: string;
+  isDirectory: true;
+};
+
+export type DirectoryListingView = {
+  path: string;
+  parent: string | null;
+  isRoot: boolean;
+  entries: DirectoryEntryView[];
+};
+
+export async function listDirectory(path?: string): Promise<DirectoryListingView> {
+  const query = path ? `?path=${encodeURIComponent(path)}` : '';
+  return await requestJson(`/api/fs/list${query}`);
+}
+
 export async function fetchActiveUser(): Promise<ActiveWeChatUserView | null> {
   return await requestJsonOptional('/api/channel/active-user');
 }

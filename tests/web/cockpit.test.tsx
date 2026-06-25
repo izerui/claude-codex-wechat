@@ -1,10 +1,28 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen, fireEvent } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChannelStrip, EngineBays } from '../../src/web/Cockpit';
+import { listDirectory } from '../../src/web/apiClient';
+
+vi.mock('../../src/web/apiClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/web/apiClient')>();
+  return { ...actual, listDirectory: vi.fn() };
+});
+
+const listDirectoryMock = vi.mocked(listDirectory);
 
 afterEach(() => {
   cleanup();
+});
+
+beforeEach(() => {
+  listDirectoryMock.mockReset();
+  listDirectoryMock.mockImplementation(async (path?: string) => ({
+    path: path ?? '/',
+    parent: path && path !== '/' ? '/' : null,
+    isRoot: !path || path === '/',
+    entries: [],
+  }));
 });
 import type { ChannelPluginView, CurrentSessionView } from '../../src/web/apiClient';
 
@@ -136,8 +154,20 @@ describe('EngineBays', () => {
     expect(screen.queryByRole('button', { name: '新开会话' })).toBeNull();
   });
 
-  it('creates a session from the inactive card using its provider and edited cwd', () => {
+  it('creates a session from the inactive card using its provider and tree-selected cwd', async () => {
     const onCreateSession = vi.fn();
+    // tree roots at '/' and auto-expands the value chain; provide the full path down to a child
+    const tree: Record<string, { name: string; path: string; isDirectory: true }[]> = {
+      '/': [{ name: 'old', path: '/old', isDirectory: true }],
+      '/old': [{ name: 'codex', path: '/old/codex', isDirectory: true }],
+      '/old/codex': [{ name: 'sub', path: '/old/codex/sub', isDirectory: true }],
+    };
+    listDirectoryMock.mockImplementation(async (path?: string) => ({
+      path: path ?? '/',
+      parent: path && path !== '/' ? '/' : null,
+      isRoot: !path || path === '/',
+      entries: tree[path ?? '/'] ?? [],
+    }));
     render(
       <EngineBays
         providerStatus={{ claude: { detected: true, version: '2.0.1' }, codex: { detected: true, version: '0.9.0' } }}
@@ -151,12 +181,12 @@ describe('EngineBays', () => {
     );
     // active claude card offers "新开会话"; inactive codex card offers "新建会话"
     expect(screen.getByRole('button', { name: '新开会话' })).toBeTruthy();
-    // the inactive codex directory input is always visible, prefilled from its last session
-    const input = screen.getByLabelText('Codex 工作目录') as HTMLInputElement;
-    expect(input.value).toBe('/old/codex');
-    fireEvent.change(input, { target: { value: '/new/codex' } });
+    // open the codex directory picker, then pick a child of its auto-expanded last-session cwd
+    fireEvent.click(screen.getByRole('button', { name: 'Codex 工作目录' }));
+    const sub = await screen.findByText('sub');
+    fireEvent.click(sub);
     fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
-    expect(onCreateSession).toHaveBeenCalledWith('codex', '/new/codex');
+    expect(onCreateSession).toHaveBeenCalledWith('codex', '/old/codex/sub');
   });
 
   it('creates a session from the active card using the current session cwd as default', () => {
@@ -171,8 +201,6 @@ describe('EngineBays', () => {
         onCreateSession={onCreateSession}
       />,
     );
-    const input = screen.getByLabelText('Claude 工作目录') as HTMLInputElement;
-    expect(input.value).toBe('/home/me/proj');
     fireEvent.click(screen.getByRole('button', { name: '新开会话' }));
     expect(onCreateSession).toHaveBeenCalledWith('claude-code', '/home/me/proj');
   });

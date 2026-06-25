@@ -556,7 +556,7 @@ export class MessageRouter {
 
   }
   private formatSessionLine(candidate: ProviderSessionCandidate): string {
-    const title = candidate.resumeTitle ?? candidate.title ?? candidate.id;
+    const title = candidate.resumeTitle ?? candidate.title ?? `未命名会话 · ${candidate.id.slice(0, 8)}`;
     const cwd = candidate.cwd ? ` · ${candidate.cwd}` : '';
     const when = candidate.lastActivityAt ? ` · ${formatRelativeTime(candidate.lastActivityAt)}` : '';
     return `${title}${cwd}${when}`;

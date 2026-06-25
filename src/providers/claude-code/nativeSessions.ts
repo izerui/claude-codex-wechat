@@ -2,7 +2,7 @@ import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/p
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type { ProviderSessionCandidate } from '../types';
-import { buildSessionBridgeName, parseSessionBridgeName } from '../../session/sessionBridgeTag';
+import { parseSessionBridgeName } from '../../session/sessionBridgeTag';
 
 function resolveClaudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(env.HOME || homedir(), '.claude');
@@ -33,7 +33,9 @@ export async function listRecoverableClaudeSessions(env: NodeJS.ProcessEnv = pro
           id: sessionId,
           providerId: 'claude-code',
           ...(cwd ? { cwd } : {}),
-          title: parsedMeta?.aiTitle ?? parsedMeta?.lastPrompt ?? fileName,
+          ...(parsedMeta?.aiTitle ?? parsedMeta?.lastPrompt
+            ? { title: parsedMeta?.aiTitle ?? parsedMeta?.lastPrompt }
+            : {}),
           ...(parsedMeta?.sessionName
             ? { resumeTitle: parsedMeta.sessionName }
             : historyMeta?.display
