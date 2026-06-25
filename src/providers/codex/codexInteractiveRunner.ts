@@ -5,12 +5,25 @@ import { syncCodexThreadForResume } from './nativeThreads';
 type StoredSession = ProviderSession & {
   threadId?: string;
   client?: CodexAppServerClient;
-  pendingText: string[];
+  pendingMessages: Array<{ itemId: string; text: string }>;
   activeTurnId?: string;
   sessionName?: string;
   turnCompletedResolver?: () => void;
   turnCompletedPromise?: Promise<void>;
 };
+
+function readAgentMessageItemId(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.itemId === 'string' && record.itemId) return record.itemId;
+  if (typeof record.id === 'string' && record.id) return record.id;
+  if (record.item && typeof record.item === 'object') {
+    const item = record.item as Record<string, unknown>;
+    if (typeof item.id === 'string' && item.id) return item.id;
+    if (typeof item.itemId === 'string' && item.itemId) return item.itemId;
+  }
+  return undefined;
+}
 
 function readThreadId(value: unknown): string | undefined {
   if (!value || typeof value !== 'object') return undefined;
@@ -64,7 +77,7 @@ export class CodexInteractiveRunner {
       sessionName: input.options?.sessionName,
       cwd: input.cwd,
       status: 'idle',
-      pendingText: [],
+      pendingMessages: [],
     };
     this.sessions.set(input.bridgeSessionId, session);
     return session;
@@ -75,7 +88,7 @@ export class CodexInteractiveRunner {
     if (!session) throw new Error(`codex_session_not_found:${input.bridgeSessionId}`);
     const client = await this.ensureClient(session);
 
-    session.pendingText = [];
+    session.pendingMessages = [];
     session.activeTurnId = undefined;
     session.turnCompletedPromise = new Promise<void>((resolve) => {
       session.turnCompletedResolver = resolve;
@@ -127,8 +140,10 @@ export class CodexInteractiveRunner {
       });
     }
 
-    for (const text of session.pendingText) {
-      yield { type: 'text_delta', text };
+    for (const message of session.pendingMessages) {
+      if (!message.text) continue;
+      yield { type: 'text_delta', text: message.text };
+      yield { type: 'message_done' };
     }
     yield {
       type: 'session_state',
@@ -140,7 +155,6 @@ export class CodexInteractiveRunner {
         status: 'idle',
       },
     };
-    yield { type: 'message_done' };
   }
 
   async stopSession(bridgeSessionId: string): Promise<void> {
@@ -183,7 +197,14 @@ export class CodexInteractiveRunner {
     await client.initialize();
     client.onNotification('item/agentMessage/delta', (params) => {
       const record = params as Record<string, unknown>;
-      if (typeof record.delta === 'string' && record.delta) session.pendingText.push(record.delta);
+      if (typeof record.delta !== 'string' || !record.delta) return;
+      const itemId = readAgentMessageItemId(record) ?? `fallback-${session.pendingMessages.length}`;
+      const last = session.pendingMessages.at(-1);
+      if (last?.itemId === itemId) {
+        last.text += record.delta;
+        return;
+      }
+      session.pendingMessages.push({ itemId, text: record.delta });
     });
     client.onNotification('turn/started', (params) => {
       const turnId = readTurnId(params);

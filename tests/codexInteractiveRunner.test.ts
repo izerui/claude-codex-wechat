@@ -129,4 +129,59 @@ describe('CodexInteractiveRunner', () => {
     });
     expect(order).toContain('sync');
   });
+
+  it('emits one provider message per agent message item within a single turn', async () => {
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    const request = vi.fn(async (method: string, _params?: unknown) => {
+      if (method === 'initialize') return { serverInfo: { name: 'fake-codex-app-server', version: '0.0.0' } };
+      if (method === 'thread/start') return { threadId: 'thread-multi-message' };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: '第一段' });
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: '，继续' });
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-2', delta: '第二段' });
+          notificationHandlers.get('turn/completed')?.({ threadId: 'thread-multi-message', turn: { id: 'turn-multi' } });
+        });
+        return { turn: { id: 'turn-multi' } };
+      }
+      return {};
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(request);
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => {
+        notificationHandlers.delete(method);
+      };
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+    const syncThreadForResume = vi.fn(async () => true);
+    const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume });
+    await runner.startSession({
+      bridgeSessionId: 'bs_multi',
+      cwd: '/tmp/project',
+      options: { sessionName: '微信 · multi message · [claude-codex-wechat:multi]' },
+    });
+
+    const events = [];
+    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_multi', text: 'hello' })) events.push(event);
+
+    expect(events).toEqual([
+      {
+        type: 'session_state',
+        state: expect.objectContaining({ providerSessionId: 'thread-multi-message', cwd: '/tmp/project' }),
+      },
+      { type: 'text_delta', text: '第一段，继续' },
+      { type: 'message_done' },
+      { type: 'text_delta', text: '第二段' },
+      { type: 'message_done' },
+      {
+        type: 'session_state',
+        state: expect.objectContaining({ providerSessionId: 'thread-multi-message', cwd: '/tmp/project' }),
+      },
+    ]);
+  });
 });

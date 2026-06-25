@@ -288,6 +288,71 @@ describe('channel message flow', () => {
     }
   });
 
+  it('sends one WeChat message per Codex agent message within a single turn', async () => {
+    const { activeUserStore, configPath } = seededUsers('wx_user_1');
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(async (method: string, params?: unknown) => {
+      if (method === 'thread/start') return { threadId: 'codex-session-split' };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: '我先检查 ' });
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: 'ngrok 是否可用。' });
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-2', delta: '已经代理出去，地址如下。' });
+          notificationHandlers.get('turn/completed')?.({ threadId: 'codex-session-split', turn: { id: 'turn-split' } });
+        });
+        return { turn: { id: 'turn-split' } };
+      }
+      if (method === 'thread/resume') return { threadId: (params as { threadId: string }).threadId };
+      return {};
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => {
+        notificationHandlers.delete(method);
+      };
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+    const provider = new CodexProvider({
+      runner: new CodexInteractiveRunner({
+        command: 'codex',
+        syncThreadForResume: vi.fn(async () => true),
+      }),
+    });
+    const { app } = createDaemonServer({
+      channel,
+      providers: [provider],
+      activeUserStore,
+      configPath,
+      bridgeDefaults: {
+        defaultProvider: 'codex',
+        defaultWorkspace: '/tmp/project',
+      },
+    });
+
+    await channel.emitIncoming({
+      id: 'm-split',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-codex-split',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '代理出去这个端口' },
+      timestamp: 1,
+    });
+
+    expect(sent).toEqual([
+      { kind: 'text', text: '我先检查 ngrok 是否可用。' },
+      { kind: 'text', text: '已经代理出去，地址如下。' },
+    ]);
+
+    await app.close();
+  });
+
   it('auto-authorizes first-contact weixin users by default', async () => {
     const activeUserStore = createRuntimeUserStore('bridge-message-flow-auto-weixin-').activeUserStore;
     const channel = new MockChannelAdapter();
