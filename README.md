@@ -189,6 +189,38 @@ claude-codex-wechat start
 - 这是前台进程
 - npm 本身不负责守护
 - 长期常驻建议交给进程管理器
+- 如果默认端口已被本程序的后台服务占用，`start` 会先停掉后台服务，再以前台模式启动
+- 如果端口被别的进程占用，`start` 会直接报出占用 PID 和命令，不会强杀陌生进程
+
+### 安装后后台运行
+
+参考 `happier` 的方式，这个仓库现在提供 `service` 命令，把当前 CLI 注册成操作系统服务，而不是在 Node 进程里自己 daemonize。
+
+常用命令：
+
+```bash
+claude-codex-wechat service install
+claude-codex-wechat service start
+claude-codex-wechat service restart
+claude-codex-wechat service status
+claude-codex-wechat service logs
+claude-codex-wechat service tail
+claude-codex-wechat service stop
+claude-codex-wechat service uninstall
+```
+
+当前支持：
+
+- macOS：`launchd`（`~/Library/LaunchAgents/`）
+- Linux：`systemd --user`（`~/.config/systemd/user/`）
+
+推荐安装后直接这样：
+
+```bash
+claude-codex-wechat init
+claude-codex-wechat service install
+claude-codex-wechat service status
+```
 
 ### pm2
 

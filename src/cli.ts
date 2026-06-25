@@ -3,8 +3,19 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startDaemon } from './daemon/bootstrap';
+import { findListeningProcess } from './daemon/portGuard';
 import { attachStaticFrontend } from './daemon/staticFrontend';
 import { defaultConfigPath, loadBridgeConfig } from './daemon/config';
+import {
+  installService,
+  readServiceLogs,
+  readServiceStatus,
+  restartService as restartManagedService,
+  startService as startManagedService,
+  stopService as stopManagedService,
+  tailServiceLogs,
+  uninstallService,
+} from './daemon/service';
 import { findExecutable } from './shared/platform';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -23,6 +34,9 @@ async function main(): Promise<void> {
       return;
     case 'doctor':
       await cmdDoctor();
+      return;
+    case 'service':
+      await cmdService(process.argv.slice(3));
       return;
     case 'print-config':
       cmdPrintConfig();
@@ -45,6 +59,21 @@ async function cmdStart(): Promise<void> {
     console.error('请先运行构建 (pnpm build) 后再启动，或重新安装完整的 npm 包。');
     process.exitCode = 1;
     return;
+  }
+  const context = createServiceContext();
+  const port = context.port ?? 8787;
+  const occupiedBy = await findListeningProcess(port);
+  if (occupiedBy) {
+    const serviceStatus = await readServiceStatus(context).catch(() => null);
+    if (serviceStatus?.installed && serviceStatus.running) {
+      console.log(`端口 ${port} 已被后台服务占用，先停止服务再以前台模式启动。`);
+      await stopManagedService(context);
+    } else {
+      console.error(`端口 ${port} 已被占用: PID=${occupiedBy.pid} COMMAND=${occupiedBy.command}`);
+      console.error('请先停止占用进程，或改用 `claude-codex-wechat service stop` 停掉后台服务。');
+      process.exitCode = 1;
+      return;
+    }
   }
   await startDaemon({
     attachFrontend: attachStaticFrontend(webRoot),
@@ -105,8 +134,78 @@ function cmdPrintConfig(): void {
   console.log(readFileSync(configPath, 'utf8'));
 }
 
+async function cmdService(args: string[]): Promise<void> {
+  const action = args[0] ?? 'status';
+  const context = createServiceContext();
+
+  switch (action) {
+    case 'install': {
+      const status = await installService(context);
+      printServiceStatus('service installed', status);
+      return;
+    }
+    case 'start': {
+      const status = await startManagedService(context);
+      printServiceStatus('service started', status);
+      return;
+    }
+    case 'stop': {
+      const status = await stopManagedService(context);
+      printServiceStatus('service stopped', status);
+      return;
+    }
+    case 'restart': {
+      const status = await restartManagedService(context);
+      printServiceStatus('service restarted', status);
+      return;
+    }
+    case 'logs': {
+      console.log(await readServiceLogs(context));
+      return;
+    }
+    case 'tail': {
+      await tailServiceLogs(context);
+      return;
+    }
+    case 'uninstall': {
+      const status = await uninstallService(context);
+      printServiceStatus('service uninstalled', status);
+      return;
+    }
+    case 'status': {
+      const status = await readServiceStatus(context);
+      printServiceStatus('service status', status);
+      return;
+    }
+    default:
+      console.error(`未知 service 子命令: ${action}\n`);
+      printUsage();
+      process.exitCode = 1;
+  }
+}
+
+function createServiceContext() {
+  return {
+    cliEntrypointPath: fileURLToPath(import.meta.url),
+    nodePath: process.execPath,
+    configPath: process.env.BRIDGE_CONFIG ?? defaultConfigPath(),
+    port: Number(process.env.BRIDGE_PORT ?? 8787),
+  };
+}
+
 function report(label: string, value: string): void {
   console.log(`  ${label.padEnd(14)}: ${value}`);
+}
+
+function printServiceStatus(title: string, status: Awaited<ReturnType<typeof readServiceStatus>>): void {
+  console.log(`claude-codex-wechat ${title}\n`);
+  report('service manager', status.manager);
+  report('installed', status.installed ? 'yes' : 'no');
+  report('running', status.running ? 'yes' : 'no');
+  report('label', status.label);
+  report('service file', status.serviceFilePath);
+  report('stdout log', status.stdoutPath);
+  report('stderr log', status.stderrPath);
 }
 
 function printUsage(): void {
@@ -119,6 +218,7 @@ function printUsage(): void {
   start          启动 daemon（默认命令，前台运行）
   init           在 ~/.claude-codex-wechat/ 创建默认配置
   doctor         检查配置、前端产物与 claude/codex 可执行文件
+  service        管理后台服务（install/start/stop/restart/status/logs/tail/uninstall）
   print-config   打印当前配置文件内容
   help           显示本帮助
 
