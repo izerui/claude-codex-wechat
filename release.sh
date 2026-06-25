@@ -44,13 +44,6 @@ export http_proxy="${http_proxy:-${HTTP_PROXY}}"
 echo "==> 当前分支: ${CURRENT_BRANCH}"
 echo "==> npm registry: ${DEFAULT_REGISTRY}"
 echo "==> 使用代理: HTTPS_PROXY=${HTTPS_PROXY} HTTP_PROXY=${HTTP_PROXY}"
-echo "==> 检查 npm 登录状态"
-if ! npm whoami --registry="${DEFAULT_REGISTRY}" >/dev/null 2>&1; then
-  echo "错误: 当前未登录 npm，无法发布。" >&2
-  echo "请先执行：" >&2
-  echo "  npm adduser --registry=${DEFAULT_REGISTRY}" >&2
-  exit 1
-fi
 echo "==> 执行发布前校验"
 pnpm typecheck
 pnpm build
