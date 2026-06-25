@@ -378,10 +378,7 @@ export function WeChatPanel(input: {
           <button
             type="button"
             className={`nav-link ${activeTab === 'claude-native' ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab('claude-native');
-              void scanRecoverableSessions('claude-code');
-            }}
+            onClick={() => setActiveTab('claude-native')}
           >
             Claude 会话
           </button>
@@ -390,10 +387,7 @@ export function WeChatPanel(input: {
           <button
             type="button"
             className={`nav-link ${activeTab === 'codex-native' ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab('codex-native');
-              void scanRecoverableSessions('codex');
-            }}
+            onClick={() => setActiveTab('codex-native')}
           >
             Codex 会话
           </button>
