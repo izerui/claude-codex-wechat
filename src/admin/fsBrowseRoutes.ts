@@ -18,9 +18,14 @@ export type DirectoryListing = {
 };
 
 export function registerFsBrowseRoutes(input: { app: FastifyInstance }): void {
-  input.app.get<{ Querystring: { path?: string } }>('/api/fs/list', async (request, reply) => {
+  input.app.get<{ Querystring: { path?: string; keep?: string } }>('/api/fs/list', async (request, reply) => {
     const raw = request.query.path?.trim();
     const target = resolve(expandTilde(raw && raw.length > 0 ? raw : homedir()) ?? homedir());
+
+    // `keep` 是当前选中的工作目录:落在它祖先链上的隐藏目录不过滤,保证树能展开定位到它。
+    const keepRaw = request.query.keep?.trim();
+    const keep = keepRaw && keepRaw.length > 0 ? resolve(expandTilde(keepRaw) ?? keepRaw) : null;
+    const isOnKeepChain = (path: string) => keep !== null && (keep === path || keep.startsWith(path + '/'));
 
     let dirents;
     try {
@@ -31,8 +36,9 @@ export function registerFsBrowseRoutes(input: { app: FastifyInstance }): void {
     }
 
     const entries: DirectoryEntry[] = dirents
-      .filter((dirent) => dirent.isDirectory() && !dirent.name.startsWith('.'))
+      .filter((dirent) => dirent.isDirectory())
       .map((dirent) => ({ name: dirent.name, path: join(target, dirent.name), isDirectory: true as const }))
+      .filter((entry) => !entry.name.startsWith('.') || isOnKeepChain(entry.path))
       .sort((a, b) => a.name.localeCompare(b.name));
 
     const parent = dirname(target);

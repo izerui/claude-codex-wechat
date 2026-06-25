@@ -203,9 +203,12 @@ export type DirectoryListingView = {
   entries: DirectoryEntryView[];
 };
 
-export async function listDirectory(path?: string): Promise<DirectoryListingView> {
-  const query = path ? `?path=${encodeURIComponent(path)}` : '';
-  return await requestJson(`/api/fs/list${query}`);
+export async function listDirectory(path?: string, keep?: string): Promise<DirectoryListingView> {
+  const params = new URLSearchParams();
+  if (path) params.set('path', path);
+  if (keep) params.set('keep', keep);
+  const query = params.toString();
+  return await requestJson(`/api/fs/list${query ? `?${query}` : ''}`);
 }
 
 export async function fetchActiveUser(): Promise<ActiveWeChatUserView | null> {

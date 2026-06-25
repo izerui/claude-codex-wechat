@@ -36,7 +36,7 @@ export function DirectoryTree(input: { value: string; onChange(path: string): vo
   const load = useCallback(async (path: string): Promise<void> => {
     markLoading(path, true);
     try {
-      const listing = await listDirectory(path);
+      const listing = await listDirectory(path, value || undefined);
       setCache((prev) => ({ ...prev, [listing.path]: listing }));
       setError(null);
     } catch {
@@ -44,7 +44,7 @@ export function DirectoryTree(input: { value: string; onChange(path: string): vo
     } finally {
       markLoading(path, false);
     }
-  }, [markLoading]);
+  }, [markLoading, value]);
 
   useEffect(() => {
     void (async () => {

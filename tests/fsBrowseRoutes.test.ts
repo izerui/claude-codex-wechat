@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { homedir } from 'node:os';
-import { dirname } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { mkdtempSync, mkdirSync } from 'node:fs';
 import { createDaemonServer } from '../src/daemon/server';
 
 describe('fs browse routes', () => {
@@ -50,6 +51,37 @@ describe('fs browse routes', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.json().error).toBe('cannot_read_directory');
+    await app.close();
+  });
+
+  it('hides hidden directories at any nesting level, not just the root', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'fsbrowse-'));
+    mkdirSync(join(base, 'visible'));
+    mkdirSync(join(base, '.hidden'));
+
+    const { app } = createDaemonServer();
+    const response = await app.inject({ method: 'GET', url: `/api/fs/list?path=${encodeURIComponent(base)}` });
+
+    expect(response.statusCode).toBe(200);
+    const names = response.json().entries.map((e: { name: string }) => e.name);
+    expect(names).toEqual(['visible']);
+    await app.close();
+  });
+
+  it('keeps a hidden directory that is on the selected cwd ancestor chain', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'fsbrowse-'));
+    mkdirSync(join(base, '.hidden', 'deep'), { recursive: true });
+    const keep = join(base, '.hidden', 'deep');
+
+    const { app } = createDaemonServer();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/fs/list?path=${encodeURIComponent(base)}&keep=${encodeURIComponent(keep)}`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const names = response.json().entries.map((e: { name: string }) => e.name);
+    expect(names).toContain('.hidden');
     await app.close();
   });
 });
