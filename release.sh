@@ -58,6 +58,13 @@ else
 fi
 
 echo "==> 执行 npm publish ${PUBLISH_ARGS[*]}"
+if ! NPM_USER="$(npm whoami --registry="${DEFAULT_REGISTRY}" 2>/dev/null)"; then
+  echo "错误: 未登录官方 npm 源 (${DEFAULT_REGISTRY})。" >&2
+  echo "      镜像源无法发布，请先执行以下命令登录官方源后重试：" >&2
+  echo "      npm login --registry=${DEFAULT_REGISTRY}" >&2
+  exit 1
+fi
+echo "==> 官方源登录用户: ${NPM_USER}"
 npm publish "${PUBLISH_ARGS[@]}"
 
 UPDATED_PACKAGE_VERSION="$(node -p "require('./package.json').version")"

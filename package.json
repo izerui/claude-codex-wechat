@@ -1,6 +1,6 @@
 {
   "name": "claude-codex-wechat",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": false,
   "type": "module",
   "bin": {
@@ -11,6 +11,10 @@
     "README.md",
     "config.example.json"
   ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "engines": {
     "node": ">=20"
   },
