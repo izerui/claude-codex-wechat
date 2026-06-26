@@ -288,6 +288,77 @@ describe('channel message flow', () => {
     }
   });
 
+  it('re-writes the Codex session_index entry during final metadata persistence', async () => {
+    const previousCodexHome = process.env.CODEX_HOME;
+    const codexHome = mkdtempSync(`${tmpdir()}/bridge-codex-home-`);
+    process.env.CODEX_HOME = codexHome;
+    try {
+      const { activeUserStore, configPath } = seededUsers('wx_user_1');
+      const channel = new MockChannelAdapter();
+      const notificationHandlers = new Map<string, (params: unknown) => void>();
+      vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+      vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(async (method: string, params?: unknown) => {
+        if (method === 'thread/start') return { threadId: 'codex-session-final-persist' };
+        if (method === 'turn/start') {
+          queueMicrotask(() => {
+            notificationHandlers.get('item/agentMessage/delta')?.({ delta: 'Codex 收到：hello codex' });
+            notificationHandlers.get('turn/completed')?.({ threadId: 'codex-session-final-persist', turn: { id: 'turn-final' } });
+          });
+          return { turn: { id: 'turn-final' } };
+        }
+        if (method === 'thread/resume') return { threadId: (params as { threadId: string }).threadId };
+        return {};
+      });
+      vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+      vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+        notificationHandlers.set(method, handler);
+        return () => {
+          notificationHandlers.delete(method);
+        };
+      });
+      vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+      vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+      const provider = new CodexProvider({
+        runner: new CodexInteractiveRunner({
+          command: 'codex',
+          syncThreadForResume: vi.fn(async () => {
+            const indexPath = `${codexHome}/session_index.jsonl`;
+            writeFileSync(indexPath, '', 'utf8');
+            return true;
+          }),
+        }),
+      });
+      const { app } = createDaemonServer({
+        channel,
+        providers: [provider],
+        activeUserStore,
+        configPath,
+        bridgeDefaults: {
+          defaultProvider: 'codex',
+          defaultWorkspace: '/tmp/project',
+        },
+      });
+
+      await channel.emitIncoming({
+        id: 'm-final',
+        platform: PRIMARY_WEIXIN_PLATFORM,
+        chatId: 'chat-codex-final',
+        user: { id: 'wx_user_1' },
+        content: { type: 'text', text: 'hello codex' },
+        timestamp: 1,
+      });
+
+      const index = readFileSync(`${codexHome}/session_index.jsonl`, 'utf8');
+      expect(index).toContain('codex-session-final-persist');
+      expect(index).toContain('hello codex');
+
+      await app.close();
+    } finally {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
   it('sends one WeChat message per Codex agent message within a single turn', async () => {
     const { activeUserStore, configPath } = seededUsers('wx_user_1');
     const channel = new MockChannelAdapter();

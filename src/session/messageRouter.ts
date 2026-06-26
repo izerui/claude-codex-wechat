@@ -568,6 +568,13 @@ export class MessageRouter {
       providerSessionId: session.providerSessionId,
       cwd: session.cwd,
     });
+    if (session.providerId === 'codex') {
+      await upsertCodexSessionIndexEntry({
+        sessionId: session.providerSessionId,
+        threadName: session.resumeTitle,
+      });
+      return;
+    }
     if (session.providerId === 'claude-code') {
       await ensureClaudeSessionBridgeMetadata({
         sessionId: session.providerSessionId,
