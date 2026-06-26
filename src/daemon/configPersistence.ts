@@ -37,16 +37,25 @@ export async function deleteConfigFile(configPath: string): Promise<void> {
 
 export async function persistBridgeDefaultsToConfigFile(input: {
   configPath: string;
-  defaultProvider: ProviderId;
-  defaultWorkspace: string;
+  defaultProvider?: ProviderId;
+  defaultWorkspace?: string;
+  ngrokEnabled?: boolean;
 }): Promise<void> {
   const currentConfig = await readConfigFile(input.configPath);
+  const currentBridge = isRecord(currentConfig.bridge) ? currentConfig.bridge : undefined;
+  const currentNgrok = isRecord(currentBridge?.ngrok) ? currentBridge.ngrok : undefined;
   const nextConfig = {
     ...currentConfig,
     bridge: {
-      ...(isRecord(currentConfig.bridge) ? currentConfig.bridge : {}),
-      defaultProvider: input.defaultProvider,
-      defaultWorkspace: input.defaultWorkspace,
+      ...(currentBridge ?? {}),
+      ...(input.defaultProvider ? { defaultProvider: input.defaultProvider } : {}),
+      ...(input.defaultWorkspace ? { defaultWorkspace: input.defaultWorkspace } : {}),
+      ...(typeof input.ngrokEnabled === 'boolean' ? {
+        ngrok: {
+          ...(currentNgrok ?? {}),
+          enabled: input.ngrokEnabled,
+        },
+      } : {}),
     },
   };
 

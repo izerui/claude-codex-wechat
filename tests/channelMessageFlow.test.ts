@@ -15,6 +15,7 @@ import { PRIMARY_WEIXIN_PLATFORM } from '../src/channels/platforms';
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../src/providers/types';
 import type { ProviderSessionCandidate } from '../src/providers/types';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
+import type { NgrokManager } from '../src/admin/ngrokRoutes';
 
 function seededUsers(platformUserId = 'wx_user_1') {
   const store = createRuntimeUserStore('bridge-message-flow-active-wechat-user-');
@@ -62,6 +63,61 @@ class NoScanAutoAttachProvider implements NativeProviderAdapter {
 }
 
 describe('channel message flow', () => {
+  it('includes the public ngrok URL in /help replies when ngrok is running', async () => {
+    const { activeUserStore, configPath } = seededUsers('wx_user_1');
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const ngrokManager: NgrokManager = {
+      getStatus: vi.fn(async () => ({
+        installed: true,
+        enabled: true,
+        running: true,
+        status: 'running',
+        publicUrl: 'https://bridge.ngrok-free.app',
+      })),
+      start: vi.fn(async () => ({
+        installed: true,
+        enabled: true,
+        running: true,
+        status: 'running',
+        publicUrl: 'https://bridge.ngrok-free.app',
+      })),
+      stop: vi.fn(async () => ({
+        installed: true,
+        enabled: false,
+        running: false,
+        status: 'stopped',
+      })),
+      setEnabled: vi.fn(async () => ({
+        installed: true,
+        enabled: true,
+        running: true,
+        status: 'running',
+        publicUrl: 'https://bridge.ngrok-free.app',
+      })),
+    };
+    const { app } = createDaemonServer({
+      channel,
+      providers: [new FakeProviderAdapter('claude-code')],
+      activeUserStore,
+      configPath,
+      ngrokManager,
+    });
+
+    await channel.emitIncoming({
+      id: 'm-help',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-help',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/help' },
+      timestamp: 1,
+    });
+
+    expect(sent.at(-1)?.text).toContain('[https://bridge.ngrok-free.app](https://bridge.ngrok-free.app)');
+    await app.close();
+  });
+
   it('auto-authorizes unauthorized incoming user by default', async () => {
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
 
-const okStatus = { ok: true, sessions: [], permissions: [] };
+const okStatus = { ok: true, sessions: [], permissions: [], preferredLocalUrl: 'http://192.168.1.25:8787' };
 
 const channelState = {
   activeUser: null,
@@ -56,6 +56,18 @@ describe('App dashboard provider status', () => {
         return new Response(JSON.stringify({
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
+          ngrok: {
+            enabled: true,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/ngrok/status')) {
+        return new Response(JSON.stringify({
+          installed: true,
+          enabled: true,
+          running: true,
+          status: 'running',
+          publicUrl: 'https://bridge.ngrok-free.app',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       throw new Error(`Unhandled fetch: ${url}`);
@@ -69,6 +81,9 @@ describe('App dashboard provider status', () => {
     expect(await screen.findByText('在线')).toBeTruthy();
     expect((await screen.findAllByText('v2.0.1')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('未找到可执行文件')).length).toBeGreaterThan(0);
+    const publicLink = await screen.findByRole('link', { name: 'https://bridge.ngrok-free.app' });
+    expect(publicLink.getAttribute('href')).toBe('https://bridge.ngrok-free.app');
+    expect(await screen.findByRole('button', { name: '关闭公网' })).toBeTruthy();
     expect(screen.queryByText('5177 页面')).toBeNull();
     expect(screen.queryByText('监控区')).toBeNull();
     expect(screen.queryByText('桥接总览与接入摘要')).toBeNull();
@@ -108,6 +123,18 @@ describe('App dashboard provider status', () => {
         return new Response(JSON.stringify({
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
+          ngrok: {
+            enabled: false,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/ngrok/status')) {
+        return new Response(JSON.stringify({
+          installed: false,
+          enabled: false,
+          running: false,
+          status: 'not_installed',
+          error: 'ngrok_not_installed',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       throw new Error(`Unhandled fetch: ${url}`);
@@ -119,6 +146,10 @@ describe('App dashboard provider status', () => {
     expect((await screen.findAllByText('未找到可执行文件')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('/opt/bin/claude')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('/opt/bin/codex')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('未安装 ngrok')).toBeTruthy();
+    const localLink = await screen.findByRole('link', { name: 'http://192.168.1.25:8787' });
+    expect(localLink.getAttribute('href')).toBe('http://192.168.1.25:8787');
+    expect(screen.queryByRole('button', { name: '开启公网' })).toBeNull();
     expect(screen.queryByText(/检查于/)).toBeNull();
     expect(screen.queryByText(/1234567890000/)).toBeNull();
   });

@@ -135,11 +135,24 @@ export type BridgeSessionView = CurrentSessionView;
 export type StatusView = {
   ok: boolean;
   sessions: CurrentSessionView[];
+  preferredLocalUrl?: string;
 };
 
 export type BridgeSettingsView = {
   defaultProvider: 'claude-code' | 'codex';
   defaultWorkspace: string;
+  ngrok: {
+    enabled: boolean;
+  };
+};
+
+export type NgrokStatusView = {
+  installed: boolean;
+  enabled: boolean;
+  running: boolean;
+  status: 'not_installed' | 'stopped' | 'starting' | 'running' | 'error';
+  publicUrl?: string;
+  error?: string;
 };
 
 export type BridgeWsEvent =
@@ -188,6 +201,18 @@ export async function fetchStatus(): Promise<StatusView> {
 
 export async function fetchProviderStatus(): Promise<ProviderStatusView> {
   return await requestJson('/api/providers/status');
+}
+
+export async function fetchNgrokStatus(): Promise<NgrokStatusView> {
+  return await requestJson('/api/ngrok/status');
+}
+
+export async function startNgrok(): Promise<NgrokStatusView> {
+  return await requestJson('/api/ngrok/start', { method: 'POST' });
+}
+
+export async function stopNgrok(): Promise<NgrokStatusView> {
+  return await requestJson('/api/ngrok/stop', { method: 'POST' });
 }
 
 export type DirectoryEntryView = {

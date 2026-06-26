@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { createDaemonServer } from '../src/daemon/server';
 import { FakeClaudeRunner } from '../src/providers/claude-code/fakeClaudeRunner';
@@ -12,6 +12,59 @@ import { CodexCliRunner } from '../src/providers/codex/codexCliRunner';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { FileWeixinStateStore } from '../src/channels/weixin-direct/weixinStateStore';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
+import type { NgrokStatusView } from '../src/admin/ngrokRoutes';
+
+function createFakeNgrokManager(initial: NgrokStatusView = {
+  installed: false,
+  enabled: false,
+  running: false,
+  status: 'not_installed',
+}) {
+  let state = { ...initial };
+  return {
+    getStatus: vi.fn(async () => ({ ...state })),
+    start: vi.fn(async () => {
+      state = {
+        installed: true,
+        enabled: true,
+        running: true,
+        status: 'running',
+        publicUrl: 'https://bridge.ngrok-free.app',
+      };
+      return { ...state };
+    }),
+    stop: vi.fn(async () => {
+      state = {
+        ...state,
+        enabled: false,
+        running: false,
+        status: state.installed ? 'stopped' : 'not_installed',
+        publicUrl: undefined,
+      };
+      return { ...state };
+    }),
+    setEnabled: vi.fn(async (enabled: boolean) => {
+      if (enabled) {
+        state = {
+          installed: true,
+          enabled: true,
+          running: true,
+          status: 'running',
+          publicUrl: 'https://bridge.ngrok-free.app',
+        };
+      } else {
+        state = {
+          ...state,
+          enabled: false,
+          running: false,
+          status: state.installed ? 'stopped' : 'not_installed',
+          publicUrl: undefined,
+        };
+      }
+      return { ...state };
+    }),
+  };
+}
 
 describe('channel admin routes', () => {
   it('does not expose pairing approval routes', async () => {
@@ -307,6 +360,9 @@ describe('channel admin routes', () => {
     expect(initial.json()).toEqual({
       defaultProvider: 'claude-code',
       defaultWorkspace: process.cwd(),
+      ngrok: {
+        enabled: false,
+      },
     });
 
     const update = await app.inject({
@@ -315,6 +371,9 @@ describe('channel admin routes', () => {
       payload: {
         defaultProvider: 'codex',
         defaultWorkspace: '/tmp/project',
+        ngrok: {
+          enabled: true,
+        },
       },
     });
     expect(update.statusCode).toBe(200);
@@ -324,13 +383,120 @@ describe('channel admin routes', () => {
     expect(next.json()).toMatchObject({
       defaultProvider: 'codex',
       defaultWorkspace: '/tmp/project',
+      ngrok: {
+        enabled: true,
+      },
     });
     expect(JSON.parse(await readFile(configPath, 'utf8'))).toMatchObject({
       bridge: {
         defaultProvider: 'codex',
         defaultWorkspace: '/tmp/project',
+        ngrok: {
+          enabled: true,
+        },
       },
     });
+    await app.close();
+  });
+
+  it('returns ngrok runtime status and allows start/stop/settings control', async () => {
+    const configDir = mkdtempSync(`${tmpdir()}/bridge-ngrok-config-`);
+    const configPath = join(configDir, 'config.json');
+    const ngrok = createFakeNgrokManager({
+      installed: true,
+      enabled: false,
+      running: false,
+      status: 'stopped',
+    });
+    const { app } = createDaemonServer({
+      activeUserStore: createRuntimeUserStore('bridge-admin-ngrok-').activeUserStore,
+      configPath,
+      ngrokManager: ngrok,
+      bridgeDefaults: {
+        defaultProvider: 'claude-code',
+        defaultWorkspace: process.cwd(),
+      },
+    });
+
+    const initial = await app.inject({ method: 'GET', url: '/api/ngrok/status' });
+    expect(initial.statusCode).toBe(200);
+    expect(initial.json()).toEqual({
+      installed: true,
+      enabled: false,
+      running: false,
+      status: 'stopped',
+    });
+
+    const start = await app.inject({ method: 'POST', url: '/api/ngrok/start' });
+    expect(start.statusCode).toBe(200);
+    expect(start.json()).toMatchObject({
+      installed: true,
+      enabled: true,
+      running: true,
+      status: 'running',
+      publicUrl: 'https://bridge.ngrok-free.app',
+    });
+
+    const settings = await app.inject({
+      method: 'POST',
+      url: '/api/ngrok/settings',
+      payload: { enabled: false },
+    });
+    expect(settings.statusCode).toBe(200);
+    expect(settings.json()).toMatchObject({
+      installed: true,
+      enabled: false,
+      running: false,
+      status: 'stopped',
+    });
+
+    const stop = await app.inject({ method: 'POST', url: '/api/ngrok/stop' });
+    expect(stop.statusCode).toBe(200);
+    expect(stop.json()).toMatchObject({
+      installed: true,
+      enabled: false,
+      running: false,
+      status: 'stopped',
+    });
+
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toMatchObject({
+      bridge: {
+        ngrok: {
+          enabled: false,
+        },
+      },
+    });
+    await app.close();
+  });
+
+  it('loads persisted ngrok enabled state into daemon settings on startup', async () => {
+    const configDir = mkdtempSync(`${tmpdir()}/bridge-ngrok-persisted-`);
+    const configPath = join(configDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({
+      bridge: {
+        defaultProvider: 'claude-code',
+        defaultWorkspace: '/tmp/project',
+        ngrok: {
+          enabled: true,
+        },
+      },
+    }, null, 2));
+
+    const { app } = createDaemonServer({
+      activeUserStore: createRuntimeUserStore('bridge-admin-ngrok-persisted-').activeUserStore,
+      configPath,
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/api/settings' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      defaultProvider: 'claude-code',
+      defaultWorkspace: '/tmp/project',
+      ngrok: {
+        enabled: true,
+      },
+    });
+
     await app.close();
   });
 

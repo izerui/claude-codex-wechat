@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import Fastify from 'fastify';
 import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
+import { registerNgrokRoutes, type NgrokManager } from '../admin/ngrokRoutes';
 import { registerSettingsRoutes } from '../admin/settingsRoutes';
 import { registerFsBrowseRoutes } from '../admin/fsBrowseRoutes';
 import type { ChannelAdapter, ChannelOutgoingMessage } from '../channels/types';
@@ -20,8 +21,9 @@ import { CurrentConversationStore } from '../session/currentConversationStore';
 import { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 import { RuntimeUserStore } from '../storage/runtimeUserStore';
 import type { ActiveWeChatUserStore } from '../storage/userStore';
-import { defaultConfigPath, type WeixinConfig, type BridgeConfig } from './config';
+import { defaultConfigPath, loadBridgeConfig, type WeixinConfig, type BridgeConfig } from './config';
 import { BridgeEventHub } from './events';
+import { listLanIpv4Addresses } from './bootstrap';
 
 export function createDaemonServer(options: {
   db?: unknown;
@@ -32,16 +34,21 @@ export function createDaemonServer(options: {
   bridgeDefaults?: { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string };
   providerCommands?: BridgeConfig['providers'];
   configPath?: string;
+  ngrokManager?: NgrokManager;
 } = {}) {
   const app = Fastify({ logger: true });
   const events = new BridgeEventHub();
-  const bridgeDefaults = {
-    defaultProvider: options.bridgeDefaults?.defaultProvider ?? 'claude-code',
-    defaultWorkspace: options.bridgeDefaults?.defaultWorkspace ?? process.cwd(),
-  };
   const configPath = options.configPath
     ?? process.env.BRIDGE_CONFIG
     ?? join(mkdtempSync(join(tmpdir(), 'claude-codex-wechat-')), 'config.json');
+  const persistedConfig = loadBridgeConfig(configPath);
+  const bridgeDefaults = {
+    defaultProvider: options.bridgeDefaults?.defaultProvider ?? persistedConfig.bridge?.defaultProvider ?? 'claude-code',
+    defaultWorkspace: options.bridgeDefaults?.defaultWorkspace ?? persistedConfig.bridge?.defaultWorkspace ?? process.cwd(),
+    ngrok: {
+      enabled: persistedConfig.bridge?.ngrok?.enabled === true,
+    },
+  };
   const conversation = new CurrentConversationStore(configPath, {
     defaultCwd: bridgeDefaults.defaultWorkspace,
     defaultProviderId: bridgeDefaults.defaultProvider,
@@ -145,6 +152,13 @@ export function createDaemonServer(options: {
         lastProviderSessions,
         events,
         defaults: bridgeDefaults,
+        getHelpAddress: async () => {
+          const ngrok = await options.ngrokManager?.getStatus().catch(() => null);
+          if (ngrok?.running && ngrok.publicUrl) return ngrok.publicUrl;
+          const lan = listLanIpv4Addresses()[0];
+          if (lan) return `http://${lan}:${process.env.BRIDGE_PORT ?? 8787}`;
+          return `http://127.0.0.1:${process.env.BRIDGE_PORT ?? 8787}`;
+        },
       })
     : undefined;
   if (channel && messageRouter) {
@@ -177,12 +191,26 @@ export function createDaemonServer(options: {
     defaults: bridgeDefaults,
     configPath,
   });
+  if (options.ngrokManager) {
+    registerNgrokRoutes({
+      app,
+      configPath,
+      defaults: { ngrok: bridgeDefaults.ngrok },
+      ngrokManager: options.ngrokManager,
+    });
+  }
 
   registerFsBrowseRoutes({ app });
 
   app.get('/api/status', async () => ({
     ok: true,
     sessions: conversation.getCurrent() ? [conversation.getCurrent()!] : [],
+    preferredLocalUrl: (() => {
+      const lan = listLanIpv4Addresses()[0];
+      const port = process.env.BRIDGE_PORT ?? 8787;
+      if (lan) return `http://${lan}:${port}`;
+      return `http://127.0.0.1:${port}`;
+    })(),
   }));
 
   app.get('/api/providers/status', async () => providers.getStatus());

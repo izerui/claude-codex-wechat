@@ -330,9 +330,11 @@ The bridge has an intentional slash-command extension point for WeChat text inpu
 
 ## WeChat interaction rules
 
-The current WeChat direct channel is text-only in practice. Do not design bridge or agent interactions that depend on buttons, cards, or structured click UI unless the transport layer is explicitly upgraded first.
+The current WeChat direct channel should still be treated as a chat-first surface, but the client **does support Markdown rendering** for outbound text. Do not design bridge or agent interactions that depend on buttons, cards, or structured click UI unless the transport layer is explicitly upgraded first.
 
-- Treat WeChat as a plain-text chat surface.
+- Treat WeChat as a text chat surface with Markdown support.
+- Preserve Markdown that the WeChat client can render natively, especially links, headings, lists, code fences, and lightweight emphasis.
+- When sending addresses or control-surface entrypoints to WeChat, prefer clickable Markdown links instead of plain text when possible.
 - For real provider permission prompts, prefer explicit WeChat reply commands or equally direct text choices so the WeChat user can make the decision inside WeChat.
 - For user choices during multi-turn conversations, prefer numbered text options that the user can reply to directly.
 - Recommended pattern:

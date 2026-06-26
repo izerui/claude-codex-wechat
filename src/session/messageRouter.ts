@@ -45,6 +45,7 @@ export class MessageRouter {
       lastProviderSessions?: LastProviderSessionStore;
       events?: BridgeEventHub;
       defaults?: { defaultProvider: ProviderId; defaultWorkspace: string };
+      getHelpAddress?(): Promise<string | undefined>;
       outboundGate?: OutboundDeliveryGate;
       /**
        * Minimum interval between typing re-assertions (ms). Typing is event-driven
@@ -397,10 +398,11 @@ export class MessageRouter {
     command: Exclude<ReturnType<typeof parseBridgeCommand>, { kind: 'chat' }>,
   ): Promise<void> {
     if (command.kind === 'help') {
+      const helpAddress = await this.options.getHelpAddress?.();
       await this.sendToChat({
         chatId,
         kind: 'markdown',
-        text: buildBridgeCommandHelpMarkdown(),
+        text: buildBridgeCommandHelpMarkdown({ publicUrl: helpAddress }),
       });
       return;
     }

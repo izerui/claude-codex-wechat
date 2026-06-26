@@ -4,6 +4,8 @@ import { createDaemonServer } from './server';
 import { defaultConfigPath, loadBridgeConfig } from './config';
 import { persistProviderCommandsToConfigFile } from './configPersistence';
 import { findExecutable } from '../shared/platform';
+import type { NgrokManager } from '../admin/ngrokRoutes';
+import { NgrokManager as RuntimeNgrokManager } from '../runtime/ngrokManager';
 
 export type AttachFrontend = (app: FastifyInstance) => Promise<void> | void;
 
@@ -14,6 +16,7 @@ export type StartDaemonOptions = {
   port?: number;
   host?: string;
   configPath?: string;
+  ngrokManager?: NgrokManager;
 };
 
 export async function startDaemon(options: StartDaemonOptions): Promise<{
@@ -31,6 +34,10 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
     configPath,
     providers: providerCommands,
   });
+  const effectiveNgrokManager = options.ngrokManager ?? new RuntimeNgrokManager({
+    port,
+    enabled: config.bridge?.ngrok?.enabled === true,
+  });
   const { app } = createDaemonServer({
     wechat: config.wechat,
     providerCommands,
@@ -39,19 +46,25 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
       defaultWorkspace: config.bridge?.defaultWorkspace ?? process.cwd(),
     },
     configPath,
+    ngrokManager: effectiveNgrokManager,
   });
 
   await options.attachFrontend(app);
 
   await app.listen({ host, port });
+  const address = app.server.address();
+  const actualPort = typeof address === 'object' && address ? address.port : port;
+  if (config.bridge?.ngrok?.enabled === true) {
+    await effectiveNgrokManager.start().catch(() => undefined);
+  }
   console.log('claude-codex-wechat listening:');
-  console.log(`  Local:   http://127.0.0.1:${port}`);
+  console.log(`  Local:   http://127.0.0.1:${actualPort}`);
   for (const ip of listLanIpv4Addresses()) {
-    console.log(`  Network: http://${ip}:${port}`);
+    console.log(`  Network: http://${ip}:${actualPort}`);
   }
   console.log(`config path: ${configPath}`);
 
-  return { app, port, host, configPath };
+  return { app, port: actualPort, host, configPath };
 }
 
 export function listLanIpv4Addresses(): string[] {

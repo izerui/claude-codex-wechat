@@ -36,8 +36,11 @@ export const BRIDGE_COMMAND_HELP_GROUPS: BridgeCommandHelpGroup[] = [
   },
 ];
 
-export function buildBridgeCommandHelpMarkdown(): string {
+export function buildBridgeCommandHelpMarkdown(input?: { publicUrl?: string }): string {
   const lines: string[] = ['**可用命令**', '', BRIDGE_COMMAND_HELP_INTRO];
+  if (input?.publicUrl) {
+    lines.push('', `**访问地址**`, '', `[${input.publicUrl}](${input.publicUrl})`);
+  }
   for (const group of BRIDGE_COMMAND_HELP_GROUPS) {
     lines.push('', `**${group.title}**${group.note ? `（${group.note}）` : ''}`);
     for (const entry of group.entries) {

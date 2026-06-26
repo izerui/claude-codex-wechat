@@ -57,6 +57,14 @@ function createFetchStub() {
     sessions: BridgeSessionView[];
     activeUser: ActiveWeChatUserView | null;
     quota: { remaining: number; sentCount: number; limit: number; expired: boolean; windowEndsAt: number } | null;
+    ngrok: {
+      installed: boolean;
+      enabled: boolean;
+      running: boolean;
+      status: 'not_installed' | 'stopped' | 'starting' | 'running' | 'error';
+      publicUrl?: string;
+      error?: string;
+    };
   } = {
     sessions: [
       {
@@ -91,6 +99,12 @@ function createFetchStub() {
       expired: false,
       windowEndsAt: Date.now() + 18 * 60 * 60 * 1000 + 60_000,
     },
+    ngrok: {
+      installed: true,
+      enabled: false,
+      running: false,
+      status: 'stopped',
+    },
   };
 
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -99,7 +113,7 @@ function createFetchStub() {
     calls.push({ url, method, body: typeof init?.body === 'string' ? init.body : undefined });
 
     if (url.endsWith('/api/status')) {
-      return new Response(JSON.stringify({ ok: true, sessions: state.sessions, permissions: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ ok: true, sessions: state.sessions, permissions: [], preferredLocalUrl: 'http://192.168.1.25:8787' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/state')) {
       return new Response(JSON.stringify({
@@ -178,9 +192,52 @@ function createFetchStub() {
     }
     if (url.endsWith('/api/settings')) {
       return new Response(JSON.stringify({
-        provider: 'claude-code',
+        defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
+        ngrok: {
+          enabled: state.ngrok.enabled,
+        },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.endsWith('/api/ngrok/status')) {
+      return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.endsWith('/api/ngrok/start') && method === 'POST') {
+      state.ngrok = {
+        installed: true,
+        enabled: true,
+        running: true,
+        status: 'running',
+        publicUrl: 'https://bridge.ngrok-free.app',
+      };
+      return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.endsWith('/api/ngrok/stop') && method === 'POST') {
+      state.ngrok = {
+        installed: true,
+        enabled: false,
+        running: false,
+        status: 'stopped',
+      };
+      return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (url.endsWith('/api/ngrok/settings') && method === 'POST') {
+      const payload = init?.body ? JSON.parse(String(init.body)) as { enabled?: boolean } : {};
+      state.ngrok = payload.enabled
+        ? {
+            installed: true,
+            enabled: true,
+            running: true,
+            status: 'running',
+            publicUrl: 'https://bridge.ngrok-free.app',
+          }
+        : {
+            installed: true,
+            enabled: false,
+            running: false,
+            status: 'stopped',
+          };
+      return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/settings/sync') && method === 'POST') {
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -343,6 +400,24 @@ afterEach(async () => {
 });
 
 describe('App admin interactions', () => {
+  it('enables and disables the ngrok public URL from the dashboard', async () => {
+    const { fetchImpl } = createFetchStub();
+    vi.stubGlobal('fetch', fetchImpl as typeof fetch);
+
+    render(<App />);
+
+    const enable = await screen.findByRole('button', { name: '开启公网' });
+    fireEvent.click(enable);
+    expect(await screen.findByText('https://bridge.ngrok-free.app')).toBeTruthy();
+
+    const disable = await screen.findByRole('button', { name: '关闭公网' });
+    fireEvent.click(disable);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '开启公网' })).toBeTruthy();
+      expect(screen.getByText('http://192.168.1.25:8787')).toBeTruthy();
+    });
+  });
+
   it('copies the resume-by-id command from a recoverable session card', async () => {
     const { fetchImpl } = createFetchStub();
     const writeText = vi.fn(async () => undefined);
@@ -879,8 +954,29 @@ describe('App admin interactions', () => {
             activeUsers: 0,
             hasToken: false,
           },
-          settings: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+          settings: {
+            defaultProvider: 'claude-code',
+            defaultWorkspace: '/tmp/project',
+            ngrok: { enabled: false },
+          },
           runtimeConfig: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'wx-bot-token', accountId: 'wx-account-1' },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/settings')) {
+        return new Response(JSON.stringify({
+          defaultProvider: 'claude-code',
+          defaultWorkspace: '/tmp/project',
+          ngrok: {
+            enabled: false,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/ngrok/status')) {
+        return new Response(JSON.stringify({
+          installed: true,
+          enabled: false,
+          running: false,
+          status: 'stopped',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       return await fetchImpl(input, init);
@@ -896,9 +992,9 @@ describe('App admin interactions', () => {
 
     const claudeTabButtons = await screen.findAllByRole('button', { name: 'Claude 会话' });
     fireEvent.click(claudeTabButtons.at(-1)!);
-    fireEvent.click((await screen.findAllByRole('button', { name: '接入会话' })).at(-1)!);
 
-    expect(await screen.findByText('no_active_wechat_user')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '接入会话' })).toBeNull();
+    expect(await screen.findByText('暂无可恢复会话。')).toBeTruthy();
     expect(calls.some((call) => call.url.endsWith('/api/channel/current-session/attach') && call.method === 'POST')).toBe(false);
   });
 

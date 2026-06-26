@@ -16,6 +16,9 @@ export type ProviderCommandConfig = {
 export type BridgeDefaultsConfig = {
   defaultProvider?: 'claude-code' | 'codex';
   defaultWorkspace?: string;
+  ngrok?: {
+    enabled?: boolean;
+  };
 };
 
 export type BridgeConfig = {
@@ -71,10 +74,13 @@ function normalizeBridgeDefaultsConfig(raw: unknown): BridgeDefaultsConfig | und
   const defaultWorkspace = typeof record.defaultWorkspace === 'string' && record.defaultWorkspace.trim()
     ? record.defaultWorkspace
     : undefined;
-  if (!defaultProvider && !defaultWorkspace) return undefined;
+  const ngrokRecord = record.ngrok && typeof record.ngrok === 'object' ? record.ngrok as Record<string, unknown> : null;
+  const ngrokEnabled = ngrokRecord?.enabled === true;
+  if (!defaultProvider && !defaultWorkspace && !ngrokEnabled) return undefined;
   return {
     ...(defaultProvider ? { defaultProvider } : {}),
     ...(defaultWorkspace ? { defaultWorkspace } : {}),
+    ...(ngrokEnabled ? { ngrok: { enabled: true } } : {}),
   };
 }
 
