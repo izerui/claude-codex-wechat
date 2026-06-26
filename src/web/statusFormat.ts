@@ -52,6 +52,28 @@ export function formatSessionStatusBadgeClass(status: string): string {
   return 'badge-soft-neutral';
 }
 
+export type SessionStatusDisplay = { icon: string; label: string; badgeClass: string };
+
+/** 把会话状态映射成「图标 + 中文标签 + 徽章样式」，让运行状态一眼可辨。 */
+export function formatSessionStatusDisplay(status: string): SessionStatusDisplay {
+  switch (status) {
+    case 'running':
+    case 'active':
+      return { icon: '🟢', label: '运行中', badgeClass: 'badge-solid-success' };
+    case 'starting':
+      return { icon: '⏳', label: '启动中', badgeClass: 'badge-soft-accent' };
+    case 'idle':
+      return { icon: '✅', label: '就绪', badgeClass: 'badge-soft-success' };
+    case 'accepted':
+      return { icon: '✅', label: '已就绪', badgeClass: 'badge-soft-success' };
+    case 'error':
+    case 'failed':
+      return { icon: '❌', label: '异常', badgeClass: 'badge-solid-error' };
+    default:
+      return { icon: '🟡', label: status, badgeClass: 'badge-soft-neutral' };
+  }
+}
+
 export function formatTimestamp(value?: number, now: number = Date.now()): string {
   if (!value) return '-';
   const diff = now - value;

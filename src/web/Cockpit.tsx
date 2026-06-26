@@ -6,7 +6,7 @@ import {
   formatPluginBadge,
   formatPluginBadgeClass,
   formatProviderStatus,
-  formatSessionStatusBadgeClass,
+  formatSessionStatusDisplay,
   formatTimestamp,
   isPluginConnected,
   providerTone,
@@ -119,11 +119,20 @@ function EngineBay(input: {
         <span className="fw-semibold" style={{ fontSize: 15 }}>{input.name}</span>
         <span className="badge badge-soft-accent">{formatProviderStatus(input.providerInfo)}</span>
         {input.active && input.session ? (
-          <span className={`badge ${formatSessionStatusBadgeClass(input.session.status)} ms-auto`}>
-            运行中 · {input.session.status}
-          </span>
+          (() => {
+            const s = formatSessionStatusDisplay(input.session.status);
+            return (
+              <span className={`badge ${s.badgeClass} ms-auto d-inline-flex align-items-center gap-1`}>
+                <span aria-hidden="true">{s.icon}</span>
+                {s.label}
+              </span>
+            );
+          })()
         ) : (
-          <span className="badge badge-soft-neutral ms-auto">待命</span>
+          <span className="badge badge-soft-neutral ms-auto d-inline-flex align-items-center gap-1">
+            <span aria-hidden="true">💤</span>
+            待命
+          </span>
         )}
       </div>
       {command ? (

@@ -6,6 +6,7 @@ import {
   formatPluginBadge,
   isPluginConnected,
   formatSessionStatusBadgeClass,
+  formatSessionStatusDisplay,
 } from '../../src/web/statusFormat';
 
 describe('statusFormat', () => {
@@ -24,5 +25,13 @@ describe('statusFormat', () => {
     expect(isPluginConnected({ enabled: true, connected: true } as never)).toBe(true);
     expect(formatPluginBadge({ enabled: true, connected: true } as never)).toBe('已连接');
     expect(formatSessionStatusBadgeClass('running')).toBe('badge-solid-success');
+  });
+
+  it('maps session status to icon + label', () => {
+    expect(formatSessionStatusDisplay('running')).toMatchObject({ icon: '🟢', label: '运行中' });
+    expect(formatSessionStatusDisplay('idle')).toMatchObject({ icon: '✅', label: '就绪' });
+    expect(formatSessionStatusDisplay('starting')).toMatchObject({ icon: '⏳', label: '启动中' });
+    expect(formatSessionStatusDisplay('failed')).toMatchObject({ icon: '❌', label: '异常' });
+    expect(formatSessionStatusDisplay('whatever')).toMatchObject({ icon: '🟡', label: 'whatever' });
   });
 });
