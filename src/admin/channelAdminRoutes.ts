@@ -3,6 +3,7 @@ import type { ChannelAdapter } from '../channels/types';
 import { PRIMARY_WEIXIN_PLATFORM } from '../channels/platforms';
 import { WeixinDirectLoginClient } from '../channels/weixin-direct/loginClient';
 import type { WeixinConfig } from '../daemon/config';
+import type { BridgeSettings } from './settingsRoutes';
 import { defaultConfigPath } from '../daemon/config';
 import { deleteConfigFile, persistWechatCredentialsToConfigFile } from '../daemon/configPersistence';
 import type { BridgeEventHub } from '../daemon/events';
@@ -19,7 +20,7 @@ export function registerChannelAdminRoutes(input: {
   app: FastifyInstance;
   lastProviderSessions?: LastProviderSessionStore;
   conversation?: CurrentConversationStore;
-  defaults?: { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string };
+  defaults?: BridgeSettings;
   providers?: NativeProviderAdapter[];
   getSessionBindingMatch?: (sessionId: string) => boolean;
   users: ActiveWeChatUserStore;

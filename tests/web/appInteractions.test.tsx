@@ -131,6 +131,10 @@ function createFetchStub() {
         settings: {
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
+          tunnel: {
+            provider: 'ngrok',
+            enabled: false,
+          },
         },
         runtimeConfig: {
           enabled: true,
@@ -197,12 +201,16 @@ function createFetchStub() {
         ngrok: {
           enabled: state.ngrok.enabled,
         },
+        tunnel: {
+          provider: 'ngrok',
+          enabled: state.ngrok.enabled,
+        },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/ngrok/status')) {
+    if (url.endsWith('/api/tunnel/status')) {
       return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/ngrok/start') && method === 'POST') {
+    if (url.endsWith('/api/tunnel/start') && method === 'POST') {
       state.ngrok = {
         installed: true,
         enabled: true,
@@ -212,7 +220,7 @@ function createFetchStub() {
       };
       return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/ngrok/stop') && method === 'POST') {
+    if (url.endsWith('/api/tunnel/stop') && method === 'POST') {
       state.ngrok = {
         installed: true,
         enabled: false,
@@ -221,7 +229,7 @@ function createFetchStub() {
       };
       return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.endsWith('/api/ngrok/settings') && method === 'POST') {
+    if (url.endsWith('/api/tunnel/settings') && method === 'POST') {
       const payload = init?.body ? JSON.parse(String(init.body)) as { enabled?: boolean } : {};
       state.ngrok = payload.enabled
         ? {
@@ -416,6 +424,65 @@ describe('App admin interactions', () => {
       expect(screen.getByRole('button', { name: '开启公网' })).toBeTruthy();
       expect(screen.getByText('http://192.168.1.25:8787')).toBeTruthy();
     });
+  });
+
+  it('saves relay server settings from the help panel', async () => {
+    const { fetchImpl, calls } = createFetchStub();
+    vi.stubGlobal('fetch', fetchImpl as typeof fetch);
+
+    render(<App />);
+
+    const serverUrlInput = await screen.findByPlaceholderText('wss://relay.style520.com/agent');
+    fireEvent.change(serverUrlInput, { target: { value: 'wss://relay.style520.com/agent' } });
+    const authTokenInput = await screen.findByPlaceholderText('Relay Auth Token');
+    fireEvent.change(authTokenInput, { target: { value: 'relay-token' } });
+    fireEvent.click(await screen.findByRole('button', { name: '保存 Relay 设置' }));
+
+    await waitFor(() => {
+      const saveCall = calls.find((call) => call.url.endsWith('/api/settings') && call.method === 'POST');
+      expect(saveCall).toBeTruthy();
+      expect(saveCall?.body).toContain('"provider":"relay"');
+      expect(saveCall?.body).toContain('"serverUrl":"wss://relay.style520.com/agent"');
+      expect(saveCall?.body).toContain('"authToken":"relay-token"');
+    });
+  });
+
+  it('uses relay public status when relay is the selected tunnel provider', async () => {
+    const { fetchImpl } = createFetchStub();
+    const relayFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/settings')) {
+        return new Response(JSON.stringify({
+          defaultProvider: 'claude-code',
+          defaultWorkspace: '/tmp/project',
+          ngrok: { enabled: false },
+          tunnel: {
+            provider: 'relay',
+            enabled: true,
+            relay: {
+              serverUrl: 'wss://relay.style520.com/agent',
+              authToken: 'relay-token',
+            },
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/tunnel/status')) {
+        return new Response(JSON.stringify({
+          installed: true,
+          enabled: true,
+          running: true,
+          status: 'running',
+          publicUrl: 'https://style520.com/sjdfh2xxx',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return await fetchImpl(input, init);
+    });
+    vi.stubGlobal('fetch', relayFetch as typeof fetch);
+
+    render(<App />);
+
+    const relayLink = await screen.findByRole('link', { name: 'https://style520.com/sjdfh2xxx' });
+    expect(relayLink.getAttribute('href')).toBe('https://style520.com/sjdfh2xxx');
   });
 
   it('copies the resume-by-id command from a recoverable session card', async () => {
@@ -958,6 +1025,7 @@ describe('App admin interactions', () => {
             defaultProvider: 'claude-code',
             defaultWorkspace: '/tmp/project',
             ngrok: { enabled: false },
+            tunnel: { provider: 'ngrok', enabled: false },
           },
           runtimeConfig: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'wx-bot-token', accountId: 'wx-account-1' },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -969,9 +1037,13 @@ describe('App admin interactions', () => {
           ngrok: {
             enabled: false,
           },
+          tunnel: {
+            provider: 'ngrok',
+            enabled: false,
+          },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-      if (url.endsWith('/api/ngrok/status')) {
+      if (url.endsWith('/api/tunnel/status')) {
         return new Response(JSON.stringify({
           installed: true,
           enabled: false,

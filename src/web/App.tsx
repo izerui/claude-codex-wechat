@@ -1,28 +1,28 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  fetchNgrokStatus,
   fetchProviderStatus,
   fetchSettings,
   fetchStatus,
-  startNgrok,
-  stopNgrok,
+  fetchTunnelStatus,
+  startTunnel,
+  stopTunnel,
   type CurrentSessionView,
-  type NgrokStatusView,
   type ProviderStatusView,
   type BridgeSettingsView,
   type StatusView,
+  type TunnelStatusView,
 } from './apiClient';
 import { WeChatPanel } from './WeChatPanel';
 
 export function App() {
   const [status, setStatus] = useState<StatusView | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatusView | null>(null);
-  const [ngrokStatus, setNgrokStatus] = useState<NgrokStatusView | null>(null);
+  const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusView | null>(null);
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
   const [currentSession, setCurrentSession] = useState<CurrentSessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [ngrokBusy, setNgrokBusy] = useState(false);
+  const [tunnelBusy, setTunnelBusy] = useState(false);
   const [, setRelativeTick] = useState(0);
 
   useEffect(() => {
@@ -38,8 +38,8 @@ export function App() {
 
   useEffect(() => {
     const id = setInterval(() => {
-      void fetchNgrokStatus()
-        .then((next) => setNgrokStatus(next))
+      void fetchTunnelStatus()
+        .then((next) => setTunnelStatus(next))
         .catch(() => undefined);
     }, 10000);
     return () => clearInterval(id);
@@ -48,15 +48,15 @@ export function App() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const [nextStatus, nextProviderStatus, nextNgrokStatus, nextSettings] = await Promise.all([
+      const [nextStatus, nextProviderStatus, nextTunnelStatus, nextSettings] = await Promise.all([
         fetchStatus(),
         fetchProviderStatus(),
-        fetchNgrokStatus(),
+        fetchTunnelStatus(),
         fetchSettings(),
       ]);
       setStatus(nextStatus);
       setProviderStatus(nextProviderStatus);
-      setNgrokStatus(nextNgrokStatus);
+      setTunnelStatus(nextTunnelStatus);
       setSettings(nextSettings);
       setCurrentSession(nextStatus.sessions[0] ?? null);
     } catch (err) {
@@ -68,29 +68,43 @@ export function App() {
     void refresh();
   }, [refresh]);
 
-  const handleNgrokStart = useCallback(async () => {
-    setNgrokBusy(true);
+  const handleTunnelStart = useCallback(async () => {
+    setTunnelBusy(true);
     try {
-      const next = await startNgrok();
-      setNgrokStatus(next);
-      setSettings((current) => current ? { ...current, ngrok: { enabled: true } } : current);
+      const next = await startTunnel();
+      setTunnelStatus(next);
+      setSettings((current) => current ? {
+        ...current,
+        ngrok: { enabled: true },
+        tunnel: {
+          ...(current.tunnel ?? { provider: 'ngrok', enabled: false }),
+          enabled: true,
+        },
+      } : current);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setNgrokBusy(false);
+      setTunnelBusy(false);
     }
   }, []);
 
-  const handleNgrokStop = useCallback(async () => {
-    setNgrokBusy(true);
+  const handleTunnelStop = useCallback(async () => {
+    setTunnelBusy(true);
     try {
-      const next = await stopNgrok();
-      setNgrokStatus(next);
-      setSettings((current) => current ? { ...current, ngrok: { enabled: false } } : current);
+      const next = await stopTunnel();
+      setTunnelStatus(next);
+      setSettings((current) => current ? {
+        ...current,
+        ngrok: { enabled: false },
+        tunnel: {
+          ...(current.tunnel ?? { provider: 'ngrok', enabled: false }),
+          enabled: false,
+        },
+      } : current);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setNgrokBusy(false);
+      setTunnelBusy(false);
     }
   }, []);
 
@@ -98,11 +112,15 @@ export function App() {
     ?? (typeof window !== 'undefined' && window.location?.host
       ? `http://${window.location.host}`
       : 'http://127.0.0.1');
-  const displayAddress = ngrokStatus?.running && ngrokStatus.publicUrl
-    ? ngrokStatus.publicUrl
+  const displayAddress = tunnelStatus?.running && tunnelStatus.publicUrl
+    ? tunnelStatus.publicUrl
     : localUrl;
-  const isPublicAddress = Boolean(ngrokStatus?.running && ngrokStatus.publicUrl);
+  const isPublicAddress = Boolean(tunnelStatus?.running && tunnelStatus.publicUrl);
   const displayHref = displayAddress;
+  const activeTunnelProvider = settings?.tunnel?.provider ?? 'ngrok';
+  const tunnelWarning = activeTunnelProvider === 'relay'
+    ? (!tunnelStatus?.installed ? '未配置 Relay Server' : null)
+    : (!tunnelStatus?.installed ? '未安装 ngrok' : null);
 
   return (
     <div className="app-bg">
@@ -117,13 +135,13 @@ export function App() {
               <span className={`badge ${status?.ok === true ? 'badge-solid-success' : 'badge-soft-accent'}`}>
                 {status?.ok === true ? '在线' : '待确认'}
               </span>
-              {ngrokStatus?.installed ? (
-                ngrokStatus.running ? (
-                  <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void handleNgrokStop()} disabled={ngrokBusy}>
+              {tunnelStatus?.installed ? (
+                tunnelStatus.running ? (
+                  <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void handleTunnelStop()} disabled={tunnelBusy}>
                     关闭公网
                   </button>
                 ) : (
-                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => void handleNgrokStart()} disabled={ngrokBusy}>
+                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => void handleTunnelStart()} disabled={tunnelBusy}>
                     开启公网
                   </button>
                 )
@@ -154,9 +172,9 @@ export function App() {
           </div>
         ) : null}
 
-        {!ngrokStatus?.installed ? (
+        {tunnelWarning ? (
           <div className="alert alert-warning py-2 px-3 mb-3" role="status">
-            未安装 ngrok
+            {tunnelWarning}
           </div>
         ) : null}
 

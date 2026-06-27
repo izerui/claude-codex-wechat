@@ -24,6 +24,8 @@ import type { ActiveWeChatUserStore } from '../storage/userStore';
 import { defaultConfigPath, loadBridgeConfig, type WeixinConfig, type BridgeConfig } from './config';
 import { BridgeEventHub } from './events';
 import { listLanIpv4Addresses } from './bootstrap';
+import type { TunnelProvider } from '../runtime/tunnelProvider';
+import { TunnelRouter } from '../runtime/tunnelRouter';
 
 export function createDaemonServer(options: {
   db?: unknown;
@@ -31,10 +33,16 @@ export function createDaemonServer(options: {
   providers?: NativeProviderAdapter[];
   activeUserStore?: ActiveWeChatUserStore;
   wechat?: WeixinConfig;
-  bridgeDefaults?: { defaultProvider: 'claude-code' | 'codex'; defaultWorkspace: string };
+  bridgeDefaults?: {
+    defaultProvider: 'claude-code' | 'codex';
+    defaultWorkspace: string;
+    ngrok?: { enabled: boolean };
+    tunnel?: { provider: 'ngrok' | 'relay'; enabled: boolean; relay?: { serverUrl?: string; authToken?: string } };
+  };
   providerCommands?: BridgeConfig['providers'];
   configPath?: string;
   ngrokManager?: NgrokManager;
+  tunnelProvider?: TunnelProvider;
 } = {}) {
   const app = Fastify({ logger: true });
   const events = new BridgeEventHub();
@@ -45,8 +53,13 @@ export function createDaemonServer(options: {
   const bridgeDefaults = {
     defaultProvider: options.bridgeDefaults?.defaultProvider ?? persistedConfig.bridge?.defaultProvider ?? 'claude-code',
     defaultWorkspace: options.bridgeDefaults?.defaultWorkspace ?? persistedConfig.bridge?.defaultWorkspace ?? process.cwd(),
-    ngrok: {
+    ngrok: options.bridgeDefaults?.ngrok ?? {
       enabled: persistedConfig.bridge?.ngrok?.enabled === true,
+    },
+    tunnel: options.bridgeDefaults?.tunnel ?? {
+      provider: persistedConfig.tunnel?.provider ?? 'ngrok',
+      enabled: persistedConfig.tunnel?.enabled === true,
+      ...(persistedConfig.tunnel?.relay ? { relay: persistedConfig.tunnel.relay } : {}),
     },
   };
   const conversation = new CurrentConversationStore(configPath, {
@@ -98,6 +111,15 @@ export function createDaemonServer(options: {
         },
       })
     : undefined;
+  const tunnelProvider = options.tunnelProvider
+    ?? (options.ngrokManager
+      ? new TunnelRouter({
+          bridgePort: Number(process.env.BRIDGE_PORT ?? 8787),
+          defaults: bridgeDefaults,
+          ngrokProvider: options.ngrokManager,
+        })
+      : undefined);
+
   const messageRouter = channel
     ? new MessageRouter({
         channel,
@@ -153,8 +175,8 @@ export function createDaemonServer(options: {
         events,
         defaults: bridgeDefaults,
         getHelpAddress: async () => {
-          const ngrok = await options.ngrokManager?.getStatus().catch(() => null);
-          if (ngrok?.running && ngrok.publicUrl) return ngrok.publicUrl;
+          const tunnel = await tunnelProvider?.getStatus().catch(() => null);
+          if (tunnel?.running && tunnel.publicUrl) return tunnel.publicUrl;
           const lan = listLanIpv4Addresses()[0];
           if (lan) return `http://${lan}:${process.env.BRIDGE_PORT ?? 8787}`;
           return `http://127.0.0.1:${process.env.BRIDGE_PORT ?? 8787}`;
@@ -191,12 +213,12 @@ export function createDaemonServer(options: {
     defaults: bridgeDefaults,
     configPath,
   });
-  if (options.ngrokManager) {
+  if (tunnelProvider) {
     registerNgrokRoutes({
       app,
       configPath,
-      defaults: { ngrok: bridgeDefaults.ngrok },
-      ngrokManager: options.ngrokManager,
+      defaults: { ngrok: bridgeDefaults.ngrok, tunnel: bridgeDefaults.tunnel },
+      ngrokManager: tunnelProvider,
     });
   }
 
@@ -252,5 +274,5 @@ export function createDaemonServer(options: {
     await channel?.stop();
   });
 
-  return { app, conversation, sessions: conversation, events, activeUserStore };
+  return { app, conversation, sessions: conversation, events, activeUserStore, tunnelProvider };
 }

@@ -40,6 +40,7 @@ export async function persistBridgeDefaultsToConfigFile(input: {
   defaultProvider?: ProviderId;
   defaultWorkspace?: string;
   ngrokEnabled?: boolean;
+  tunnel?: BridgeConfig['tunnel'];
 }): Promise<void> {
   const currentConfig = await readConfigFile(input.configPath);
   const currentBridge = isRecord(currentConfig.bridge) ? currentConfig.bridge : undefined;
@@ -57,6 +58,18 @@ export async function persistBridgeDefaultsToConfigFile(input: {
         },
       } : {}),
     },
+    ...(input.tunnel ? {
+      tunnel: {
+        ...(input.tunnel.provider ? { provider: input.tunnel.provider } : {}),
+        enabled: input.tunnel.enabled === true,
+        ...(input.tunnel.relay ? {
+          relay: {
+            ...(input.tunnel.relay.serverUrl ? { serverUrl: input.tunnel.relay.serverUrl } : {}),
+            ...(input.tunnel.relay.authToken ? { authToken: input.tunnel.relay.authToken } : {}),
+          },
+        } : {}),
+      },
+    } : {}),
   };
 
   await mkdir(dirname(input.configPath), { recursive: true });

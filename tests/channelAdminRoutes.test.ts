@@ -363,6 +363,10 @@ describe('channel admin routes', () => {
       ngrok: {
         enabled: false,
       },
+      tunnel: {
+        provider: 'ngrok',
+        enabled: false,
+      },
     });
 
     const update = await app.inject({
@@ -373,6 +377,14 @@ describe('channel admin routes', () => {
         defaultWorkspace: '/tmp/project',
         ngrok: {
           enabled: true,
+        },
+        tunnel: {
+          provider: 'relay',
+          enabled: true,
+          relay: {
+            serverUrl: 'wss://relay.style520.com/agent',
+            authToken: 'relay-token',
+          },
         },
       },
     });
@@ -386,6 +398,14 @@ describe('channel admin routes', () => {
       ngrok: {
         enabled: true,
       },
+      tunnel: {
+        provider: 'relay',
+        enabled: true,
+        relay: {
+          serverUrl: 'wss://relay.style520.com/agent',
+          authToken: 'relay-token',
+        },
+      },
     });
     expect(JSON.parse(await readFile(configPath, 'utf8'))).toMatchObject({
       bridge: {
@@ -393,6 +413,14 @@ describe('channel admin routes', () => {
         defaultWorkspace: '/tmp/project',
         ngrok: {
           enabled: true,
+        },
+      },
+      tunnel: {
+        provider: 'relay',
+        enabled: true,
+        relay: {
+          serverUrl: 'wss://relay.style520.com/agent',
+          authToken: 'relay-token',
         },
       },
     });
@@ -418,7 +446,7 @@ describe('channel admin routes', () => {
       },
     });
 
-    const initial = await app.inject({ method: 'GET', url: '/api/ngrok/status' });
+    const initial = await app.inject({ method: 'GET', url: '/api/tunnel/status' });
     expect(initial.statusCode).toBe(200);
     expect(initial.json()).toEqual({
       installed: true,
@@ -427,7 +455,7 @@ describe('channel admin routes', () => {
       status: 'stopped',
     });
 
-    const start = await app.inject({ method: 'POST', url: '/api/ngrok/start' });
+    const start = await app.inject({ method: 'POST', url: '/api/tunnel/start' });
     expect(start.statusCode).toBe(200);
     expect(start.json()).toMatchObject({
       installed: true,
@@ -439,7 +467,7 @@ describe('channel admin routes', () => {
 
     const settings = await app.inject({
       method: 'POST',
-      url: '/api/ngrok/settings',
+      url: '/api/tunnel/settings',
       payload: { enabled: false },
     });
     expect(settings.statusCode).toBe(200);
@@ -450,7 +478,7 @@ describe('channel admin routes', () => {
       status: 'stopped',
     });
 
-    const stop = await app.inject({ method: 'POST', url: '/api/ngrok/stop' });
+    const stop = await app.inject({ method: 'POST', url: '/api/tunnel/stop' });
     expect(stop.statusCode).toBe(200);
     expect(stop.json()).toMatchObject({
       installed: true,

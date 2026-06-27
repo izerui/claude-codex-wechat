@@ -171,6 +171,28 @@ claude-codex-wechat init
 }
 ```
 
+如果要接入自建 `relay-server`，可在同一份配置里增加：
+
+```json
+{
+  "tunnel": {
+    "provider": "relay",
+    "enabled": true,
+    "relay": {
+      "serverUrl": "wss://relay.style520.com/agent",
+      "authToken": "replace-with-relay-auth-token"
+    }
+  }
+}
+```
+
+说明：
+
+- `relay-server` 可作为独立服务部署
+- 当前 bridge 只需要配置 `serverUrl` 与 `authToken`
+- 启用后，bridge 连接 relay-server 时会获得一个随机公网访问路径
+- 典型地址形如：`https://wechat.style520.com/sjdfh2xxx`
+
 环境变量：
 
 - `BRIDGE_PORT`

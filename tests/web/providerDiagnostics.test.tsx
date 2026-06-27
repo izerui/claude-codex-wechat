@@ -51,9 +51,13 @@ describe('App dashboard provider diagnostics', () => {
           ngrok: {
             enabled: false,
           },
+          tunnel: {
+            provider: 'ngrok',
+            enabled: false,
+          },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-      if (url.endsWith('/api/ngrok/status')) {
+      if (url.endsWith('/api/tunnel/status')) {
         return new Response(JSON.stringify({
           installed: false,
           enabled: false,

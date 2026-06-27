@@ -1,13 +1,13 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { terminateChild, findExecutable } from '../shared/platform';
-import type { NgrokManager as NgrokManagerContract, NgrokStatusView } from '../admin/ngrokRoutes';
+import type { TunnelProvider, TunnelStatusView } from './tunnelProvider';
 
 type TunnelPayload = {
   tunnels?: Array<{ public_url?: string }>;
 };
 
-export class NgrokManager implements NgrokManagerContract {
-  private status: NgrokStatusView;
+export class NgrokManager implements TunnelProvider {
+  private status: TunnelStatusView;
   private child: ChildProcess | null = null;
   private lastStderr = '';
   private readonly findExecutableFn: (command: string) => Promise<string | undefined>;
@@ -38,7 +38,7 @@ export class NgrokManager implements NgrokManagerContract {
     this.sleepFn = options.sleep ?? defaultSleep;
   }
 
-  async getStatus(): Promise<NgrokStatusView> {
+  async getStatus(): Promise<TunnelStatusView> {
     if (!this.child && this.status.status === 'stopped') {
       const executable = await this.findExecutableFn('ngrok');
       this.status.installed = Boolean(executable);
@@ -61,7 +61,7 @@ export class NgrokManager implements NgrokManagerContract {
     return { ...this.status };
   }
 
-  async start(): Promise<NgrokStatusView> {
+  async start(): Promise<TunnelStatusView> {
     if (this.child && this.status.running) {
       this.status.enabled = true;
       if (!this.status.publicUrl) {
@@ -140,7 +140,7 @@ export class NgrokManager implements NgrokManagerContract {
     }
   }
 
-  async stop(): Promise<NgrokStatusView> {
+  async stop(): Promise<TunnelStatusView> {
     this.status.enabled = false;
     if (this.child) {
       this.terminateChildFn(this.child);
@@ -155,7 +155,7 @@ export class NgrokManager implements NgrokManagerContract {
     return { ...this.status };
   }
 
-  async setEnabled(enabled: boolean): Promise<NgrokStatusView> {
+  async setEnabled(enabled: boolean): Promise<TunnelStatusView> {
     if (enabled) return await this.start();
     return await this.stop();
   }

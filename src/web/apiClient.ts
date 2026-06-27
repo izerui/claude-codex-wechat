@@ -144,9 +144,17 @@ export type BridgeSettingsView = {
   ngrok: {
     enabled: boolean;
   };
+  tunnel: {
+    provider: 'ngrok' | 'relay';
+    enabled: boolean;
+    relay?: {
+      serverUrl?: string;
+      authToken?: string;
+    };
+  };
 };
 
-export type NgrokStatusView = {
+export type TunnelStatusView = {
   installed: boolean;
   enabled: boolean;
   running: boolean;
@@ -203,17 +211,22 @@ export async function fetchProviderStatus(): Promise<ProviderStatusView> {
   return await requestJson('/api/providers/status');
 }
 
-export async function fetchNgrokStatus(): Promise<NgrokStatusView> {
-  return await requestJson('/api/ngrok/status');
+export async function fetchTunnelStatus(): Promise<TunnelStatusView> {
+  return await requestJson('/api/tunnel/status');
 }
 
-export async function startNgrok(): Promise<NgrokStatusView> {
-  return await requestJson('/api/ngrok/start', { method: 'POST' });
+export async function startTunnel(): Promise<TunnelStatusView> {
+  return await requestJson('/api/tunnel/start', { method: 'POST' });
 }
 
-export async function stopNgrok(): Promise<NgrokStatusView> {
-  return await requestJson('/api/ngrok/stop', { method: 'POST' });
+export async function stopTunnel(): Promise<TunnelStatusView> {
+  return await requestJson('/api/tunnel/stop', { method: 'POST' });
 }
+
+export type NgrokStatusView = TunnelStatusView;
+export const fetchNgrokStatus = fetchTunnelStatus;
+export const startNgrok = startTunnel;
+export const stopNgrok = stopTunnel;
 
 export type DirectoryEntryView = {
   name: string;

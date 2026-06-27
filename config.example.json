@@ -14,5 +14,13 @@
     "codex": {
       "command": "/opt/homebrew/bin/codex"
     }
+  },
+  "tunnel": {
+    "provider": "relay",
+    "enabled": false,
+    "relay": {
+      "serverUrl": "wss://relay.style520.com/agent",
+      "authToken": "replace-with-relay-auth-token"
+    }
   }
 }

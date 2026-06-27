@@ -21,6 +21,7 @@ import {
   type ProviderStatusView,
   type WeixinQuotaView,
   type WeixinRuntimeConfigView,
+  updateSettings,
 } from './apiClient';
 import { ChannelStrip, EngineBays } from './Cockpit';
 import {
@@ -78,6 +79,8 @@ export function WeChatPanel(input: {
   const [attachingSessionId, setAttachingSessionId] = useState<string | null>(null);
   const [creatingProvider, setCreatingProvider] = useState<'claude-code' | 'codex' | null>(null);
   const [loadingMoreRecoverable, setLoadingMoreRecoverable] = useState(false);
+  const [relayServerUrl, setRelayServerUrl] = useState('');
+  const [relayAuthToken, setRelayAuthToken] = useState('');
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const refresh = useCallback(async () => {
@@ -87,6 +90,8 @@ export function WeChatPanel(input: {
       setActiveUser(state.activeUser);
       setQuota(state.quota ?? null);
       setSettings(state.settings);
+      setRelayServerUrl(state.settings?.tunnel?.relay?.serverUrl ?? '');
+      setRelayAuthToken(state.settings?.tunnel?.relay?.authToken ?? '');
       setRuntimeConfig(state.runtimeConfig);
       setLastProviderSessions(state.lastProviderSessions ?? {});
       setPlugin(state.plugin);
@@ -314,6 +319,32 @@ export function WeChatPanel(input: {
     };
   };
 
+  const saveRelaySettings = async () => {
+    if (!settings) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const nextSettings: BridgeSettingsView = {
+        ...settings,
+        tunnel: {
+          provider: 'relay',
+          enabled: settings.tunnel?.enabled ?? false,
+          relay: {
+            ...(relayServerUrl.trim() ? { serverUrl: relayServerUrl.trim() } : {}),
+            ...(relayAuthToken.trim() ? { authToken: relayAuthToken.trim() } : {}),
+          },
+        },
+      };
+      await updateSettings(nextSettings);
+      setSettings(nextSettings);
+      input.onNotice?.('已保存 Relay 设置');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const filteredRecoverableSessions = recoverableSessions.filter((session) => (
     activeTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
   ));
@@ -398,6 +429,34 @@ export function WeChatPanel(input: {
         <div className="card-body">
           {activeTab === 'help' ? (
             <>
+              <div className="soft-card mb-3">
+                <div className="card-body">
+                  <div className="fw-semibold mb-2">Relay Server</div>
+                  <div className="row g-2">
+                    <div className="col-12">
+                      <input
+                        className="form-control"
+                        placeholder="wss://relay.style520.com/agent"
+                        value={relayServerUrl}
+                        onChange={(event) => setRelayServerUrl(event.target.value)}
+                      />
+                    </div>
+                    <div className="col-12">
+                      <input
+                        className="form-control"
+                        placeholder="Relay Auth Token"
+                        value={relayAuthToken}
+                        onChange={(event) => setRelayAuthToken(event.target.value)}
+                      />
+                    </div>
+                    <div className="col-12 d-flex justify-content-end">
+                      <button type="button" className="btn btn-sm btn-accent" onClick={() => void saveRelaySettings()} disabled={busy}>
+                        保存 Relay 设置
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <p className="text-muted-soft small mb-3">微信端可发送以下命令；{BRIDGE_COMMAND_HELP_INTRO}</p>
               {BRIDGE_COMMAND_HELP_GROUPS.map((group) => (
                 <div key={group.title} className="mb-3">

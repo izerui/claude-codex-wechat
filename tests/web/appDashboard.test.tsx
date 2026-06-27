@@ -59,9 +59,13 @@ describe('App dashboard provider status', () => {
           ngrok: {
             enabled: true,
           },
+          tunnel: {
+            provider: 'ngrok',
+            enabled: true,
+          },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-      if (url.endsWith('/api/ngrok/status')) {
+      if (url.endsWith('/api/tunnel/status')) {
         return new Response(JSON.stringify({
           installed: true,
           enabled: true,
@@ -126,9 +130,13 @@ describe('App dashboard provider status', () => {
           ngrok: {
             enabled: false,
           },
+          tunnel: {
+            provider: 'ngrok',
+            enabled: false,
+          },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-      if (url.endsWith('/api/ngrok/status')) {
+      if (url.endsWith('/api/tunnel/status')) {
         return new Response(JSON.stringify({
           installed: false,
           enabled: false,
@@ -152,5 +160,65 @@ describe('App dashboard provider status', () => {
     expect(screen.queryByRole('button', { name: '开启公网' })).toBeNull();
     expect(screen.queryByText(/检查于/)).toBeNull();
     expect(screen.queryByText(/1234567890000/)).toBeNull();
+  });
+
+  it('shows a relay-specific warning when relay is selected but not configured', async () => {
+    vi.stubGlobal('fetch', (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/status')) {
+        return new Response(JSON.stringify(okStatus), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/providers/status')) {
+        return new Response(JSON.stringify({
+          claude: { detected: true, version: '2.0.1', command: '/opt/bin/claude', checkedAt: 1234567890000 },
+          codex: { detected: false, reason: 'missing_binary', command: '/opt/bin/codex', checkedAt: 1234567890000 },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/state')) {
+        return new Response(JSON.stringify(channelState), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/active-user')) {
+        return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/current-session')) {
+        return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/sessions')) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/plugins')) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/wechat/runtime-config')) {
+        return new Response(JSON.stringify(null), { status: 404, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/settings')) {
+        return new Response(JSON.stringify({
+          defaultProvider: 'claude-code',
+          defaultWorkspace: '/tmp/project',
+          ngrok: {
+            enabled: false,
+          },
+          tunnel: {
+            provider: 'relay',
+            enabled: false,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/tunnel/status')) {
+        return new Response(JSON.stringify({
+          installed: false,
+          enabled: false,
+          running: false,
+          status: 'error',
+          error: 'relay_not_configured',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    }) as typeof fetch);
+
+    render(<App />);
+
+    expect(await screen.findByText('未配置 Relay Server')).toBeTruthy();
   });
 });

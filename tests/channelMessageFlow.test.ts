@@ -16,6 +16,7 @@ import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../s
 import type { ProviderSessionCandidate } from '../src/providers/types';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
 import type { NgrokManager } from '../src/admin/ngrokRoutes';
+import type { TunnelStatusView } from '../src/runtime/tunnelProvider';
 
 function seededUsers(platformUserId = 'wx_user_1') {
   const store = createRuntimeUserStore('bridge-message-flow-active-wechat-user-');
@@ -68,34 +69,24 @@ describe('channel message flow', () => {
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const runningStatus: TunnelStatusView = {
+      installed: true,
+      enabled: true,
+      running: true,
+      status: 'running',
+      publicUrl: 'https://bridge.ngrok-free.app',
+    };
+    const stoppedStatus: TunnelStatusView = {
+      installed: true,
+      enabled: false,
+      running: false,
+      status: 'stopped',
+    };
     const ngrokManager: NgrokManager = {
-      getStatus: vi.fn(async () => ({
-        installed: true,
-        enabled: true,
-        running: true,
-        status: 'running',
-        publicUrl: 'https://bridge.ngrok-free.app',
-      })),
-      start: vi.fn(async () => ({
-        installed: true,
-        enabled: true,
-        running: true,
-        status: 'running',
-        publicUrl: 'https://bridge.ngrok-free.app',
-      })),
-      stop: vi.fn(async () => ({
-        installed: true,
-        enabled: false,
-        running: false,
-        status: 'stopped',
-      })),
-      setEnabled: vi.fn(async () => ({
-        installed: true,
-        enabled: true,
-        running: true,
-        status: 'running',
-        publicUrl: 'https://bridge.ngrok-free.app',
-      })),
+      getStatus: vi.fn(async () => runningStatus),
+      start: vi.fn(async () => runningStatus),
+      stop: vi.fn(async () => stoppedStatus),
+      setEnabled: vi.fn(async () => runningStatus),
     };
     const { app } = createDaemonServer({
       channel,

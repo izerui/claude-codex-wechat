@@ -21,9 +21,21 @@ export type BridgeDefaultsConfig = {
   };
 };
 
+export type RelayTunnelConfig = {
+  serverUrl?: string;
+  authToken?: string;
+};
+
+export type TunnelConfig = {
+  provider?: 'ngrok' | 'relay';
+  enabled?: boolean;
+  relay?: RelayTunnelConfig;
+};
+
 export type BridgeConfig = {
   wechat?: WeixinConfig;
   bridge?: BridgeDefaultsConfig;
+  tunnel?: TunnelConfig;
   providers?: {
     claude?: ProviderCommandConfig;
     codex?: ProviderCommandConfig;
@@ -53,6 +65,7 @@ function normalizeBridgeConfig(raw: unknown, env: NodeJS.ProcessEnv, path: strin
   return {
     wechat: normalizeWechatConfig(record.wechat, env),
     bridge: normalizeBridgeDefaultsConfig(record.bridge),
+    tunnel: normalizeTunnelConfig(record.tunnel),
     providers: normalizeProvidersConfig(record.providers, env),
   };
 }
@@ -81,6 +94,25 @@ function normalizeBridgeDefaultsConfig(raw: unknown): BridgeDefaultsConfig | und
     ...(defaultProvider ? { defaultProvider } : {}),
     ...(defaultWorkspace ? { defaultWorkspace } : {}),
     ...(ngrokEnabled ? { ngrok: { enabled: true } } : {}),
+  };
+}
+
+function normalizeTunnelConfig(raw: unknown): TunnelConfig | undefined {
+  const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const provider = record.provider === 'relay' ? 'relay' : record.provider === 'ngrok' ? 'ngrok' : undefined;
+  const enabled = record.enabled === true;
+  const relayRecord = record.relay && typeof record.relay === 'object' ? record.relay as Record<string, unknown> : undefined;
+  const relay = relayRecord
+    ? {
+        ...(typeof relayRecord.serverUrl === 'string' && relayRecord.serverUrl.trim() ? { serverUrl: relayRecord.serverUrl } : {}),
+        ...(typeof relayRecord.authToken === 'string' && relayRecord.authToken.trim() ? { authToken: relayRecord.authToken } : {}),
+      }
+    : undefined;
+  if (!provider && !enabled && !relay) return undefined;
+  return {
+    ...(provider ? { provider } : {}),
+    enabled,
+    ...(relay ? { relay } : {}),
   };
 }
 
