@@ -1,5 +1,11 @@
 # Relay Tunnel Provider Integration Plan
 
+> Historical transition plan.
+>
+> This plan was written for the migration phase where relay had to coexist with the older `ngrok` path.
+> The current codebase has already completed that migration and removed the shipped `ngrok` runtime path.
+> Use this file for historical context only, not as the current implementation checklist.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Teach `claude-codex-wechat` to connect to an independently deployed `relay-server`, receive a random public URL on startup, and expose that URL in the admin UI and `/help`.

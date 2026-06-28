@@ -1,5 +1,11 @@
 # 2026-06-26 ngrok Runtime Control Design
 
+> Historical design note only.
+>
+> This document describes an earlier `ngrok`-based runtime control direction that is no longer the active local-development or production path.
+> The repository now uses the custom `relay-server` path for tunnel exposure, and the `ngrok` runtime implementation has been removed from the shipped codebase.
+> Keep this file only as design history; do not use it as current implementation guidance.
+
 ## Goal
 
 Allow the bridge web admin UI to control optional `ngrok` public exposure for the currently running daemon port.

@@ -8,7 +8,7 @@ describe('relay end-to-end', () => {
     const relay = await startRelayServer({
       port: 0,
       baseDomain: 'style520.com',
-      authToken: 'relay-token',
+      authTokens: ['relay-token'],
     });
 
     try {
@@ -22,7 +22,7 @@ describe('relay end-to-end', () => {
       const status = await provider.start();
 
       expect(status.running).toBe(true);
-      expect(status.publicUrl).toMatch(/^https:\/\/style520\.com\/[a-z0-9]{10,12}$/);
+      expect(status.publicUrl).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${relay.port}/[a-z0-9]{10,12}$`));
       await provider.stop();
     } finally {
       await relay.close();

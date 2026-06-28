@@ -6,7 +6,8 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "relay-server": "./bin/relay-server.mjs"
+    "relay-server": "./bin/relay-server.mjs",
+    "relay-server-token": "./bin/relay-server-token.mjs"
   },
   "files": [
     "bin",

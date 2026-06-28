@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 export function createDomainRegistry(input) {
-  const { baseDomain } = input;
+  const { resolvePublicBaseUrl } = input;
   const tokenToConnection = new Map();
   const connectionToAllocation = new Map();
 
@@ -10,15 +10,16 @@ export function createDomainRegistry(input) {
   }
 
   return {
-    allocate(connectionId) {
+    allocate(connectionId, metadata = {}) {
       let token = generateLabel();
       while (tokenToConnection.has(token)) {
         token = generateLabel();
       }
+      const publicBaseUrl = resolvePublicBaseUrl(metadata);
       const allocation = {
         connectionId,
         token,
-        publicUrl: `https://${baseDomain}/${token}`,
+        publicUrl: `${publicBaseUrl.replace(/\/+$/, '')}/${token}`,
       };
       tokenToConnection.set(token, connectionId);
       connectionToAllocation.set(connectionId, allocation);
@@ -26,6 +27,9 @@ export function createDomainRegistry(input) {
     },
     lookupByToken(token) {
       return tokenToConnection.get(token) ?? null;
+    },
+    lookupAllocation(connectionId) {
+      return connectionToAllocation.get(connectionId) ?? null;
     },
     release(connectionId) {
       const allocation = connectionToAllocation.get(connectionId);

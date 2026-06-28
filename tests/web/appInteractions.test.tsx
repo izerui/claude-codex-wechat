@@ -3,8 +3,12 @@ import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/re
 import { within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
+import { resetBridgeEventsForTests } from '../../src/web/bridgeEventsSocket';
+import { signRelayAccessCodeBodyForTest } from '../../src/web/accessCode';
+import { resolveApiBaseUrlForTest } from '../../src/web/apiClient';
 import type { ActiveWeChatUserView, BridgeSessionView } from '../../src/web/apiClient';
 
+// The window hook keeps its historical name for compatibility with existing access-code import flows.
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
 
@@ -57,7 +61,7 @@ function createFetchStub() {
     sessions: BridgeSessionView[];
     activeUser: ActiveWeChatUserView | null;
     quota: { remaining: number; sentCount: number; limit: number; expired: boolean; windowEndsAt: number } | null;
-    ngrok: {
+    tunnel: {
       installed: boolean;
       enabled: boolean;
       running: boolean;
@@ -99,7 +103,7 @@ function createFetchStub() {
       expired: false,
       windowEndsAt: Date.now() + 18 * 60 * 60 * 1000 + 60_000,
     },
-    ngrok: {
+    tunnel: {
       installed: true,
       enabled: false,
       running: false,
@@ -132,8 +136,12 @@ function createFetchStub() {
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
           tunnel: {
-            provider: 'ngrok',
+            provider: 'relay',
             enabled: false,
+            relay: {
+              serverUrl: 'wss://relay.style520.com/agent',
+              authToken: 'relay-token',
+            },
           },
         },
         runtimeConfig: {
@@ -198,46 +206,46 @@ function createFetchStub() {
       return new Response(JSON.stringify({
         defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
-        ngrok: {
-          enabled: state.ngrok.enabled,
-        },
         tunnel: {
-          provider: 'ngrok',
-          enabled: state.ngrok.enabled,
+          enabled: state.tunnel.enabled,
+          relay: {
+            serverUrl: 'wss://relay.style520.com/agent',
+            authToken: 'relay-token',
+          },
         },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/tunnel/status')) {
-      return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify(state.tunnel), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/tunnel/start') && method === 'POST') {
-      state.ngrok = {
+      state.tunnel = {
         installed: true,
         enabled: true,
         running: true,
         status: 'running',
-        publicUrl: 'https://bridge.ngrok-free.app',
+        publicUrl: 'https://relay.style520.com/session-001',
       };
-      return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify(state.tunnel), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/tunnel/stop') && method === 'POST') {
-      state.ngrok = {
+      state.tunnel = {
         installed: true,
         enabled: false,
         running: false,
         status: 'stopped',
       };
-      return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify(state.tunnel), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/tunnel/settings') && method === 'POST') {
       const payload = init?.body ? JSON.parse(String(init.body)) as { enabled?: boolean } : {};
-      state.ngrok = payload.enabled
+      state.tunnel = payload.enabled
         ? {
             installed: true,
             enabled: true,
             running: true,
             status: 'running',
-            publicUrl: 'https://bridge.ngrok-free.app',
+            publicUrl: 'https://relay.style520.com/session-001',
           }
         : {
             installed: true,
@@ -245,7 +253,7 @@ function createFetchStub() {
             running: false,
             status: 'stopped',
           };
-      return new Response(JSON.stringify(state.ngrok), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify(state.tunnel), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/settings/sync') && method === 'POST') {
       return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -399,16 +407,16 @@ function createFetchStub() {
 
 afterEach(async () => {
   // Unmount components so the shared bridge-events subscription releases its
-  // listener, then wait past the module's close debounce (500ms) so the next
-  // test gets a fresh stream connection instead of a stale, aborted one.
+  // listener, then forcibly reset the shared singleton so the next test gets
+  // a fresh stream connection instead of a stale, aborted one.
   cleanup();
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  resetBridgeEventsForTests();
   FakeEventSource.instances = [];
   vi.unstubAllGlobals();
 });
 
 describe('App admin interactions', () => {
-  it('enables and disables the ngrok public URL from the dashboard', async () => {
+  it('enables and disables the relay public URL from the dashboard', async () => {
     const { fetchImpl } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
@@ -416,7 +424,7 @@ describe('App admin interactions', () => {
 
     const enable = await screen.findByRole('button', { name: '开启公网' });
     fireEvent.click(enable);
-    expect(await screen.findByText('https://bridge.ngrok-free.app')).toBeTruthy();
+    expect(await screen.findByText('https://relay.style520.com/session-001')).toBeTruthy();
 
     const disable = await screen.findByRole('button', { name: '关闭公网' });
     fireEvent.click(disable);
@@ -426,25 +434,223 @@ describe('App admin interactions', () => {
     });
   });
 
-  it('saves relay server settings from the help panel', async () => {
-    const { fetchImpl, calls } = createFetchStub();
+  it('treats relay as the default public tunnel provider in dashboard state', async () => {
+    const relayFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/settings')) {
+        return new Response(JSON.stringify({
+          defaultProvider: 'claude-code',
+          defaultWorkspace: '/tmp/project',
+          tunnel: {
+            enabled: false,
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/tunnel/status')) {
+        return new Response(JSON.stringify({
+          installed: false,
+          enabled: false,
+          running: false,
+          status: 'error',
+          error: 'relay_not_configured',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return await createFetchStub().fetchImpl(input, init);
+    });
+    vi.stubGlobal('fetch', relayFetch as typeof fetch);
+
+    render(<App />);
+
+    expect(await screen.findByText('未配置 Relay Server')).toBeTruthy();
+    expect(screen.queryByText('未配置 Relay Server')).toBeTruthy();
+  });
+
+  it('does not show editable relay settings controls in the help panel', async () => {
+    const { fetchImpl } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
     render(<App />);
 
-    const serverUrlInput = await screen.findByPlaceholderText('wss://relay.style520.com/agent');
-    fireEvent.change(serverUrlInput, { target: { value: 'wss://relay.style520.com/agent' } });
-    const authTokenInput = await screen.findByPlaceholderText('Relay Auth Token');
-    fireEvent.change(authTokenInput, { target: { value: 'relay-token' } });
-    fireEvent.click(await screen.findByRole('button', { name: '保存 Relay 设置' }));
+    await screen.findByRole('heading', { name: '微信远程控制台' });
+    expect(screen.queryByPlaceholderText('wss://relay.style520.com/agent')).toBeNull();
+    expect(screen.queryByPlaceholderText('Relay Auth Token')).toBeNull();
+    expect(screen.queryByRole('button', { name: '保存 Relay 设置' })).toBeNull();
+  });
 
-    await waitFor(() => {
-      const saveCall = calls.find((call) => call.url.endsWith('/api/settings') && call.method === 'POST');
-      expect(saveCall).toBeTruthy();
-      expect(saveCall?.body).toContain('"provider":"relay"');
-      expect(saveCall?.body).toContain('"serverUrl":"wss://relay.style520.com/agent"');
-      expect(saveCall?.body).toContain('"authToken":"relay-token"');
+  it('does not show the relay client instance id field in the help panel', async () => {
+    const customFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/channel/state')) {
+        return new Response(JSON.stringify({
+          activeUser: null,
+          plugin: {
+            id: 'weixin',
+            type: 'weixin-direct',
+            name: '微信',
+            enabled: false,
+            connected: false,
+            status: 'disabled',
+            activeUsers: 0,
+            hasToken: false,
+          },
+          settings: {
+            defaultProvider: 'claude-code',
+            defaultWorkspace: '/tmp/project',
+            tunnel: {
+              enabled: false,
+              relay: {
+                serverUrl: 'wss://relay.style520.com/agent',
+                authToken: 'relay-token',
+              },
+            },
+          },
+          runtimeConfig: null,
+          lastProviderSessions: {},
+          quota: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return await createFetchStub().fetchImpl(input, init);
     });
+    vi.stubGlobal('fetch', customFetch as typeof fetch);
+
+    render(<App />);
+
+    await screen.findByRole('heading', { name: '微信远程控制台' });
+    expect(screen.queryByDisplayValue('relay-client-demo')).toBeNull();
+    expect(screen.queryByRole('button', { name: '复制实例 ID' })).toBeNull();
+  });
+
+  it('keeps relay token path prefix for runtime api urls and login event stream', async () => {
+    expect(resolveApiBaseUrlForTest(
+      {},
+      {
+        origin: 'http://127.0.0.1:8788',
+        pathname: '/f300f2a605ed/src/web/main.tsx',
+      },
+    )).toBe('http://127.0.0.1:8788/f300f2a605ed');
+
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        ...window.location,
+        origin: 'http://127.0.0.1:8788',
+        pathname: '/f300f2a605ed',
+      },
+    });
+
+    const fetchCalls: string[] = [];
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      fetchCalls.push(url);
+      if (url.endsWith('/api/status')) {
+        return new Response(JSON.stringify({ ok: true, sessions: [], permissions: [], preferredLocalUrl: 'http://192.168.1.25:8787' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/state')) {
+        return new Response(JSON.stringify({
+          activeUser: null,
+          plugin: {
+            id: 'weixin',
+            type: 'weixin',
+            name: 'WeChat channel',
+            enabled: false,
+            connected: false,
+            status: 'disabled',
+            activeUsers: 0,
+            hasToken: false,
+          },
+          settings: {
+            defaultProvider: 'claude-code',
+            defaultWorkspace: '/tmp/project',
+            tunnel: {
+              provider: 'relay',
+              enabled: false,
+              relay: {
+                serverUrl: 'wss://relay.style520.com/agent',
+                authToken: 'relay-token',
+              },
+            },
+          },
+          runtimeConfig: {
+            enabled: true,
+            baseUrl: 'https://ilinkai.weixin.qq.com',
+            token: 'wx-bot-token',
+            accountId: 'wx-account-1',
+          },
+          quota: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/providers/status')) {
+        return new Response(JSON.stringify({ claude: { detected: true }, codex: { detected: true } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/settings')) {
+        return new Response(JSON.stringify({
+          defaultProvider: 'claude-code',
+          defaultWorkspace: '/tmp/project',
+          tunnel: {
+            enabled: false,
+            relay: {
+              serverUrl: 'wss://relay.style520.com/agent',
+              authToken: 'relay-token',
+            },
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/tunnel/status')) {
+        return new Response(JSON.stringify({
+          installed: false,
+          enabled: false,
+          running: false,
+          status: 'error',
+          error: 'relay_not_configured',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/active-user')) {
+        return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/current-session')) {
+        return new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/sessions')) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/plugins')) {
+        return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/wechat/runtime-config')) {
+        return new Response(JSON.stringify({
+          enabled: true,
+          baseUrl: 'https://ilinkai.weixin.qq.com',
+          token: 'wx-bot-token',
+          accountId: 'wx-account-1',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/channel/weixin/login')) {
+        return new Response(null, { status: 200 });
+      }
+      if (url.endsWith('/api/bridge-events') && init?.method === 'POST') {
+        return new Response(new ReadableStream(), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchImpl as typeof fetch);
+    vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource);
+
+    render(<App />);
+
+    await screen.findByRole('heading', { name: '微信远程控制台' });
+    expect(fetchCalls.some((url) => url.startsWith('http://127.0.0.1:8788/f300f2a605ed/api/status'))).toBe(true);
+    expect(fetchCalls.some((url) => url.startsWith('http://127.0.0.1:8788/f300f2a605ed/api/channel/state'))).toBe(true);
+  });
+
+  it('does not show relay access-code import controls in the help panel', async () => {
+    const { fetchImpl } = createFetchStub();
+    vi.stubGlobal('fetch', fetchImpl as typeof fetch);
+
+    render(<App />);
+
+    await screen.findByRole('heading', { name: '微信远程控制台' });
+    expect(screen.queryByPlaceholderText('Relay Access Code')).toBeNull();
+    expect(screen.queryByRole('button', { name: '导入接入码' })).toBeNull();
   });
 
   it('uses relay public status when relay is the selected tunnel provider', async () => {
@@ -455,9 +661,7 @@ describe('App admin interactions', () => {
         return new Response(JSON.stringify({
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
-          ngrok: { enabled: false },
           tunnel: {
-            provider: 'relay',
             enabled: true,
             relay: {
               serverUrl: 'wss://relay.style520.com/agent',
@@ -1024,8 +1228,7 @@ describe('App admin interactions', () => {
           settings: {
             defaultProvider: 'claude-code',
             defaultWorkspace: '/tmp/project',
-            ngrok: { enabled: false },
-            tunnel: { provider: 'ngrok', enabled: false },
+            tunnel: { enabled: false },
           },
           runtimeConfig: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'wx-bot-token', accountId: 'wx-account-1' },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -1034,11 +1237,7 @@ describe('App admin interactions', () => {
         return new Response(JSON.stringify({
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
-          ngrok: {
-            enabled: false,
-          },
           tunnel: {
-            provider: 'ngrok',
             enabled: false,
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });

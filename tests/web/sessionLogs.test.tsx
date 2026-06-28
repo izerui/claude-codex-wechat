@@ -95,22 +95,17 @@ function createFetchStub() {
       return new Response(JSON.stringify({
         defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
-        ngrok: {
-          enabled: false,
-        },
         tunnel: {
-          provider: 'ngrok',
           enabled: false,
         },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/tunnel/status')) {
       return new Response(JSON.stringify({
-        installed: false,
+        installed: true,
         enabled: false,
         running: false,
-        status: 'not_installed',
-        error: 'ngrok_not_installed',
+        status: 'stopped',
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     throw new Error(`Unhandled fetch: ${method} ${url}`);

@@ -1,4 +1,5 @@
 type BrowserLike = Partial<Pick<Location, 'host' | 'origin'>>;
+type PathLike = Partial<Pick<Location, 'pathname'>>;
 type WindowBridgeLike = { __bridgeApiOrigin?: string };
 
 export type ActiveWeChatUserView = {
@@ -141,11 +142,7 @@ export type StatusView = {
 export type BridgeSettingsView = {
   defaultProvider: 'claude-code' | 'codex';
   defaultWorkspace: string;
-  ngrok: {
-    enabled: boolean;
-  };
   tunnel: {
-    provider: 'ngrok' | 'relay';
     enabled: boolean;
     relay?: {
       serverUrl?: string;
@@ -172,11 +169,20 @@ export type BridgeWsEvent =
   | { type: 'channel.current-session-changed' }
   | { type: 'status'; message: string };
 
-export function resolveApiBaseUrlForTest(windowLike: WindowBridgeLike, locationLike: BrowserLike): string {
+export function resolveApiBaseUrlForTest(
+  windowLike: WindowBridgeLike,
+  locationLike: BrowserLike & PathLike,
+): string {
   if (typeof windowLike.__bridgeApiOrigin === 'string' && windowLike.__bridgeApiOrigin) {
     return windowLike.__bridgeApiOrigin;
   }
-  return typeof locationLike.origin === 'string' && locationLike.origin ? locationLike.origin : '';
+  const origin = typeof locationLike.origin === 'string' && locationLike.origin ? locationLike.origin : '';
+  const pathname = typeof locationLike.pathname === 'string' ? locationLike.pathname : '';
+  const firstSegment = pathname.split('/').filter(Boolean)[0] ?? '';
+  if (!origin) return '';
+  if (!firstSegment) return origin;
+  // Relay path mode mounts the whole app under /<token>; API calls must stay under that prefix.
+  return `${origin}/${firstSegment}`;
 }
 
 function resolveApiBaseUrl(): string {
@@ -222,11 +228,6 @@ export async function startTunnel(): Promise<TunnelStatusView> {
 export async function stopTunnel(): Promise<TunnelStatusView> {
   return await requestJson('/api/tunnel/stop', { method: 'POST' });
 }
-
-export type NgrokStatusView = TunnelStatusView;
-export const fetchNgrokStatus = fetchTunnelStatus;
-export const startNgrok = startTunnel;
-export const stopNgrok = stopTunnel;
 
 export type DirectoryEntryView = {
   name: string;

@@ -190,8 +190,15 @@ claude-codex-wechat init
 
 - `relay-server` 可作为独立服务部署
 - 当前 bridge 只需要配置 `serverUrl` 与 `authToken`
+- 当前本地开发公网链路默认走 `relay-server`
 - 启用后，bridge 连接 relay-server 时会获得一个随机公网访问路径
 - 典型地址形如：`https://wechat.style520.com/sjdfh2xxx`
+
+开发备注：
+
+- 前端侧“接入码”主实现位于 [src/web/accessCode.ts](./src/web/accessCode.ts)
+- [src/web/activationCode.ts](./src/web/activationCode.ts) 仅保留为兼容 re-export，新的实现不要继续写入该文件
+- 迁移剩余兼容项与对应测试证据见 [docs/2026-06-28-access-code-migration-notes.md](./docs/2026-06-28-access-code-migration-notes.md)
 
 环境变量：
 

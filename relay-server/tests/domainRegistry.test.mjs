@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { createDomainRegistry } from '../src/domainRegistry.mjs';
 
 test('allocates a random path token and returns a public URL', () => {
-  const registry = createDomainRegistry({ baseDomain: 'style520.com' });
+  const registry = createDomainRegistry({
+    resolvePublicBaseUrl() {
+      return 'https://style520.com';
+    },
+  });
   const allocation = registry.allocate('conn-1');
 
   assert.equal(allocation.connectionId, 'conn-1');
@@ -12,7 +16,11 @@ test('allocates a random path token and returns a public URL', () => {
 });
 
 test('releases a path token when its connection closes', () => {
-  const registry = createDomainRegistry({ baseDomain: 'style520.com' });
+  const registry = createDomainRegistry({
+    resolvePublicBaseUrl() {
+      return 'https://style520.com';
+    },
+  });
   const allocation = registry.allocate('conn-1');
 
   assert.equal(registry.lookupByToken(allocation.token), 'conn-1');

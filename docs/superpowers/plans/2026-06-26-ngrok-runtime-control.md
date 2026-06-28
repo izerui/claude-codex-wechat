@@ -1,5 +1,11 @@
 # Ngrok Runtime Control Implementation Plan
 
+> Historical implementation plan only.
+>
+> This plan targeted an earlier `ngrok` runtime-control implementation that is no longer the active direction.
+> The current codebase has removed the shipped `ngrok` runtime path and uses the custom `relay-server` flow instead.
+> Do not use this document as the current execution plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add web-admin-controlled ngrok public exposure that persists `enabled` state, auto-restores on daemon restart, and never breaks the main bridge service.

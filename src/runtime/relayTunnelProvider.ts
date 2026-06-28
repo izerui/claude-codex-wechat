@@ -66,12 +66,15 @@ export class RelayTunnelProvider implements TunnelProvider {
       socket.on('message', (raw) => {
         const payload = typeof raw === 'string' ? JSON.parse(raw) : typeof raw?.data === 'string' ? JSON.parse(raw.data) : raw;
         if (payload?.type === 'registered') {
+          const publicUrl = typeof payload?.token === 'string'
+            ? `${derivePublicBaseUrl(this.options.serverUrl)}/${payload.token}`
+            : undefined;
           this.status = {
             installed: true,
             enabled: true,
             running: true,
             status: 'running',
-            ...(typeof payload.publicUrl === 'string' ? { publicUrl: payload.publicUrl } : {}),
+            ...(publicUrl ? { publicUrl } : {}),
           };
           resolve({ ...this.status });
           return;
@@ -141,4 +144,12 @@ export class RelayTunnelProvider implements TunnelProvider {
       bodyBase64: bodyBuffer.toString('base64'),
     }));
   }
+}
+
+function derivePublicBaseUrl(serverUrl: string): string {
+  return serverUrl
+    .replace(/^ws:\/\//, 'http://')
+    .replace(/^wss:\/\//, 'https://')
+    .replace(/\/agent\/?$/, '')
+    .replace(/\/+$/, '');
 }

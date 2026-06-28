@@ -10,3 +10,6 @@ coverage/
 .env.*
 CLAUDE.md
 .superpowers/
+relay-server/relay-auth-tokens.txt
+relay-server/*.tgz
+undefined/

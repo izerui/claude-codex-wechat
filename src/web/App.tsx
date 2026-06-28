@@ -75,9 +75,8 @@ export function App() {
       setTunnelStatus(next);
       setSettings((current) => current ? {
         ...current,
-        ngrok: { enabled: true },
         tunnel: {
-          ...(current.tunnel ?? { provider: 'ngrok', enabled: false }),
+          ...(current.tunnel ?? { enabled: false }),
           enabled: true,
         },
       } : current);
@@ -95,9 +94,8 @@ export function App() {
       setTunnelStatus(next);
       setSettings((current) => current ? {
         ...current,
-        ngrok: { enabled: false },
         tunnel: {
-          ...(current.tunnel ?? { provider: 'ngrok', enabled: false }),
+          ...(current.tunnel ?? { enabled: false }),
           enabled: false,
         },
       } : current);
@@ -117,10 +115,9 @@ export function App() {
     : localUrl;
   const isPublicAddress = Boolean(tunnelStatus?.running && tunnelStatus.publicUrl);
   const displayHref = displayAddress;
-  const activeTunnelProvider = settings?.tunnel?.provider ?? 'ngrok';
-  const tunnelWarning = activeTunnelProvider === 'relay'
-    ? (!tunnelStatus?.installed ? '未配置 Relay Server' : null)
-    : (!tunnelStatus?.installed ? '未安装 ngrok' : null);
+  const tunnelWarning = !(tunnelStatus?.installed || tunnelStatus?.running || tunnelStatus?.enabled)
+    ? '未配置 Relay Server'
+    : null;
 
   return (
     <div className="app-bg">

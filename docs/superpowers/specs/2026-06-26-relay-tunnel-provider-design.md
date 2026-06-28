@@ -1,5 +1,11 @@
 # 2026-06-26 Relay Tunnel Provider Integration Design
 
+> Historical transition design note.
+>
+> Parts of this document describe the temporary coexistence period between `ngrok` and relay.
+> The shipped codebase has since moved to relay-only local development and mainline tunnel support.
+> Read this file as design history; for current behavior, follow the runtime code, README, and relay deployment docs.
+
 ## Goal
 
 Teach `claude-codex-wechat` to connect to an independently deployed `relay-server`, receive a random public subdomain on each startup, and expose that public URL in the existing admin and WeChat control flows.

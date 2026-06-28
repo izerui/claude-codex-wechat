@@ -4,8 +4,6 @@ import { createDaemonServer } from './server';
 import { defaultConfigPath, loadBridgeConfig } from './config';
 import { persistProviderCommandsToConfigFile } from './configPersistence';
 import { findExecutable } from '../shared/platform';
-import type { NgrokManager } from '../admin/ngrokRoutes';
-import { NgrokManager as RuntimeNgrokManager } from '../runtime/ngrokManager';
 import type { TunnelProvider } from '../runtime/tunnelProvider';
 
 export type AttachFrontend = (app: FastifyInstance) => Promise<void> | void;
@@ -17,7 +15,6 @@ export type StartDaemonOptions = {
   port?: number;
   host?: string;
   configPath?: string;
-  ngrokManager?: NgrokManager;
   tunnelProvider?: TunnelProvider;
 };
 
@@ -39,25 +36,16 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
   const bridgeDefaults = {
     defaultProvider: config.bridge?.defaultProvider ?? 'claude-code',
     defaultWorkspace: config.bridge?.defaultWorkspace ?? process.cwd(),
-    ngrok: {
-      enabled: config.bridge?.ngrok?.enabled === true,
-    },
     tunnel: {
-      provider: config.tunnel?.provider ?? 'ngrok',
       enabled: config.tunnel?.enabled === true,
       ...(config.tunnel?.relay ? { relay: config.tunnel.relay } : {}),
     },
   };
-  const effectiveNgrokManager = options.ngrokManager ?? new RuntimeNgrokManager({
-    port,
-    enabled: config.bridge?.ngrok?.enabled === true,
-  });
   const { app, tunnelProvider: resolvedTunnelProvider } = createDaemonServer({
     wechat: config.wechat,
     providerCommands,
     bridgeDefaults,
     configPath,
-    ngrokManager: effectiveNgrokManager,
     ...(options.tunnelProvider ? { tunnelProvider: options.tunnelProvider } : {}),
   });
 
@@ -66,10 +54,8 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
   await app.listen({ host, port });
   const address = app.server.address();
   const actualPort = typeof address === 'object' && address ? address.port : port;
-  if (config.tunnel?.provider === 'relay' && config.tunnel?.enabled === true) {
+  if (config.tunnel?.enabled === true) {
     await resolvedTunnelProvider?.start().catch(() => undefined);
-  } else if (config.bridge?.ngrok?.enabled === true) {
-    await effectiveNgrokManager.start().catch(() => undefined);
   }
   console.log('claude-codex-wechat listening:');
   console.log(`  Local:   http://127.0.0.1:${actualPort}`);

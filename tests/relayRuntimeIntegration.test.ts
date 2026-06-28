@@ -11,7 +11,7 @@ describe('relay runtime integration', () => {
     const relay = await startRelayServer({
       port: 0,
       baseDomain: 'style520.com',
-      authToken: 'relay-token',
+      authTokens: ['relay-token'],
     });
 
     const configDir = mkdtempSync(`${tmpdir()}/bridge-relay-runtime-`);
@@ -39,12 +39,12 @@ describe('relay runtime integration', () => {
     });
 
     try {
-      const response = await fetch(`http://127.0.0.1:${daemon.port}/api/ngrok/status`);
+      const response = await fetch(`http://127.0.0.1:${daemon.port}/api/tunnel/status`);
       const payload = await response.json() as { running?: boolean; publicUrl?: string };
 
       expect(response.status).toBe(200);
       expect(payload.running).toBe(true);
-      expect(payload.publicUrl).toMatch(/^https:\/\/style520\.com\/[a-z0-9]{10,12}$/);
+      expect(payload.publicUrl).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${relay.port}/[a-z0-9]{10,12}$`));
     } finally {
       await daemon.app.close();
       await relay.close();
@@ -57,7 +57,7 @@ describe('relay runtime integration', () => {
     const relay = await startRelayServer({
       port: 0,
       baseDomain: 'style520.com',
-      authToken: 'relay-token',
+      authTokens: ['relay-token'],
     });
 
     const configDir = mkdtempSync(`${tmpdir()}/bridge-relay-runtime-save-`);
@@ -83,14 +83,12 @@ describe('relay runtime integration', () => {
         body: JSON.stringify({
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
-          ngrok: { enabled: false },
           tunnel: {
-            provider: 'relay',
-            enabled: true,
-            relay: {
-              serverUrl: `ws://127.0.0.1:${relay.port}/agent`,
-              authToken: 'relay-token',
-            },
+          enabled: true,
+          relay: {
+            serverUrl: `ws://127.0.0.1:${relay.port}/agent`,
+            authToken: 'relay-token',
+          },
           },
         }),
       });
@@ -102,13 +100,13 @@ describe('relay runtime integration', () => {
       const startPayload = await startResponse.json() as { running?: boolean; publicUrl?: string };
       expect(startResponse.status).toBe(200);
       expect(startPayload.running).toBe(true);
-      expect(startPayload.publicUrl).toMatch(/^https:\/\/style520\.com\/[a-z0-9]{10,12}$/);
+      expect(startPayload.publicUrl).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${relay.port}/[a-z0-9]{10,12}$`));
 
       const statusResponse = await fetch(`http://127.0.0.1:${daemon.port}/api/tunnel/status`);
       const statusPayload = await statusResponse.json() as { running?: boolean; publicUrl?: string };
       expect(statusResponse.status).toBe(200);
       expect(statusPayload.running).toBe(true);
-      expect(statusPayload.publicUrl).toMatch(/^https:\/\/style520\.com\/[a-z0-9]{10,12}$/);
+      expect(statusPayload.publicUrl).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${relay.port}/[a-z0-9]{10,12}$`));
     } finally {
       await daemon.app.close();
       await relay.close();

@@ -48,11 +48,7 @@ describe('App dashboard provider diagnostics', () => {
         return new Response(JSON.stringify({
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
-          ngrok: {
-            enabled: false,
-          },
           tunnel: {
-            provider: 'ngrok',
             enabled: false,
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -62,8 +58,8 @@ describe('App dashboard provider diagnostics', () => {
           installed: false,
           enabled: false,
           running: false,
-          status: 'not_installed',
-          error: 'ngrok_not_installed',
+          status: 'error',
+          error: 'relay_not_configured',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       throw new Error(`Unhandled fetch: ${url}`);

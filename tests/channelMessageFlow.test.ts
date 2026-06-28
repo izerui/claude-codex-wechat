@@ -15,7 +15,6 @@ import { PRIMARY_WEIXIN_PLATFORM } from '../src/channels/platforms';
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../src/providers/types';
 import type { ProviderSessionCandidate } from '../src/providers/types';
 import { createRuntimeUserStore, seedRuntimeUserStore } from './helpers/runtimeUserStore';
-import type { NgrokManager } from '../src/admin/ngrokRoutes';
 import type { TunnelStatusView } from '../src/runtime/tunnelProvider';
 
 function seededUsers(platformUserId = 'wx_user_1') {
@@ -64,7 +63,7 @@ class NoScanAutoAttachProvider implements NativeProviderAdapter {
 }
 
 describe('channel message flow', () => {
-  it('includes the public ngrok URL in /help replies when ngrok is running', async () => {
+  it('includes the public relay URL in /help replies when relay is running', async () => {
     const { activeUserStore, configPath } = seededUsers('wx_user_1');
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
@@ -74,18 +73,12 @@ describe('channel message flow', () => {
       enabled: true,
       running: true,
       status: 'running',
-      publicUrl: 'https://bridge.ngrok-free.app',
+      publicUrl: 'https://relay.style520.com/session-001',
     };
-    const stoppedStatus: TunnelStatusView = {
-      installed: true,
-      enabled: false,
-      running: false,
-      status: 'stopped',
-    };
-    const ngrokManager: NgrokManager = {
+    const relayProvider = {
       getStatus: vi.fn(async () => runningStatus),
       start: vi.fn(async () => runningStatus),
-      stop: vi.fn(async () => stoppedStatus),
+      stop: vi.fn(async () => ({ ...runningStatus, enabled: false, running: false, status: 'stopped' as const })),
       setEnabled: vi.fn(async () => runningStatus),
     };
     const { app } = createDaemonServer({
@@ -93,7 +86,18 @@ describe('channel message flow', () => {
       providers: [new FakeProviderAdapter('claude-code')],
       activeUserStore,
       configPath,
-      ngrokManager,
+      tunnelProvider: relayProvider,
+      bridgeDefaults: {
+        defaultProvider: 'claude-code',
+        defaultWorkspace: process.cwd(),
+        tunnel: {
+          enabled: true,
+          relay: {
+            serverUrl: 'wss://relay.style520.com/agent',
+            authToken: 'relay-token',
+          },
+        },
+      },
     });
 
     await channel.emitIncoming({
@@ -105,7 +109,7 @@ describe('channel message flow', () => {
       timestamp: 1,
     });
 
-    expect(sent.at(-1)?.text).toContain('[https://bridge.ngrok-free.app](https://bridge.ngrok-free.app)');
+    expect(sent.at(-1)?.text).toContain('[https://relay.style520.com/session-001](https://relay.style520.com/session-001)');
     await app.close();
   });
 
@@ -418,7 +422,7 @@ describe('channel message flow', () => {
       if (method === 'turn/start') {
         queueMicrotask(() => {
           notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: '我先检查 ' });
-          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: 'ngrok 是否可用。' });
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: 'relay 是否可用。' });
           notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-2', delta: '已经代理出去，地址如下。' });
           notificationHandlers.get('turn/completed')?.({ threadId: 'codex-session-split', turn: { id: 'turn-split' } });
         });
@@ -464,7 +468,7 @@ describe('channel message flow', () => {
     });
 
     expect(sent).toEqual([
-      { kind: 'text', text: '我先检查 ngrok 是否可用。' },
+      { kind: 'text', text: '我先检查 relay 是否可用。' },
       { kind: 'text', text: '已经代理出去，地址如下。' },
     ]);
 

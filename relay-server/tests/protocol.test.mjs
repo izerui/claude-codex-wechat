@@ -12,6 +12,7 @@ test('parses a valid register message', () => {
 
   assert.equal(parsed.type, 'register');
   assert.equal(parsed.clientVersion, '0.1.0');
+  assert.equal(parsed.authToken, 'relay-token');
 });
 
 test('throws for invalid relay messages', () => {

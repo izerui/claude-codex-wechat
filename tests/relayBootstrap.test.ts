@@ -32,7 +32,7 @@ describe('relay daemon bootstrap', () => {
       enabled: true,
       running: true,
       status: 'running',
-      publicUrl: 'https://style520.com/sjdfh2xxx',
+      publicUrl: 'https://relay.style520.com/sjdfh2xxx',
     };
     const stoppedStatus: TunnelStatusView = {
       installed: true,
@@ -82,7 +82,7 @@ describe('relay daemon bootstrap', () => {
       enabled: true,
       running: true,
       status: 'running',
-      publicUrl: 'https://style520.com/sjdfh2xxx',
+      publicUrl: 'https://relay.style520.com/sjdfh2xxx',
     };
     const startSpy = vi.spyOn(RelayTunnelProvider.prototype, 'start').mockResolvedValue(runningStatus);
 
@@ -112,9 +112,7 @@ describe('relay daemon bootstrap', () => {
       payload: {
         defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
-        ngrok: { enabled: false },
         tunnel: {
-          provider: 'relay',
           enabled: true,
           relay: {
             serverUrl: 'wss://relay.style520.com/agent',
@@ -131,7 +129,7 @@ describe('relay daemon bootstrap', () => {
       enabled: true,
       running: true,
       status: 'running',
-      publicUrl: 'https://style520.com/sjdfh2xxx',
+      publicUrl: 'https://relay.style520.com/sjdfh2xxx',
     };
     const startSpy = vi.spyOn(RelayTunnelProvider.prototype, 'start').mockResolvedValue(runningStatus);
 

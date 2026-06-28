@@ -56,11 +56,7 @@ describe('App dashboard provider status', () => {
         return new Response(JSON.stringify({
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
-          ngrok: {
-            enabled: true,
-          },
           tunnel: {
-            provider: 'ngrok',
             enabled: true,
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -71,7 +67,7 @@ describe('App dashboard provider status', () => {
           enabled: true,
           running: true,
           status: 'running',
-          publicUrl: 'https://bridge.ngrok-free.app',
+          publicUrl: 'https://relay.style520.com/session-001',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       throw new Error(`Unhandled fetch: ${url}`);
@@ -85,8 +81,8 @@ describe('App dashboard provider status', () => {
     expect(await screen.findByText('在线')).toBeTruthy();
     expect((await screen.findAllByText('v2.0.1')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('未找到可执行文件')).length).toBeGreaterThan(0);
-    const publicLink = await screen.findByRole('link', { name: 'https://bridge.ngrok-free.app' });
-    expect(publicLink.getAttribute('href')).toBe('https://bridge.ngrok-free.app');
+    const publicLink = await screen.findByRole('link', { name: 'https://relay.style520.com/session-001' });
+    expect(publicLink.getAttribute('href')).toBe('https://relay.style520.com/session-001');
     expect(await screen.findByRole('button', { name: '关闭公网' })).toBeTruthy();
     expect(screen.queryByText('5177 页面')).toBeNull();
     expect(screen.queryByText('监控区')).toBeNull();
@@ -127,11 +123,7 @@ describe('App dashboard provider status', () => {
         return new Response(JSON.stringify({
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
-          ngrok: {
-            enabled: false,
-          },
           tunnel: {
-            provider: 'ngrok',
             enabled: false,
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -141,8 +133,8 @@ describe('App dashboard provider status', () => {
           installed: false,
           enabled: false,
           running: false,
-          status: 'not_installed',
-          error: 'ngrok_not_installed',
+          status: 'error',
+          error: 'relay_not_configured',
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       throw new Error(`Unhandled fetch: ${url}`);
@@ -154,7 +146,7 @@ describe('App dashboard provider status', () => {
     expect((await screen.findAllByText('未找到可执行文件')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('/opt/bin/claude')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('/opt/bin/codex')).length).toBeGreaterThan(0);
-    expect(await screen.findByText('未安装 ngrok')).toBeTruthy();
+    expect(await screen.findByText('未配置 Relay Server')).toBeTruthy();
     const localLink = await screen.findByRole('link', { name: 'http://192.168.1.25:8787' });
     expect(localLink.getAttribute('href')).toBe('http://192.168.1.25:8787');
     expect(screen.queryByRole('button', { name: '开启公网' })).toBeNull();
@@ -196,11 +188,7 @@ describe('App dashboard provider status', () => {
         return new Response(JSON.stringify({
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
-          ngrok: {
-            enabled: false,
-          },
           tunnel: {
-            provider: 'relay',
             enabled: false,
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -219,6 +207,6 @@ describe('App dashboard provider status', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('未配置 Relay Server')).toBeTruthy();
+    expect((await screen.findAllByText('未配置 Relay Server')).length).toBeGreaterThan(0);
   });
 });

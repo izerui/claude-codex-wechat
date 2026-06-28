@@ -16,9 +16,6 @@ export type ProviderCommandConfig = {
 export type BridgeDefaultsConfig = {
   defaultProvider?: 'claude-code' | 'codex';
   defaultWorkspace?: string;
-  ngrok?: {
-    enabled?: boolean;
-  };
 };
 
 export type RelayTunnelConfig = {
@@ -27,7 +24,6 @@ export type RelayTunnelConfig = {
 };
 
 export type TunnelConfig = {
-  provider?: 'ngrok' | 'relay';
   enabled?: boolean;
   relay?: RelayTunnelConfig;
 };
@@ -87,19 +83,15 @@ function normalizeBridgeDefaultsConfig(raw: unknown): BridgeDefaultsConfig | und
   const defaultWorkspace = typeof record.defaultWorkspace === 'string' && record.defaultWorkspace.trim()
     ? record.defaultWorkspace
     : undefined;
-  const ngrokRecord = record.ngrok && typeof record.ngrok === 'object' ? record.ngrok as Record<string, unknown> : null;
-  const ngrokEnabled = ngrokRecord?.enabled === true;
-  if (!defaultProvider && !defaultWorkspace && !ngrokEnabled) return undefined;
+  if (!defaultProvider && !defaultWorkspace) return undefined;
   return {
     ...(defaultProvider ? { defaultProvider } : {}),
     ...(defaultWorkspace ? { defaultWorkspace } : {}),
-    ...(ngrokEnabled ? { ngrok: { enabled: true } } : {}),
   };
 }
 
 function normalizeTunnelConfig(raw: unknown): TunnelConfig | undefined {
   const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-  const provider = record.provider === 'relay' ? 'relay' : record.provider === 'ngrok' ? 'ngrok' : undefined;
   const enabled = record.enabled === true;
   const relayRecord = record.relay && typeof record.relay === 'object' ? record.relay as Record<string, unknown> : undefined;
   const relay = relayRecord
@@ -108,9 +100,8 @@ function normalizeTunnelConfig(raw: unknown): TunnelConfig | undefined {
         ...(typeof relayRecord.authToken === 'string' && relayRecord.authToken.trim() ? { authToken: relayRecord.authToken } : {}),
       }
     : undefined;
-  if (!provider && !enabled && !relay) return undefined;
+  if (!enabled && !relay) return undefined;
   return {
-    ...(provider ? { provider } : {}),
     enabled,
     ...(relay ? { relay } : {}),
   };

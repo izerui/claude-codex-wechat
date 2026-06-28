@@ -1,8 +1,8 @@
 export function createWsRegistry() {
   const connections = new Map();
   return {
-    set(connectionId, socket) {
-      connections.set(connectionId, socket);
+    set(connectionId, record) {
+      connections.set(connectionId, record);
     },
     get(connectionId) {
       return connections.get(connectionId) ?? null;
@@ -12,6 +12,9 @@ export function createWsRegistry() {
     },
     entries() {
       return connections.entries();
+    },
+    values() {
+      return connections.values();
     },
   };
 }

@@ -19,6 +19,10 @@
 
 本项目的目标是 **Native Provider Bridge**，不是 ACP bridge。
 
+相关补充说明：
+
+- relay/access-code 术语迁移的剩余兼容项见 [2026-06-28-access-code-migration-notes.md](./2026-06-28-access-code-migration-notes.md)
+
 ---
 
 ## 2. 安装与启动

@@ -5,7 +5,6 @@ describe('relay tunnel config wiring', () => {
   it('normalizes relay tunnel settings from config', () => {
     const config = normalizeBridgeConfigForTest({
       tunnel: {
-        provider: 'relay',
         enabled: true,
         relay: {
           serverUrl: 'wss://relay.style520.com/agent',
@@ -15,7 +14,6 @@ describe('relay tunnel config wiring', () => {
     });
 
     expect(config.tunnel).toEqual({
-      provider: 'relay',
       enabled: true,
       relay: {
         serverUrl: 'wss://relay.style520.com/agent',
@@ -27,14 +25,9 @@ describe('relay tunnel config wiring', () => {
   it('falls back to disabled relay tunnel config when values are missing', () => {
     const config = normalizeBridgeConfigForTest({
       tunnel: {
-        provider: 'relay',
       },
     });
 
-    expect(config.tunnel).toEqual({
-      provider: 'relay',
-      enabled: false,
-      relay: undefined,
-    });
+    expect(config.tunnel).toBeUndefined();
   });
 });

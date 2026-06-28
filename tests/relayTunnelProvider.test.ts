@@ -33,18 +33,19 @@ describe('RelayTunnelProvider', () => {
       type: 'registered',
       connectionId: 'conn-1',
       token: 'sjdfh2xxx',
-      publicUrl: 'https://style520.com/sjdfh2xxx',
     }));
     const status = await startPromise;
 
     expect(createSocket).toHaveBeenCalledWith('wss://relay.style520.com/agent');
     expect(socket.sent[0]).toContain('"type":"register"');
+    expect(socket.sent[0]).not.toContain('"clientInstanceId"');
+    expect(socket.sent[0]).toContain('"authToken":"relay-token"');
     expect(status).toMatchObject({
       installed: true,
       enabled: true,
       running: true,
       status: 'running',
-      publicUrl: 'https://style520.com/sjdfh2xxx',
+      publicUrl: 'https://relay.style520.com/sjdfh2xxx',
     });
   });
 
@@ -71,7 +72,6 @@ describe('RelayTunnelProvider', () => {
       type: 'registered',
       connectionId: 'conn-1',
       token: 'sjdfh2xxx',
-      publicUrl: 'https://style520.com/sjdfh2xxx',
     }));
     await startPromise;
 

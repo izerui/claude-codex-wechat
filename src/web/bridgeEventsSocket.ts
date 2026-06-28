@@ -69,3 +69,14 @@ export function subscribeBridgeEvents(listener: Listener): () => void {
     }
   };
 }
+
+// Test-only escape hatch for resetting this module-level singleton between cases.
+export function resetBridgeEventsForTests(): void {
+  if (closeTimer) {
+    clearTimeout(closeTimer);
+    closeTimer = null;
+  }
+  listeners.clear();
+  controller?.abort();
+  controller = null;
+}

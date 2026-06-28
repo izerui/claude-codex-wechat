@@ -20,6 +20,8 @@
   },
   "scripts": {
     "dev": "tsx src/main.ts",
+    "dev:relay": "node scripts/dev-relay.mjs",
+    "dev:all": "node scripts/dev-relay.mjs all",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build:web": "vite build",

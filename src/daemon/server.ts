@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import Fastify from 'fastify';
 import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
-import { registerNgrokRoutes, type NgrokManager } from '../admin/ngrokRoutes';
+import { registerTunnelRoutes } from '../admin/tunnelRoutes';
 import { registerSettingsRoutes } from '../admin/settingsRoutes';
 import { registerFsBrowseRoutes } from '../admin/fsBrowseRoutes';
 import type { ChannelAdapter, ChannelOutgoingMessage } from '../channels/types';
@@ -24,8 +24,9 @@ import type { ActiveWeChatUserStore } from '../storage/userStore';
 import { defaultConfigPath, loadBridgeConfig, type WeixinConfig, type BridgeConfig } from './config';
 import { BridgeEventHub } from './events';
 import { listLanIpv4Addresses } from './bootstrap';
-import type { TunnelProvider } from '../runtime/tunnelProvider';
-import { TunnelRouter } from '../runtime/tunnelRouter';
+import type { TunnelProvider, TunnelStatusView } from '../runtime/tunnelProvider';
+import { RelayTunnelRouter } from '../runtime/relayTunnelRouter';
+import { ensureRelayAuthTokenSync } from './configPersistence';
 
 export function createDaemonServer(options: {
   db?: unknown;
@@ -36,12 +37,10 @@ export function createDaemonServer(options: {
   bridgeDefaults?: {
     defaultProvider: 'claude-code' | 'codex';
     defaultWorkspace: string;
-    ngrok?: { enabled: boolean };
-    tunnel?: { provider: 'ngrok' | 'relay'; enabled: boolean; relay?: { serverUrl?: string; authToken?: string } };
+    tunnel?: { enabled: boolean; relay?: { serverUrl?: string; authToken?: string } };
   };
   providerCommands?: BridgeConfig['providers'];
   configPath?: string;
-  ngrokManager?: NgrokManager;
   tunnelProvider?: TunnelProvider;
 } = {}) {
   const app = Fastify({ logger: true });
@@ -53,15 +52,24 @@ export function createDaemonServer(options: {
   const bridgeDefaults = {
     defaultProvider: options.bridgeDefaults?.defaultProvider ?? persistedConfig.bridge?.defaultProvider ?? 'claude-code',
     defaultWorkspace: options.bridgeDefaults?.defaultWorkspace ?? persistedConfig.bridge?.defaultWorkspace ?? process.cwd(),
-    ngrok: options.bridgeDefaults?.ngrok ?? {
-      enabled: persistedConfig.bridge?.ngrok?.enabled === true,
-    },
     tunnel: options.bridgeDefaults?.tunnel ?? {
-      provider: persistedConfig.tunnel?.provider ?? 'ngrok',
       enabled: persistedConfig.tunnel?.enabled === true,
       ...(persistedConfig.tunnel?.relay ? { relay: persistedConfig.tunnel.relay } : {}),
     },
   };
+  const existingRelayAuthToken = bridgeDefaults.tunnel.relay?.authToken?.trim();
+  if (existingRelayAuthToken) {
+    bridgeDefaults.tunnel.relay = {
+      ...(bridgeDefaults.tunnel.relay ?? {}),
+      authToken: existingRelayAuthToken,
+    };
+  } else {
+    const authToken = ensureRelayAuthTokenSync({ configPath });
+    bridgeDefaults.tunnel.relay = {
+      ...(bridgeDefaults.tunnel.relay ?? {}),
+      authToken,
+    };
+  }
   const conversation = new CurrentConversationStore(configPath, {
     defaultCwd: bridgeDefaults.defaultWorkspace,
     defaultProviderId: bridgeDefaults.defaultProvider,
@@ -112,13 +120,10 @@ export function createDaemonServer(options: {
       })
     : undefined;
   const tunnelProvider = options.tunnelProvider
-    ?? (options.ngrokManager
-      ? new TunnelRouter({
-          bridgePort: Number(process.env.BRIDGE_PORT ?? 8787),
-          defaults: bridgeDefaults,
-          ngrokProvider: options.ngrokManager,
-        })
-      : undefined);
+    ?? new RelayTunnelRouter({
+      bridgePort: Number(process.env.BRIDGE_PORT ?? 8787),
+      defaults: bridgeDefaults,
+    });
 
   const messageRouter = channel
     ? new MessageRouter({
@@ -214,11 +219,11 @@ export function createDaemonServer(options: {
     configPath,
   });
   if (tunnelProvider) {
-    registerNgrokRoutes({
+    registerTunnelRoutes({
       app,
       configPath,
-      defaults: { ngrok: bridgeDefaults.ngrok, tunnel: bridgeDefaults.tunnel },
-      ngrokManager: tunnelProvider,
+      defaults: { tunnel: bridgeDefaults.tunnel },
+      tunnelManager: tunnelProvider,
     });
   }
 
