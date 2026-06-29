@@ -109,10 +109,18 @@ test('falls back to default port when RELAY_PORT is missing', () => {
   assert.equal(config.port, 8788);
 });
 
-test('throws when RELAY_BASE_DOMAIN is missing', () => {
-  assert.throws(() => loadRelayConfig({
+test('allows startup config without RELAY_BASE_DOMAIN or RELAY_SERVER_URL', () => {
+  const config = loadRelayConfig({
     RELAY_AUTH_TOKEN: 'clrt_1234567890abcdef12345678',
-  }), /RELAY_BASE_DOMAIN|RELAY_SERVER_URL/);
+  });
+  assert.deepEqual(config, {
+    port: 8788,
+    baseDomain: '',
+    relayServerUrl: undefined,
+    authTokens: ['clrt_1234567890abcdef12345678'],
+    authTokensFile: undefined,
+    adminToken: undefined,
+  });
 });
 
 test('allows missing RELAY_AUTH_TOKEN during the current open relay phase', () => {

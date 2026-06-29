@@ -35,18 +35,10 @@ ghcr.io/<github-owner>/relay-server:latest
 Example:
 
 ```bash
-cat > relay-auth-tokens.txt <<'EOF'
-token-for-client-a
-token-for-client-b
-EOF
-
 docker run -d \
   --name relay-server \
   -p 8788:8788 \
-  -e RELAY_SERVER_URL=wss://wechat.example.com/agent \
-  -e RELAY_AUTH_TOKENS_FILE=/run/secrets/relay-auth-tokens.txt \
   -e RELAY_ADMIN_TOKEN=replace-with-a-long-random-admin-token \
-  -v "$(pwd)/relay-auth-tokens.txt:/run/secrets/relay-auth-tokens.txt:ro" \
   ghcr.io/<github-owner>/relay-server:latest
 ```
 
@@ -60,17 +52,11 @@ services:
     ports:
       - "8788:8788"
     environment:
-      RELAY_SERVER_URL: wss://wechat.example.com/agent
-      RELAY_AUTH_TOKENS_FILE: /run/secrets/relay-auth-tokens.txt
       RELAY_ADMIN_TOKEN: replace-with-a-long-random-admin-token
-    volumes:
-      - ./relay-auth-tokens.txt:/run/secrets/relay-auth-tokens.txt:ro
 ```
 
 ## Required env
 
-- `RELAY_SERVER_URL` recommended when the relay public host is deployment-specific
-- `RELAY_BASE_DOMAIN` optional compatibility fallback
 - `RELAY_AUTH_TOKENS_FILE` optional for a future allow-list mode
 - `RELAY_AUTH_TOKENS` optional for a future allow-list mode
 - `RELAY_AUTH_TOKEN` optional single-token compatibility mode
@@ -80,14 +66,13 @@ services:
 ## Run
 
 ```bash
-RELAY_SERVER_URL=wss://wechat.style520.com/agent \
 RELAY_ADMIN_TOKEN=replace-with-a-long-random-admin-token \
 relay-server
 ```
 
 ## DNS
 
-Point the public host to the relay server and make sure it matches `RELAY_SERVER_URL`:
+Point the public host to the relay server:
 
 ```text
 wechat.style520.com -> relay server public IP
@@ -115,7 +100,7 @@ Protected routes:
 It only does two things:
 
 - shows which client instances are currently online
-- shows each instance's current public URL
+- shows each instance's current public URL when the admin/API request provides enough host context
 - lets the operator disconnect the client
 
 The panel does not expose internal relay details such as upstream target URLs, assigned connection ids, or connection timestamps.
@@ -169,7 +154,6 @@ pnpm dev:relay
 Starts only the local `relay-server` with these dev defaults if you did not override them:
 
 - `RELAY_PORT=8788`
-- `RELAY_SERVER_URL=ws://127.0.0.1:8788/agent`
 - `RELAY_ADMIN_TOKEN=dev-admin-token`
 
 It also creates `relay-server/relay-auth-tokens.txt` automatically if missing, and the bridge side reuses the persisted `tunnel.relay.authToken` from `config.json`. If that token is missing or still set to the old ad hoc `client-token-a` value, the dev bootstrap upgrades it to a generated `clrt_<24hex>` token and persists it before startup.
@@ -208,7 +192,7 @@ Current prototype supports:
 
 ## Example public URL
 
-When a bridge agent connects successfully, relay-server allocates a random path such as:
+When a bridge agent connects successfully, relay-server allocates a random path token, and the admin/API surface can derive a public URL from the current HTTP request context, for example:
 
 ```text
 https://wechat.style520.com/sjdfh2xxx

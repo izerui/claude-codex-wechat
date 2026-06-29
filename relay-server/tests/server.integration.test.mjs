@@ -7,10 +7,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startRelayServer } from '../src/server.mjs';
 
-test('accepts agent registration and returns a random public URL', async () => {
+test('accepts agent registration without requiring a public URL', async () => {
   const relay = await startRelayServer({
     port: 0,
-    relayServerUrl: 'wss://style520.com/agent',
     authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
@@ -43,7 +42,6 @@ test('accepts agent registration and returns a random public URL', async () => {
 test('routes a public HTTP request to the registered agent and returns its response', async () => {
   const relay = await startRelayServer({
     port: 0,
-    baseDomain: 'style520.com',
     authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
@@ -110,7 +108,6 @@ test('routes a public HTTP request to the registered agent and returns its respo
 test('fails an in-flight public request promptly when the agent disconnects before replying', async () => {
   const relay = await startRelayServer({
     port: 0,
-    baseDomain: 'style520.com',
     authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
@@ -169,7 +166,6 @@ test('fails an in-flight public request promptly when the agent disconnects befo
 test('times out a public request when the agent does not reply', async () => {
   const relay = await startRelayServer({
     port: 0,
-    baseDomain: 'style520.com',
     authTokens: ['clrt_1234567890abcdef12345678'],
     requestTimeoutMs: 50,
   });
@@ -662,7 +658,7 @@ test('lists active relay connections with client instance metadata', async () =>
       authToken: 'clrt_1234567890abcdef12345678',
       publicUrl: payload.connections[0].publicUrl,
     }]);
-    assert.match(payload.connections[0].publicUrl, /^https:\/\/style520\.com\/[a-z0-9]{10,12}$/);
+    assert.match(payload.connections[0].publicUrl, new RegExp(`^http://127\\.0\\.0\\.1:${relay.port}/[a-z0-9]{10,12}$`));
     ws.close();
   } finally {
     await relay.close();
@@ -1006,7 +1002,7 @@ test('returns only panel fields from /connections after a token is assigned', as
       authToken: 'clrt_1234567890abcdef12345678',
       publicUrl: payload.connections[0].publicUrl,
     }]);
-    assert.match(payload.connections[0].publicUrl, /^https:\/\/style520\.com\/[a-z0-9]{10,12}$/);
+    assert.match(payload.connections[0].publicUrl, new RegExp(`^http://127\\.0\\.0\\.1:${relay.port}/[a-z0-9]{10,12}$`));
     ws.close();
   } finally {
     await relay.close();

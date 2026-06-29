@@ -88,8 +88,10 @@ export class RelayTunnelProvider implements TunnelProvider {
           return;
         }
         if (payload?.type === 'registered') {
-          const publicUrl = typeof payload?.token === 'string'
-            ? `${derivePublicBaseUrl(this.options.serverUrl)}/${payload.token}`
+          const publicUrl = typeof payload?.publicUrl === 'string' && payload.publicUrl
+            ? payload.publicUrl
+            : typeof payload?.token === 'string'
+              ? `${derivePublicBaseUrl(this.options.serverUrl)}/${payload.token}`
             : undefined;
           this.status = {
             installed: true,

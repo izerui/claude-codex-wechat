@@ -4,14 +4,7 @@ import { startRelayServer } from '../src/server.mjs';
 
 const config = loadRelayConfig(process.env);
 const relay = await startRelayServer(config);
-const publicBaseUrl = config.baseDomain
-  ? `https://${config.baseDomain}`
-  : String(config.relayServerUrl)
-    .replace(/^ws:\/\//, 'http://')
-    .replace(/^wss:\/\//, 'https://')
-    .replace(/\/agent\/?$/, '')
-    .replace(/\/+$/, '');
-process.stdout.write(`relay-server listening on 127.0.0.1:${relay.port} for ${publicBaseUrl}/<token>\n`);
+process.stdout.write(`relay-server listening on 127.0.0.1:${relay.port}\n`);
 
 let shuttingDown = false;
 async function shutdown() {

@@ -10,7 +10,6 @@ describe('relay runtime integration', () => {
     const { startRelayServer } = await import('../relay-server/src/server.mjs');
     const relay = await startRelayServer({
       port: 0,
-      baseDomain: 'style520.com',
       authTokens: ['clrt_1234567890abcdef12345678'],
     });
 
@@ -56,7 +55,6 @@ describe('relay runtime integration', () => {
     const { startRelayServer } = await import('../relay-server/src/server.mjs');
     const relay = await startRelayServer({
       port: 0,
-      baseDomain: 'style520.com',
       authTokens: ['clrt_1234567890abcdef12345678'],
     });
 

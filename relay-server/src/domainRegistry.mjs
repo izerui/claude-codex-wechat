@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
 export function createDomainRegistry(input) {
-  const { resolvePublicBaseUrl } = input;
   const tokenToConnection = new Map();
   const connectionToAllocation = new Map();
 
@@ -15,11 +14,11 @@ export function createDomainRegistry(input) {
       while (tokenToConnection.has(token)) {
         token = generateLabel();
       }
-      const publicBaseUrl = resolvePublicBaseUrl(metadata);
+      const publicBaseUrl = String(metadata.publicBaseUrl ?? '').trim().replace(/\/+$/, '');
       const allocation = {
         connectionId,
         token,
-        publicUrl: `${publicBaseUrl.replace(/\/+$/, '')}/${token}`,
+        ...(publicBaseUrl ? { publicUrl: `${publicBaseUrl}/${token}` } : {}),
       };
       tokenToConnection.set(token, connectionId);
       connectionToAllocation.set(connectionId, allocation);

@@ -7,7 +7,6 @@ export function loadRelayConfig(env = process.env) {
   const authTokens = parseAuthTokens(env);
   const authTokensFile = String(env.RELAY_AUTH_TOKENS_FILE ?? '').trim() || undefined;
   const adminToken = String(env.RELAY_ADMIN_TOKEN ?? '').trim() || undefined;
-  if (!baseDomain && !relayServerUrl) throw new Error('RELAY_BASE_DOMAIN or RELAY_SERVER_URL is required');
   return {
     port,
     baseDomain,

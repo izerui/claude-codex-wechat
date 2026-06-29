@@ -7,23 +7,11 @@ import { appendTokenToFile, createClientToken } from './tokenManager.mjs';
 import { createWsRegistry } from './wsRegistry.mjs';
 
 export async function startRelayServer(input) {
-  const { port, baseDomain, authTokens, authTokensFile, adminToken } = input;
+  const { port, authTokens, authTokensFile, adminToken } = input;
   const requestTimeoutMs = Number.isFinite(input.requestTimeoutMs) && input.requestTimeoutMs > 0
     ? input.requestTimeoutMs
     : 30_000;
-  const relayServerUrl = input.relayServerUrl ?? (baseDomain ? `wss://${baseDomain}/agent` : undefined);
-  const domainRegistry = createDomainRegistry({
-    resolvePublicBaseUrl(metadata = {}) {
-      if (baseDomain) return `https://${baseDomain}`;
-      if (typeof metadata.relayServerUrl === 'string' && metadata.relayServerUrl) {
-        return metadata.relayServerUrl
-          .replace(/^ws:\/\//, 'http://')
-          .replace(/^wss:\/\//, 'https://')
-          .replace(/\/agent\/?$/, '');
-      }
-      throw new Error('public_base_url_unavailable');
-    },
-  });
+  const domainRegistry = createDomainRegistry({});
   const wsRegistry = createWsRegistry();
   const pendingResponses = new Map();
   let nextRequestId = 1;
@@ -58,11 +46,12 @@ export async function startRelayServer(input) {
       return;
     }
     if (req.url === '/connections') {
+      const publicBaseUrl = derivePublicBaseUrlFromRequest(req);
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         connections: Array.from(wsRegistry.entries()).map(([connectionId, record]) => ({
           authToken: record.authToken,
-          publicUrl: record.publicUrl,
+          ...(publicBaseUrl ? { publicUrl: `${publicBaseUrl}/${domainRegistry.lookupAllocation(connectionId)?.token}` } : {}),
         })),
       }));
       return;
@@ -170,12 +159,11 @@ export async function startRelayServer(input) {
         }
         connectionId = `conn_${Math.random().toString(36).slice(2, 10)}`;
         const allocation = domainRegistry.allocate(connectionId, {
-          relayServerUrl,
         });
         wsRegistry.set(connectionId, {
           socket: ws,
           authToken: message.authToken,
-          publicUrl: allocation.publicUrl,
+          ...(allocation.publicUrl ? { publicUrl: allocation.publicUrl } : {}),
           targetBaseUrl: message.targetBaseUrl,
           connectedAt: Date.now(),
           lastSeenAt: Date.now(),
@@ -184,6 +172,7 @@ export async function startRelayServer(input) {
           type: 'registered',
           connectionId,
           token: allocation.token,
+          ...(allocation.publicUrl ? { publicUrl: allocation.publicUrl } : {}),
         }));
         return;
       }
@@ -257,6 +246,15 @@ function isAuthorizedAdminRequest(header, adminToken) {
   if (!adminToken) return true;
   if (typeof header !== 'string') return false;
   return header === `Bearer ${adminToken}`;
+}
+
+function derivePublicBaseUrlFromRequest(req) {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0]?.trim();
+  const forwardedHost = String(req.headers['x-forwarded-host'] ?? '').split(',')[0]?.trim();
+  const host = forwardedHost || String(req.headers.host ?? '').trim();
+  if (!host) return '';
+  const proto = forwardedProto || 'http';
+  return `${proto}://${host}`.replace(/\/+$/, '');
 }
 
 function rewriteTextResponseForRelayPrefix(input) {
