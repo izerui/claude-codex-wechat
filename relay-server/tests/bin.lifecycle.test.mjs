@@ -25,7 +25,7 @@ test('relay-server CLI starts, answers /healthz, and shuts down on SIGTERM', asy
     const timer = setTimeout(() => reject(new Error('relay_server_start_timeout')), 5000);
     child.stdout.on('data', (chunk) => {
       const text = String(chunk);
-      const match = text.match(/relay-server listening on 127\.0\.0\.1:(\d+)/);
+      const match = text.match(/relay-server listening on 0\.0\.0\.0:(\d+)/);
       if (!match?.[1]) return;
       clearTimeout(timer);
       resolve(match[1]);

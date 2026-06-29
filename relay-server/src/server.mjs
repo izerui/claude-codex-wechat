@@ -7,7 +7,7 @@ import { appendTokenToFile, createClientToken } from './tokenManager.mjs';
 import { createWsRegistry } from './wsRegistry.mjs';
 
 export async function startRelayServer(input) {
-  const { port, authTokens, authTokensFile, adminToken } = input;
+  const { host = '0.0.0.0', port, authTokens, authTokensFile, adminToken } = input;
   const requestTimeoutMs = Number.isFinite(input.requestTimeoutMs) && input.requestTimeoutMs > 0
     ? input.requestTimeoutMs
     : 30_000;
@@ -214,7 +214,7 @@ export async function startRelayServer(input) {
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, '127.0.0.1', resolve);
+    server.listen(port, host, resolve);
   });
   const address = server.address();
   const actualPort = typeof address === 'object' && address ? address.port : port;

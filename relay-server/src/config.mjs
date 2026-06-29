@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 export function loadRelayConfig(env = process.env) {
+  const host = String(env.RELAY_HOST ?? '').trim() || '0.0.0.0';
   const port = Number(env.RELAY_PORT ?? 8788);
   const baseDomain = String(env.RELAY_BASE_DOMAIN ?? '').trim();
   const relayServerUrl = String(env.RELAY_SERVER_URL ?? '').trim() || undefined;
@@ -8,6 +9,7 @@ export function loadRelayConfig(env = process.env) {
   const authTokensFile = String(env.RELAY_AUTH_TOKENS_FILE ?? '').trim() || undefined;
   const adminToken = String(env.RELAY_ADMIN_TOKEN ?? '').trim() || undefined;
   return {
+    host,
     port,
     baseDomain,
     relayServerUrl,

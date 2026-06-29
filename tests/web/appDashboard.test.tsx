@@ -83,7 +83,8 @@ describe('App dashboard provider status', () => {
     expect((await screen.findAllByText('未找到可执行文件')).length).toBeGreaterThan(0);
     const publicLink = await screen.findByRole('link', { name: 'https://relay.style520.com/session-001' });
     expect(publicLink.getAttribute('href')).toBe('https://relay.style520.com/session-001');
-    expect(await screen.findByRole('button', { name: '关闭公网' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '关闭公网' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '开启公网' })).toBeNull();
     expect(screen.queryByText('5177 页面')).toBeNull();
     expect(screen.queryByText('监控区')).toBeNull();
     expect(screen.queryByText('桥接总览与接入摘要')).toBeNull();
@@ -150,6 +151,7 @@ describe('App dashboard provider status', () => {
     const localLink = await screen.findByRole('link', { name: 'http://192.168.1.25:8787' });
     expect(localLink.getAttribute('href')).toBe('http://192.168.1.25:8787');
     expect(screen.queryByRole('button', { name: '开启公网' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '关闭公网' })).toBeNull();
     expect(screen.queryByText(/检查于/)).toBeNull();
     expect(screen.queryByText(/1234567890000/)).toBeNull();
   });

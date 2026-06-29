@@ -22,12 +22,13 @@ describe('relay tunnel config wiring', () => {
     });
   });
 
-  it('falls back to disabled relay tunnel config when values are missing', () => {
-    const config = normalizeBridgeConfigForTest({
-      tunnel: {
+  it('defaults relay tunnel to enabled with the default relay server URL when values are missing', () => {
+    const config = normalizeBridgeConfigForTest({});
+    expect(config.tunnel).toEqual({
+      enabled: true,
+      relay: {
+        serverUrl: 'wss://wechat.style520.com/agent',
       },
     });
-
-    expect(config.tunnel).toBeUndefined();
   });
 });

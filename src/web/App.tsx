@@ -4,8 +4,6 @@ import {
   fetchSettings,
   fetchStatus,
   fetchTunnelStatus,
-  startTunnel,
-  stopTunnel,
   type CurrentSessionView,
   type ProviderStatusView,
   type BridgeSettingsView,
@@ -22,7 +20,6 @@ export function App() {
   const [currentSession, setCurrentSession] = useState<CurrentSessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [tunnelBusy, setTunnelBusy] = useState(false);
   const [, setRelativeTick] = useState(0);
 
   useEffect(() => {
@@ -68,44 +65,6 @@ export function App() {
     void refresh();
   }, [refresh]);
 
-  const handleTunnelStart = useCallback(async () => {
-    setTunnelBusy(true);
-    try {
-      const next = await startTunnel();
-      setTunnelStatus(next);
-      setSettings((current) => current ? {
-        ...current,
-        tunnel: {
-          ...(current.tunnel ?? { enabled: false }),
-          enabled: true,
-        },
-      } : current);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setTunnelBusy(false);
-    }
-  }, []);
-
-  const handleTunnelStop = useCallback(async () => {
-    setTunnelBusy(true);
-    try {
-      const next = await stopTunnel();
-      setTunnelStatus(next);
-      setSettings((current) => current ? {
-        ...current,
-        tunnel: {
-          ...(current.tunnel ?? { enabled: false }),
-          enabled: false,
-        },
-      } : current);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setTunnelBusy(false);
-    }
-  }, []);
-
   const localUrl = status?.preferredLocalUrl
     ?? (typeof window !== 'undefined' && window.location?.host
       ? `http://${window.location.host}`
@@ -132,17 +91,6 @@ export function App() {
               <span className={`badge ${status?.ok === true ? 'badge-solid-success' : 'badge-soft-accent'}`}>
                 {status?.ok === true ? '在线' : '待确认'}
               </span>
-              {tunnelStatus?.installed ? (
-                tunnelStatus.running ? (
-                  <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => void handleTunnelStop()} disabled={tunnelBusy}>
-                    关闭公网
-                  </button>
-                ) : (
-                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => void handleTunnelStart()} disabled={tunnelBusy}>
-                    开启公网
-                  </button>
-                )
-              ) : null}
             </div>
             <a
               className="font-monospace text-muted-soft"

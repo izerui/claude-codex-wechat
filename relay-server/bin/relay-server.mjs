@@ -4,7 +4,7 @@ import { startRelayServer } from '../src/server.mjs';
 
 const config = loadRelayConfig(process.env);
 const relay = await startRelayServer(config);
-process.stdout.write(`relay-server listening on 127.0.0.1:${relay.port}\n`);
+process.stdout.write(`relay-server listening on ${config.host}:${relay.port}\n`);
 
 let shuttingDown = false;
 async function shutdown() {

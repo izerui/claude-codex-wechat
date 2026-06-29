@@ -69,11 +69,11 @@ function normalizeSettings(input: Partial<Record<keyof BridgeSettings, unknown>>
       ? input.defaultWorkspace
       : defaultWorkspace,
     tunnel: {
-      enabled: tunnel.enabled === true,
-      ...((typeof relay.serverUrl === 'string' && relay.serverUrl.trim()) || (typeof relay.authToken === 'string' && relay.authToken.trim())
+      enabled: tunnel.enabled !== false,
+      ...((typeof relay.serverUrl === 'string' && relay.serverUrl.trim()) || (typeof relay.authToken === 'string' && relay.authToken.trim()) || !('relay' in tunnel)
         ? {
             relay: {
-              ...(typeof relay.serverUrl === 'string' && relay.serverUrl.trim() ? { serverUrl: relay.serverUrl } : {}),
+              serverUrl: typeof relay.serverUrl === 'string' && relay.serverUrl.trim() ? relay.serverUrl : 'wss://wechat.style520.com/agent',
               ...(typeof relay.authToken === 'string' && relay.authToken.trim() ? { authToken: relay.authToken } : {}),
             },
           }

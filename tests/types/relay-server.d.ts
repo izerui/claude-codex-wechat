@@ -1,5 +1,6 @@
 declare module '../../relay-server/src/server.mjs' {
   export function startRelayServer(input: {
+    host?: string;
     port: number;
     authTokens: string[];
     requestTimeoutMs?: number;

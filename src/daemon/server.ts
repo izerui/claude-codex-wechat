@@ -53,8 +53,11 @@ export function createDaemonServer(options: {
     defaultProvider: options.bridgeDefaults?.defaultProvider ?? persistedConfig.bridge?.defaultProvider ?? 'claude-code',
     defaultWorkspace: options.bridgeDefaults?.defaultWorkspace ?? persistedConfig.bridge?.defaultWorkspace ?? process.cwd(),
     tunnel: options.bridgeDefaults?.tunnel ?? {
-      enabled: persistedConfig.tunnel?.enabled === true,
-      ...(persistedConfig.tunnel?.relay ? { relay: persistedConfig.tunnel.relay } : {}),
+      enabled: persistedConfig.tunnel?.enabled ?? true,
+      relay: {
+        serverUrl: persistedConfig.tunnel?.relay?.serverUrl ?? 'wss://wechat.style520.com/agent',
+        ...(persistedConfig.tunnel?.relay?.authToken ? { authToken: persistedConfig.tunnel.relay.authToken } : {}),
+      },
     },
   };
   const existingRelayAuthToken = bridgeDefaults.tunnel.relay?.authToken?.trim();

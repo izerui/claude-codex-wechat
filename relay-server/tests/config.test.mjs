@@ -13,6 +13,7 @@ test('loads relay server config from env', () => {
   });
 
   assert.deepEqual(config, {
+    host: '0.0.0.0',
     port: 9191,
     baseDomain: 'style520.com',
     relayServerUrl: undefined,
@@ -30,6 +31,7 @@ test('allows missing RELAY_BASE_DOMAIN when RELAY_SERVER_URL is provided', () =>
   });
 
   assert.deepEqual(config, {
+    host: '0.0.0.0',
     port: 9191,
     baseDomain: '',
     relayServerUrl: 'wss://wechat.style520.com/agent',
@@ -47,6 +49,7 @@ test('loads relay server config from RELAY_AUTH_TOKENS', () => {
   });
 
   assert.deepEqual(config, {
+    host: '0.0.0.0',
     port: 9191,
     baseDomain: 'style520.com',
     relayServerUrl: undefined,
@@ -68,6 +71,7 @@ test('loads relay server config from RELAY_AUTH_TOKENS_FILE', () => {
   });
 
   assert.deepEqual(config, {
+    host: '0.0.0.0',
     port: 9191,
     baseDomain: 'style520.com',
     relayServerUrl: undefined,
@@ -91,6 +95,7 @@ test('prefers RELAY_AUTH_TOKENS_FILE over inline env tokens', () => {
   });
 
   assert.deepEqual(config, {
+    host: '0.0.0.0',
     port: 9191,
     baseDomain: 'style520.com',
     relayServerUrl: undefined,
@@ -107,6 +112,7 @@ test('falls back to default port when RELAY_PORT is missing', () => {
   });
 
   assert.equal(config.port, 8788);
+  assert.equal(config.host, '0.0.0.0');
 });
 
 test('allows startup config without RELAY_BASE_DOMAIN or RELAY_SERVER_URL', () => {
@@ -114,6 +120,7 @@ test('allows startup config without RELAY_BASE_DOMAIN or RELAY_SERVER_URL', () =
     RELAY_AUTH_TOKEN: 'clrt_1234567890abcdef12345678',
   });
   assert.deepEqual(config, {
+    host: '0.0.0.0',
     port: 8788,
     baseDomain: '',
     relayServerUrl: undefined,
@@ -129,6 +136,7 @@ test('allows missing RELAY_AUTH_TOKEN during the current open relay phase', () =
   });
 
   assert.deepEqual(config, {
+    host: '0.0.0.0',
     port: 8788,
     baseDomain: 'style520.com',
     relayServerUrl: undefined,

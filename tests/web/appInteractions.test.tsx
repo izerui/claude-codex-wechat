@@ -103,9 +103,10 @@ function createFetchStub() {
     },
     tunnel: {
       installed: true,
-      enabled: false,
-      running: false,
-      status: 'stopped',
+      enabled: true,
+      running: true,
+      status: 'running',
+      publicUrl: 'https://relay.style520.com/session-001',
     },
   };
 
@@ -414,22 +415,15 @@ afterEach(async () => {
 });
 
 describe('App admin interactions', () => {
-  it('enables and disables the relay public URL from the dashboard', async () => {
+  it('shows the relay public URL from the dashboard without a manual toggle button', async () => {
     const { fetchImpl } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
     render(<App />);
 
-    const enable = await screen.findByRole('button', { name: '开启公网' });
-    fireEvent.click(enable);
     expect(await screen.findByText('https://relay.style520.com/session-001')).toBeTruthy();
-
-    const disable = await screen.findByRole('button', { name: '关闭公网' });
-    fireEvent.click(disable);
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '开启公网' })).toBeTruthy();
-      expect(screen.getByText('http://192.168.1.25:8787')).toBeTruthy();
-    });
+    expect(screen.queryByRole('button', { name: '开启公网' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '关闭公网' })).toBeNull();
   });
 
   it('treats relay as the default public tunnel provider in dashboard state', async () => {

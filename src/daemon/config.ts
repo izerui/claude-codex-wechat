@@ -92,18 +92,17 @@ function normalizeBridgeDefaultsConfig(raw: unknown): BridgeDefaultsConfig | und
 
 function normalizeTunnelConfig(raw: unknown): TunnelConfig | undefined {
   const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-  const enabled = record.enabled === true;
+  const enabled = record.enabled !== false;
   const relayRecord = record.relay && typeof record.relay === 'object' ? record.relay as Record<string, unknown> : undefined;
-  const relay = relayRecord
-    ? {
-        ...(typeof relayRecord.serverUrl === 'string' && relayRecord.serverUrl.trim() ? { serverUrl: relayRecord.serverUrl } : {}),
-        ...(typeof relayRecord.authToken === 'string' && relayRecord.authToken.trim() ? { authToken: relayRecord.authToken } : {}),
-      }
-    : undefined;
-  if (!enabled && !relay) return undefined;
+  const relay = {
+    serverUrl: typeof relayRecord?.serverUrl === 'string' && relayRecord.serverUrl.trim()
+      ? relayRecord.serverUrl
+      : 'wss://wechat.style520.com/agent',
+    ...(typeof relayRecord?.authToken === 'string' && relayRecord.authToken.trim() ? { authToken: relayRecord.authToken } : {}),
+  };
   return {
     enabled,
-    ...(relay ? { relay } : {}),
+    relay,
   };
 }
 
