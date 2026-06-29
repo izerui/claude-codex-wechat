@@ -6,7 +6,6 @@ export type BridgeSettings = {
   defaultProvider: ProviderId;
   defaultWorkspace: string;
   tunnel: {
-    enabled: boolean;
     relay?: {
       serverUrl?: string;
       authToken?: string;
@@ -69,7 +68,6 @@ function normalizeSettings(input: Partial<Record<keyof BridgeSettings, unknown>>
       ? input.defaultWorkspace
       : defaultWorkspace,
     tunnel: {
-      enabled: tunnel.enabled !== false,
       ...((typeof relay.serverUrl === 'string' && relay.serverUrl.trim()) || (typeof relay.authToken === 'string' && relay.authToken.trim()) || !('relay' in tunnel)
         ? {
             relay: {

@@ -37,7 +37,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
     defaultProvider: config.bridge?.defaultProvider ?? 'claude-code',
     defaultWorkspace: config.bridge?.defaultWorkspace ?? process.cwd(),
     tunnel: {
-      enabled: config.tunnel?.enabled === true,
+      enabled: true,
       ...(config.tunnel?.relay ? { relay: config.tunnel.relay } : {}),
     },
   };
@@ -54,7 +54,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
   await app.listen({ host, port });
   const address = app.server.address();
   const actualPort = typeof address === 'object' && address ? address.port : port;
-  if (config.tunnel?.enabled === true) {
+  if (config.tunnel?.relay?.serverUrl && config.tunnel?.relay?.authToken) {
     await resolvedTunnelProvider?.start().catch(() => undefined);
   }
   console.log('claude-codex-wechat listening:');

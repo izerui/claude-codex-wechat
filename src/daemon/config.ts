@@ -24,7 +24,6 @@ export type RelayTunnelConfig = {
 };
 
 export type TunnelConfig = {
-  enabled?: boolean;
   relay?: RelayTunnelConfig;
 };
 
@@ -92,7 +91,6 @@ function normalizeBridgeDefaultsConfig(raw: unknown): BridgeDefaultsConfig | und
 
 function normalizeTunnelConfig(raw: unknown): TunnelConfig | undefined {
   const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
-  const enabled = record.enabled !== false;
   const relayRecord = record.relay && typeof record.relay === 'object' ? record.relay as Record<string, unknown> : undefined;
   const relay = {
     serverUrl: typeof relayRecord?.serverUrl === 'string' && relayRecord.serverUrl.trim()
@@ -101,7 +99,6 @@ function normalizeTunnelConfig(raw: unknown): TunnelConfig | undefined {
     ...(typeof relayRecord?.authToken === 'string' && relayRecord.authToken.trim() ? { authToken: relayRecord.authToken } : {}),
   };
   return {
-    enabled,
     relay,
   };
 }

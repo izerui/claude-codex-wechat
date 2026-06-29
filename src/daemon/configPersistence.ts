@@ -54,7 +54,6 @@ export async function persistBridgeDefaultsToConfigFile(input: {
     },
     ...(input.tunnel ? {
       tunnel: {
-        enabled: input.tunnel.enabled === true,
         ...(input.tunnel.relay ? {
           relay: {
             ...(input.tunnel.relay.serverUrl ? { serverUrl: input.tunnel.relay.serverUrl } : {}),
