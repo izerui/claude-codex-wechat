@@ -120,28 +120,80 @@ describe('RelayTunnelProvider', () => {
     });
   });
 
-  it('fails startup with a clear error when the auth token is already in use', async () => {
-    const socket = new FakeSocket();
-    const createSocket = vi.fn(() => socket as never);
-    const provider = new RelayTunnelProvider({
-      serverUrl: 'wss://relay.style520.com/agent',
-      authToken: 'clrt_1234567890abcdef12345678',
-      targetBaseUrl: 'http://127.0.0.1:8787',
-      createSocket,
-    });
+  it('auto-reconnects after the relay drops and re-registers (stable URL preserved)', async () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: FakeSocket[] = [];
+      const createSocket = vi.fn(() => {
+        const s = new FakeSocket();
+        sockets.push(s);
+        return s as never;
+      });
+      const provider = new RelayTunnelProvider({
+        serverUrl: 'wss://relay.style520.com/agent',
+        authToken: 'clrt_1234567890abcdef12345678',
+        targetBaseUrl: 'http://127.0.0.1:8787',
+        createSocket,
+        maxReconnectDelayMs: 5000,
+      });
 
-    const startPromise = provider.start();
-    socket.emit('open');
-    socket.emit('message', JSON.stringify({
-      type: 'error',
-      error: 'auth_token_in_use',
-    }));
+      const startPromise = provider.start();
+      sockets[0].emit('open');
+      sockets[0].emit('message', JSON.stringify({ type: 'registered', token: 'fixed-suffix' }));
+      await startPromise;
+      expect(createSocket).toHaveBeenCalledTimes(1);
 
-    await expect(startPromise).rejects.toThrow(/auth_token_in_use/);
-    await expect(provider.getStatus()).resolves.toMatchObject({
-      running: false,
-      status: 'error',
-      error: 'auth_token_in_use',
-    });
+      // relay-server 重启 → 连接断开
+      sockets[0].emit('close');
+      await expect(provider.getStatus()).resolves.toMatchObject({ status: 'error', error: 'relay_disconnected' });
+
+      // 退避计时器触发，自动发起新连接
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(createSocket).toHaveBeenCalledTimes(2);
+      sockets[1].emit('open');
+      sockets[1].emit('message', JSON.stringify({ type: 'registered', token: 'fixed-suffix' }));
+
+      await expect(provider.getStatus()).resolves.toMatchObject({
+        running: true,
+        status: 'running',
+        publicUrl: 'https://relay.style520.com/fixed-suffix',
+      });
+
+      await provider.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not reconnect after stop()', async () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: FakeSocket[] = [];
+      const createSocket = vi.fn(() => {
+        const s = new FakeSocket();
+        sockets.push(s);
+        return s as never;
+      });
+      const provider = new RelayTunnelProvider({
+        serverUrl: 'wss://relay.style520.com/agent',
+        authToken: 'clrt_1234567890abcdef12345678',
+        targetBaseUrl: 'http://127.0.0.1:8787',
+        createSocket,
+      });
+
+      const startPromise = provider.start();
+      sockets[0].emit('open');
+      sockets[0].emit('message', JSON.stringify({ type: 'registered', token: 'tok' }));
+      await startPromise;
+
+      await provider.stop();
+      sockets[0].emit('close');
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(createSocket).toHaveBeenCalledTimes(1);
+      await expect(provider.getStatus()).resolves.toMatchObject({ status: 'stopped', running: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

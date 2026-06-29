@@ -14,6 +14,9 @@ export class RelayTunnelProvider implements TunnelProvider {
     running: false,
     status: 'stopped',
   };
+  private stopped = true;
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly options: {
     serverUrl: string;
@@ -21,6 +24,8 @@ export class RelayTunnelProvider implements TunnelProvider {
     targetBaseUrl: string;
     createSocket: (url: string) => RelaySocket;
     fetchImpl?: typeof fetch;
+    /** 重连退避上限（毫秒），默认 30s。 */
+    maxReconnectDelayMs?: number;
   }) {}
 
   static defaultCreateSocket(url: string): RelaySocket {
@@ -46,13 +51,36 @@ export class RelayTunnelProvider implements TunnelProvider {
   }
 
   async start(): Promise<TunnelStatusView> {
+    this.stopped = false;
+    return await this.connect();
+  }
+
+  async stop(): Promise<TunnelStatusView> {
+    this.stopped = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.socket?.close();
+    this.socket = null;
+    this.status = {
+      installed: true,
+      running: false,
+      status: 'stopped',
+    };
+    return { ...this.status };
+  }
+
+  // 单次连接尝试：成功注册即 resolve。底层连接断开（close/error）时，
+  // 只要未被 stop()，就按指数退避自动重连，直到恢复。
+  private connect(): Promise<TunnelStatusView> {
     this.status = {
       ...this.status,
       status: 'starting',
     };
     const socket = this.options.createSocket(this.options.serverUrl);
     this.socket = socket;
-    return await new Promise<TunnelStatusView>((resolve, reject) => {
+    return new Promise<TunnelStatusView>((resolve, reject) => {
       let settled = false;
       const finishResolve = (value: TunnelStatusView) => {
         if (settled) return;
@@ -86,6 +114,8 @@ export class RelayTunnelProvider implements TunnelProvider {
           return;
         }
         if (payload?.type === 'registered') {
+          // 注册成功，重置退避计数，下次断开从最短间隔重连。
+          this.reconnectAttempts = 0;
           const publicUrl = typeof payload?.publicUrl === 'string' && payload.publicUrl
             ? payload.publicUrl
             : typeof payload?.token === 'string'
@@ -105,6 +135,11 @@ export class RelayTunnelProvider implements TunnelProvider {
         }
       });
       socket.on('close', () => {
+        // stop() 主动关闭后到达的迟到事件不应改写状态或触发重连。
+        if (this.stopped) {
+          finishReject(new Error('relay_stopped'));
+          return;
+        }
         this.status = {
           ...this.status,
           running: false,
@@ -112,8 +147,13 @@ export class RelayTunnelProvider implements TunnelProvider {
           error: 'relay_disconnected',
         };
         finishReject(new Error('relay_disconnected'));
+        this.scheduleReconnect();
       });
       socket.on('error', (error) => {
+        if (this.stopped) {
+          finishReject(new Error('relay_stopped'));
+          return;
+        }
         const message = error instanceof Error ? error.message : String(error);
         this.status = {
           ...this.status,
@@ -122,19 +162,26 @@ export class RelayTunnelProvider implements TunnelProvider {
           error: message,
         };
         finishReject(error);
+        this.scheduleReconnect();
       });
     });
   }
 
-  async stop(): Promise<TunnelStatusView> {
-    this.socket?.close();
-    this.socket = null;
-    this.status = {
-      installed: true,
-      running: false,
-      status: 'stopped',
-    };
-    return { ...this.status };
+  private scheduleReconnect(): void {
+    if (this.stopped) return;
+    // 已有待触发的重连则不重复排程（close 与 error 可能先后到达）。
+    if (this.reconnectTimer) return;
+    const maxDelay = this.options.maxReconnectDelayMs ?? 30_000;
+    const delay = Math.min(maxDelay, 1000 * 2 ** this.reconnectAttempts);
+    this.reconnectAttempts += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.stopped) return;
+      // 后台重连：失败会再次触发 close/error，进而重新排程。
+      void this.connect().catch(() => undefined);
+    }, delay);
+    // 不阻止进程退出。
+    (this.reconnectTimer as { unref?: () => void }).unref?.();
   }
 
   private async handleRequest(payload: {
