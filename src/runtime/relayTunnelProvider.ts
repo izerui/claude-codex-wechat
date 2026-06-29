@@ -55,6 +55,17 @@ export class RelayTunnelProvider implements TunnelProvider {
     const socket = this.options.createSocket(this.options.serverUrl);
     this.socket = socket;
     return await new Promise<TunnelStatusView>((resolve, reject) => {
+      let settled = false;
+      const finishResolve = (value: TunnelStatusView) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const finishReject = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
       socket.on('open', () => {
         socket.send(JSON.stringify({
           type: 'register',
@@ -76,7 +87,7 @@ export class RelayTunnelProvider implements TunnelProvider {
             status: 'running',
             ...(publicUrl ? { publicUrl } : {}),
           };
-          resolve({ ...this.status });
+          finishResolve({ ...this.status });
           return;
         }
         if (payload?.type === 'request') {
@@ -84,14 +95,13 @@ export class RelayTunnelProvider implements TunnelProvider {
         }
       });
       socket.on('close', () => {
-        if (this.status.status === 'running') {
-          this.status = {
-            ...this.status,
-            running: false,
-            status: 'error',
-            error: 'relay_disconnected',
-          };
-        }
+        this.status = {
+          ...this.status,
+          running: false,
+          status: 'error',
+          error: 'relay_disconnected',
+        };
+        finishReject(new Error('relay_disconnected'));
       });
       socket.on('error', (error) => {
         const message = error instanceof Error ? error.message : String(error);
@@ -101,7 +111,7 @@ export class RelayTunnelProvider implements TunnelProvider {
           status: 'error',
           error: message,
         };
-        reject(error);
+        finishReject(error);
       });
     });
   }

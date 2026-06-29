@@ -98,4 +98,26 @@ describe('RelayTunnelProvider', () => {
       expect(socket.sent.at(-1)).toContain('"status":201');
     });
   });
+
+  it('fails startup when the relay socket closes before registration completes', async () => {
+    const socket = new FakeSocket();
+    const createSocket = vi.fn(() => socket as never);
+    const provider = new RelayTunnelProvider({
+      serverUrl: 'wss://relay.style520.com/agent',
+      authToken: 'relay-token',
+      targetBaseUrl: 'http://127.0.0.1:8787',
+      createSocket,
+    });
+
+    const startPromise = provider.start();
+    socket.emit('open');
+    socket.emit('close');
+
+    await expect(startPromise).rejects.toThrow(/relay_disconnected/);
+    await expect(provider.getStatus()).resolves.toMatchObject({
+      running: false,
+      status: 'error',
+      error: 'relay_disconnected',
+    });
+  });
 });

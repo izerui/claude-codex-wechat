@@ -7,15 +7,21 @@ test('parses a valid register message', () => {
     type: 'register',
     clientVersion: '0.1.0',
     targetBaseUrl: 'http://127.0.0.1:8787',
-    authToken: 'relay-token',
+    authToken: 'clrt_1234567890abcdef12345678',
   }));
 
   assert.equal(parsed.type, 'register');
   assert.equal(parsed.clientVersion, '0.1.0');
-  assert.equal(parsed.authToken, 'relay-token');
+  assert.equal(parsed.authToken, 'clrt_1234567890abcdef12345678');
 });
 
 test('throws for invalid relay messages', () => {
   assert.throws(() => parseRelayMessage(JSON.stringify({ type: 'register' })), /invalid_register_message/);
+  assert.throws(() => parseRelayMessage(JSON.stringify({
+    type: 'register',
+    clientVersion: '0.1.0',
+    targetBaseUrl: 'http://127.0.0.1:8787',
+    authToken: 'relay-token',
+  })), /invalid_register_message/);
   assert.throws(() => parseRelayMessage('not-json'), /Unexpected token|JSON/);
 });

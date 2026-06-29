@@ -26,8 +26,6 @@ export async function startRelayServer(input) {
   });
   const wsRegistry = createWsRegistry();
   const pendingResponses = new Map();
-  const allowedAuthTokens = new Set(authTokens);
-  const enforceAuthTokenAllowList = allowedAuthTokens.size > 0;
   let nextRequestId = 1;
 
   const server = http.createServer((req, res) => {
@@ -47,14 +45,10 @@ export async function startRelayServer(input) {
       return;
     }
     if (req.method === 'POST' && req.url === '/admin/tokens') {
-      if (!authTokensFile) {
-        res.writeHead(400, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: false, error: 'auth_tokens_file_not_configured' }));
-        return;
-      }
       const token = createClientToken();
-      const result = appendTokenToFile({ filePath: authTokensFile, token });
-      allowedAuthTokens.add(token);
+      const result = authTokensFile
+        ? appendTokenToFile({ filePath: authTokensFile, token })
+        : { created: false, added: false, tokens: [token] };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         ok: true,
@@ -71,11 +65,6 @@ export async function startRelayServer(input) {
         const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         const authToken = String(payload.authToken ?? '').trim();
         if (!authToken || !accessCodeSecret) {
-          res.writeHead(404, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: 'auth_token_not_found' }));
-          return;
-        }
-        if (enforceAuthTokenAllowList && !allowedAuthTokens.has(authToken)) {
           res.writeHead(404, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: 'auth_token_not_found' }));
           return;
@@ -168,10 +157,6 @@ export async function startRelayServer(input) {
     ws.on('message', (raw) => {
       const message = parseRelayMessage(String(raw));
       if (message.type === 'register') {
-        if (enforceAuthTokenAllowList && !allowedAuthTokens.has(message.authToken)) {
-          ws.close();
-          return;
-        }
         connectionId = `conn_${Math.random().toString(36).slice(2, 10)}`;
         const allocation = domainRegistry.allocate(connectionId, {
           relayServerUrl,

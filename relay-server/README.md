@@ -204,11 +204,10 @@ Starts only the local `relay-server` with these dev defaults if you did not over
 
 - `RELAY_PORT=8788`
 - `RELAY_SERVER_URL=ws://127.0.0.1:8788/agent`
-- `RELAY_DEV_CLIENT_TOKEN=client-token-a`
 - `RELAY_ACTIVATION_SECRET=dev-access-code-secret`
 - `RELAY_ADMIN_TOKEN=dev-admin-token`
 
-It also creates `relay-server/relay-auth-tokens.txt` automatically if missing.
+It also creates `relay-server/relay-auth-tokens.txt` automatically if missing, and the bridge side reuses the persisted `tunnel.relay.authToken` from `config.json`. If that token is missing or still set to the old ad hoc `client-token-a` value, the dev bootstrap upgrades it to a generated `clrt_<24hex>` token and persists it before startup.
 
 To start both the relay and the local bridge together:
 
