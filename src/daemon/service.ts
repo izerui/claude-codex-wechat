@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, openSync, closeSync, watchFile } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-type ServiceManager = 'launchd' | 'systemd-user';
+type ServiceManager = 'launchd' | 'systemd-user' | 'process';
 
 export type ServiceStatus = {
   manager: ServiceManager;
@@ -50,6 +50,10 @@ export async function installService(context: ServiceContext): Promise<ServiceSt
     return await readServiceStatus(context);
   }
 
+  if (process.platform === 'win32') {
+    return await startService(context);
+  }
+
   throw new Error('service_install_not_supported_on_this_platform');
 }
 
@@ -69,6 +73,16 @@ export async function startService(context: ServiceContext): Promise<ServiceStat
     return await readServiceStatus(context);
   }
 
+  if (process.platform === 'win32') {
+    const spec = buildProcessSpec(context);
+    const existingPid = await readPidFile(spec.pidPath);
+    if (existingPid !== null && isProcessAlive(existingPid)) {
+      return await readServiceStatus(context);
+    }
+    await spawnDetachedDaemon(spec);
+    return await readServiceStatus(context);
+  }
+
   throw new Error('service_start_not_supported_on_this_platform');
 }
 
@@ -84,6 +98,16 @@ export async function stopService(context: ServiceContext): Promise<ServiceStatu
     const spec = buildSystemdUserSpec(context);
     if (!existsSync(spec.unitPath)) return await readServiceStatus(context);
     await runSystemctl(['--user', 'stop', spec.unitName]).catch(() => undefined);
+    return await readServiceStatus(context);
+  }
+
+  if (process.platform === 'win32') {
+    const spec = buildProcessSpec(context);
+    const pid = await readPidFile(spec.pidPath);
+    if (pid !== null && isProcessAlive(pid)) {
+      await killPid(pid).catch(() => undefined);
+    }
+    await removePidFile(spec.pidPath);
     return await readServiceStatus(context);
   }
 
@@ -110,6 +134,10 @@ export async function uninstallService(context: ServiceContext): Promise<Service
     return await readServiceStatus(context);
   }
 
+  if (process.platform === 'win32') {
+    return await stopService(context);
+  }
+
   throw new Error('service_uninstall_not_supported_on_this_platform');
 }
 
@@ -126,6 +154,11 @@ export async function restartService(context: ServiceContext): Promise<ServiceSt
     await ensureFileExists(spec.unitPath, 'service_not_installed');
     await runSystemctl(['--user', 'restart', spec.unitName]);
     return await readServiceStatus(context);
+  }
+
+  if (process.platform === 'win32') {
+    await stopService(context);
+    return await startService(context);
   }
 
   throw new Error('service_restart_not_supported_on_this_platform');
@@ -184,6 +217,22 @@ export async function readServiceStatus(context: ServiceContext): Promise<Servic
     };
   }
 
+  if (process.platform === 'win32') {
+    const spec = buildProcessSpec(context);
+    const pid = await readPidFile(spec.pidPath);
+    const installed = pid !== null;
+    const running = pid !== null && isProcessAlive(pid);
+    return {
+      manager: 'process',
+      installed,
+      running,
+      serviceFilePath: spec.pidPath,
+      label: 'claude-codex-wechat',
+      stdoutPath: spec.stdoutPath,
+      stderrPath: spec.stderrPath,
+    };
+  }
+
   throw new Error('service_status_not_supported_on_this_platform');
 }
 
@@ -201,6 +250,15 @@ type SystemdUserSpec = {
   unitName: string;
   unitPath: string;
   execStart: string[];
+  workingDirectory: string;
+  stdoutPath: string;
+  stderrPath: string;
+  environment: Record<string, string>;
+};
+
+type ProcessServiceSpec = {
+  pidPath: string;
+  command: string[];
   workingDirectory: string;
   stdoutPath: string;
   stderrPath: string;
@@ -226,6 +284,18 @@ function buildSystemdUserSpec(context: ServiceContext): SystemdUserSpec {
     unitName: 'claude-codex-wechat.service',
     unitPath: join(homedir(), '.config', 'systemd', 'user', 'claude-codex-wechat.service'),
     execStart: [context.nodePath ?? process.execPath, context.cliEntrypointPath, '__daemon'],
+    workingDirectory: homedir(),
+    stdoutPath: join(stateDir, 'logs', 'service.stdout.log'),
+    stderrPath: join(stateDir, 'logs', 'service.stderr.log'),
+    environment: buildServiceEnvironment(context),
+  };
+}
+
+export function buildProcessSpec(context: ServiceContext): ProcessServiceSpec {
+  const stateDir = join(homedir(), '.claude-codex-wechat');
+  return {
+    pidPath: join(stateDir, 'service.pid'),
+    command: [context.nodePath ?? process.execPath, context.cliEntrypointPath, '__daemon'],
     workingDirectory: homedir(),
     stdoutPath: join(stateDir, 'logs', 'service.stdout.log'),
     stderrPath: join(stateDir, 'logs', 'service.stderr.log'),
@@ -346,6 +416,72 @@ async function runSystemctl(args: string[]): Promise<void> {
   await execFileAsync('systemctl', args);
 }
 
+export function isProcessAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // ESRCH: 进程不存在；EPERM: 进程存在但无权限发信号（视为存活）。
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+export async function readPidFile(pidPath: string): Promise<number | null> {
+  if (!existsSync(pidPath)) return null;
+  try {
+    const raw = (await readFile(pidPath, 'utf8')).trim();
+    const pid = Number.parseInt(raw, 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writePidFile(pidPath: string, pid: number): Promise<void> {
+  await mkdir(dirname(pidPath), { recursive: true });
+  await writeFile(pidPath, `${pid}\n`, 'utf8');
+}
+
+export async function removePidFile(pidPath: string): Promise<void> {
+  await rm(pidPath, { force: true });
+}
+
+async function killPid(pid: number): Promise<void> {
+  if (process.platform === 'win32') {
+    // taskkill /T 级联终止整棵进程树；Node 的 process.kill 不会终止子进程树。
+    await execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F']);
+    return;
+  }
+  process.kill(pid, 'SIGTERM');
+}
+
+async function spawnDetachedDaemon(spec: ProcessServiceSpec): Promise<number> {
+  await mkdir(dirname(spec.stdoutPath), { recursive: true });
+  const outFd = openSync(spec.stdoutPath, 'a');
+  const errFd = openSync(spec.stderrPath, 'a');
+  try {
+    const [command, ...args] = spec.command;
+    const child = spawn(command, args, {
+      cwd: spec.workingDirectory,
+      env: spec.environment,
+      detached: true,
+      windowsHide: true,
+      stdio: ['ignore', outFd, errFd],
+    });
+    if (typeof child.pid !== 'number') {
+      throw new Error('service_spawn_failed');
+    }
+    await writePidFile(spec.pidPath, child.pid);
+    child.unref();
+    return child.pid;
+  } finally {
+    // 子进程已继承 fd，父进程侧可关闭。
+    closeSync(outFd);
+    closeSync(errFd);
+  }
+}
+
 async function ensureFileExists(path: string, errorCode: string): Promise<void> {
   if (!existsSync(path)) throw new Error(errorCode);
   await readFile(path, 'utf8');
@@ -358,33 +494,50 @@ async function tailFile(path: string, lines: number): Promise<string> {
 }
 
 async function tailFiles(paths: string[]): Promise<void> {
-  const readers = paths
-    .filter((path) => existsSync(path))
-    .map((path) => {
+  const existing = paths.filter((path) => existsSync(path));
+
+  // 先打印各文件当前尾部。
+  for (const path of existing) {
+    const tail = await tailFile(path, 200);
+    if (tail) process.stdout.write(`[${path}]\n${tail}\n`);
+  }
+
+  if (process.platform === 'linux' || process.platform === 'darwin') {
+    const child = spawn('tail', ['-f', ...existing], { stdio: ['ignore', 'pipe', 'inherit'] });
+    child.stdout.on('data', (chunk) => {
+      process.stdout.write(String(chunk));
+    });
+    await new Promise<void>((resolve, reject) => {
+      child.on('exit', () => resolve());
+      child.on('error', reject);
+    });
+    return;
+  }
+
+  // win32（及其它平台）：用 watchFile 轮询，读取追加内容实现 tail -f。
+  const offsets = new Map<string, number>(existing.map((path) => [path, fileSizeHint(path)]));
+  for (const path of existing) {
+    watchFile(path, { interval: 1000 }, (curr) => {
+      const prevSize = offsets.get(path) ?? 0;
+      if (curr.size < prevSize) {
+        // 文件被截断/轮转，重置偏移从头读。
+        offsets.set(path, 0);
+        return;
+      }
+      if (curr.size === prevSize) return;
+      const start = prevSize;
+      offsets.set(path, curr.size);
       const rl = createInterface({
-        input: createReadStream(path, { encoding: 'utf8', start: Math.max(0, fileSizeHint(path) - 8192) }),
+        input: createReadStream(path, { encoding: 'utf8', start, end: curr.size - 1 }),
         crlfDelay: Infinity,
       });
       rl.on('line', (line) => {
         process.stdout.write(`[${path}] ${line}\n`);
       });
-      return rl;
     });
-
-  if (process.platform !== 'linux' && process.platform !== 'darwin') {
-    return;
   }
-
-  const child = spawn('tail', ['-f', ...paths.filter((path) => existsSync(path))], { stdio: ['ignore', 'pipe', 'inherit'] });
-  child.stdout.on('data', (chunk) => {
-    process.stdout.write(String(chunk));
-  });
-  await new Promise<void>((resolve, reject) => {
-    child.on('exit', () => resolve());
-    child.on('error', reject);
-  }).finally(() => {
-    for (const reader of readers) reader.close();
-  });
+  // 阻塞直到进程被中断（与 tail -f 行为一致）；watchFile 维持事件循环存活。
+  await new Promise<void>(() => {});
 }
 
 function fileSizeHint(path: string): number {

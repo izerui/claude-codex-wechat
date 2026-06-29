@@ -225,7 +225,12 @@ function printUsage(): void {
 
 环境变量:
   BRIDGE_PORT    监听端口（默认 8787）
-  BRIDGE_CONFIG  配置文件路径（默认 ~/.claude-codex-wechat/config.json）`);
+  BRIDGE_CONFIG  配置文件路径（默认 ~/.claude-codex-wechat/config.json）
+
+平台说明:
+  macOS 用 launchd、Linux 用 systemd --user 托管，登录自启且崩溃自动重启。
+  Windows 采用后台进程 + PID 文件托管（免管理员），不随开机自启，
+  重启电脑后需重新运行 start。`);
 }
 
 await main();

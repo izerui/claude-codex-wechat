@@ -47,7 +47,7 @@
 ### 作为 npm 包安装
 
 ```bash
-npm install -g claude-codex-wechat
+npm install -g claude-codex-wechat --registry=https://registry.npmmirror.com/
 # 或
 pnpm add -g claude-codex-wechat
 ```
