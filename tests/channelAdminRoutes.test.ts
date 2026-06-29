@@ -308,8 +308,8 @@ describe('channel admin routes', () => {
       defaultProvider: 'claude-code',
       defaultWorkspace: process.cwd(),
       tunnel: {
-        enabled: false,
         relay: {
+          serverUrl: 'wss://wechat.style520.com/agent',
           authToken: expect.any(String),
         },
       },
@@ -322,7 +322,6 @@ describe('channel admin routes', () => {
         defaultProvider: 'codex',
         defaultWorkspace: '/tmp/project',
         tunnel: {
-          enabled: true,
           relay: {
             serverUrl: 'wss://relay.style520.com/agent',
             authToken: 'clrt_1234567890abcdef12345678',
@@ -338,7 +337,6 @@ describe('channel admin routes', () => {
       defaultProvider: 'codex',
       defaultWorkspace: '/tmp/project',
       tunnel: {
-        enabled: true,
         relay: {
           serverUrl: 'wss://relay.style520.com/agent',
           authToken: 'clrt_1234567890abcdef12345678',
@@ -351,7 +349,6 @@ describe('channel admin routes', () => {
         defaultWorkspace: '/tmp/project',
       },
       tunnel: {
-        enabled: true,
         relay: {
           serverUrl: 'wss://relay.style520.com/agent',
           authToken: 'clrt_1234567890abcdef12345678',

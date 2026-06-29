@@ -10,7 +10,6 @@ export function registerTunnelRoutes(input: {
   configPath: string;
   defaults: {
     tunnel: {
-      enabled: boolean;
       relay?: { serverUrl?: string; authToken?: string };
     };
   };
@@ -20,7 +19,6 @@ export function registerTunnelRoutes(input: {
   input.app.get('/api/tunnel/status', getStatus);
 
   const start = async () => {
-    input.defaults.tunnel.enabled = true;
     await persistBridgeDefaultsToConfigFile({
       configPath: input.configPath,
       tunnel: input.defaults.tunnel,
@@ -30,23 +28,7 @@ export function registerTunnelRoutes(input: {
   input.app.post('/api/tunnel/start', start);
 
   const stop = async () => {
-    input.defaults.tunnel.enabled = false;
-    await persistBridgeDefaultsToConfigFile({
-      configPath: input.configPath,
-      tunnel: input.defaults.tunnel,
-    });
     return await input.tunnelManager.stop();
   };
   input.app.post('/api/tunnel/stop', stop);
-
-  const setEnabled = async (request: { body?: { enabled?: boolean } }) => {
-    const enabled = request.body?.enabled === true;
-    input.defaults.tunnel.enabled = enabled;
-    await persistBridgeDefaultsToConfigFile({
-      configPath: input.configPath,
-      tunnel: input.defaults.tunnel,
-    });
-    return await input.tunnelManager.setEnabled(enabled);
-  };
-  input.app.post<{ Body: { enabled?: boolean } }>('/api/tunnel/settings', setEnabled);
 }

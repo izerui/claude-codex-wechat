@@ -61,7 +61,6 @@ function createFetchStub() {
     quota: { remaining: number; sentCount: number; limit: number; expired: boolean; windowEndsAt: number } | null;
     tunnel: {
       installed: boolean;
-      enabled: boolean;
       running: boolean;
       status: 'not_installed' | 'stopped' | 'starting' | 'running' | 'error';
       publicUrl?: string;
@@ -103,7 +102,6 @@ function createFetchStub() {
     },
     tunnel: {
       installed: true,
-      enabled: true,
       running: true,
       status: 'running',
       publicUrl: 'https://relay.style520.com/session-001',
@@ -136,7 +134,6 @@ function createFetchStub() {
           defaultWorkspace: '/tmp/project',
           tunnel: {
             provider: 'relay',
-            enabled: false,
             relay: {
               serverUrl: 'wss://relay.style520.com/agent',
               authToken: 'clrt_1234567890abcdef12345678',
@@ -206,7 +203,6 @@ function createFetchStub() {
         defaultProvider: 'claude-code',
         defaultWorkspace: '/tmp/project',
         tunnel: {
-          enabled: state.tunnel.enabled,
           relay: {
             serverUrl: 'wss://relay.style520.com/agent',
             authToken: 'clrt_1234567890abcdef12345678',
@@ -215,43 +211,6 @@ function createFetchStub() {
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/tunnel/status')) {
-      return new Response(JSON.stringify(state.tunnel), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }
-    if (url.endsWith('/api/tunnel/start') && method === 'POST') {
-      state.tunnel = {
-        installed: true,
-        enabled: true,
-        running: true,
-        status: 'running',
-        publicUrl: 'https://relay.style520.com/session-001',
-      };
-      return new Response(JSON.stringify(state.tunnel), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }
-    if (url.endsWith('/api/tunnel/stop') && method === 'POST') {
-      state.tunnel = {
-        installed: true,
-        enabled: false,
-        running: false,
-        status: 'stopped',
-      };
-      return new Response(JSON.stringify(state.tunnel), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    }
-    if (url.endsWith('/api/tunnel/settings') && method === 'POST') {
-      const payload = init?.body ? JSON.parse(String(init.body)) as { enabled?: boolean } : {};
-      state.tunnel = payload.enabled
-        ? {
-            installed: true,
-            enabled: true,
-            running: true,
-            status: 'running',
-            publicUrl: 'https://relay.style520.com/session-001',
-          }
-        : {
-            installed: true,
-            enabled: false,
-            running: false,
-            status: 'stopped',
-          };
       return new Response(JSON.stringify(state.tunnel), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url.endsWith('/api/channel/settings/sync') && method === 'POST') {

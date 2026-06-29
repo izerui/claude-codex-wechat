@@ -11,7 +11,6 @@ export class RelayTunnelProvider implements TunnelProvider {
   private socket: RelaySocket | null = null;
   private status: TunnelStatusView = {
     installed: true,
-    enabled: false,
     running: false,
     status: 'stopped',
   };
@@ -49,7 +48,6 @@ export class RelayTunnelProvider implements TunnelProvider {
   async start(): Promise<TunnelStatusView> {
     this.status = {
       ...this.status,
-      enabled: true,
       status: 'starting',
     };
     const socket = this.options.createSocket(this.options.serverUrl);
@@ -95,7 +93,6 @@ export class RelayTunnelProvider implements TunnelProvider {
             : undefined;
           this.status = {
             installed: true,
-            enabled: true,
             running: true,
             status: 'running',
             ...(publicUrl ? { publicUrl } : {}),
@@ -134,15 +131,10 @@ export class RelayTunnelProvider implements TunnelProvider {
     this.socket = null;
     this.status = {
       installed: true,
-      enabled: false,
       running: false,
       status: 'stopped',
     };
     return { ...this.status };
-  }
-
-  async setEnabled(enabled: boolean): Promise<TunnelStatusView> {
-    return enabled ? await this.start() : await this.stop();
   }
 
   private async handleRequest(payload: {

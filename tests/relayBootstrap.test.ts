@@ -29,14 +29,12 @@ describe('relay daemon bootstrap', () => {
 
     const runningStatus: TunnelStatusView = {
       installed: true,
-      enabled: true,
       running: true,
       status: 'running',
       publicUrl: 'https://relay.style520.com/sjdfh2xxx',
     };
     const stoppedStatus: TunnelStatusView = {
       installed: true,
-      enabled: false,
       running: false,
       status: 'stopped',
     };
@@ -44,7 +42,6 @@ describe('relay daemon bootstrap', () => {
       getStatus: vi.fn(async () => runningStatus),
       start: vi.fn(async () => runningStatus),
       stop: vi.fn(async () => stoppedStatus),
-      setEnabled: vi.fn(async () => runningStatus),
     };
 
     const daemon = await startDaemon({
@@ -79,7 +76,6 @@ describe('relay daemon bootstrap', () => {
 
     const runningStatus: TunnelStatusView = {
       installed: true,
-      enabled: true,
       running: true,
       status: 'running',
       publicUrl: 'https://relay.style520.com/sjdfh2xxx',
@@ -126,7 +122,6 @@ describe('relay daemon bootstrap', () => {
 
     const runningStatus: TunnelStatusView = {
       installed: true,
-      enabled: true,
       running: true,
       status: 'running',
       publicUrl: 'https://relay.style520.com/sjdfh2xxx',

@@ -57,14 +57,15 @@ describe('App dashboard provider status', () => {
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
           tunnel: {
-            enabled: true,
+            relay: {
+              serverUrl: 'wss://wechat.style520.com/agent',
+            },
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       if (url.endsWith('/api/tunnel/status')) {
         return new Response(JSON.stringify({
           installed: true,
-          enabled: true,
           running: true,
           status: 'running',
           publicUrl: 'https://relay.style520.com/session-001',
@@ -125,14 +126,15 @@ describe('App dashboard provider status', () => {
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
           tunnel: {
-            enabled: false,
+            relay: {
+              serverUrl: 'wss://wechat.style520.com/agent',
+            },
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       if (url.endsWith('/api/tunnel/status')) {
         return new Response(JSON.stringify({
           installed: false,
-          enabled: false,
           running: false,
           status: 'error',
           error: 'relay_not_configured',
@@ -191,14 +193,15 @@ describe('App dashboard provider status', () => {
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
           tunnel: {
-            enabled: false,
+            relay: {
+              serverUrl: 'wss://wechat.style520.com/agent',
+            },
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       if (url.endsWith('/api/tunnel/status')) {
         return new Response(JSON.stringify({
           installed: false,
-          enabled: false,
           running: false,
           status: 'error',
           error: 'relay_not_configured',

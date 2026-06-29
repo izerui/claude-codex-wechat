@@ -17,9 +17,9 @@ export const BRIDGE_COMMAND_HELP_GROUPS: BridgeCommandHelpGroup[] = [
     entries: [
       { command: '/help', desc: '显示本帮助' },
       { command: '/status', desc: '查看当前会话（provider、工作目录、状态）' },
-      { command: '/new', desc: '新建默认 provider 会话' },
+      { command: '/new', desc: '按当前 provider 新建会话' },
       { command: '/new claude|codex', desc: '新建指定 provider 会话' },
-      { command: '/new <目录>', desc: '在指定目录新建默认 provider 会话' },
+      { command: '/new <目录>', desc: '在指定目录按当前 provider 新建会话' },
       { command: '/new claude:<目录>', desc: '新建指定 provider + 指定目录会话' },
       { command: '/stop', desc: '中断当前正在生成的回复（会话保留）' },
     ],

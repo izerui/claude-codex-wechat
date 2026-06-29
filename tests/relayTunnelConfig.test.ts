@@ -14,7 +14,6 @@ describe('relay tunnel config wiring', () => {
     });
 
     expect(config.tunnel).toEqual({
-      enabled: true,
       relay: {
         serverUrl: 'wss://relay.style520.com/agent',
         authToken: 'clrt_1234567890abcdef12345678',
@@ -25,7 +24,6 @@ describe('relay tunnel config wiring', () => {
   it('defaults relay tunnel to enabled with the default relay server URL when values are missing', () => {
     const config = normalizeBridgeConfigForTest({});
     expect(config.tunnel).toEqual({
-      enabled: true,
       relay: {
         serverUrl: 'wss://wechat.style520.com/agent',
       },

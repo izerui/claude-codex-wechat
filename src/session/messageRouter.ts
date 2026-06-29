@@ -425,7 +425,10 @@ export class MessageRouter {
 
     if (command.kind === 'new_session') {
       await this.preemptActiveGeneration(chatId);
-      const providerId = command.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
+      const providerId = command.providerId
+        ?? this.conversation.getCurrent()?.providerId
+        ?? this.options.defaults?.defaultProvider
+        ?? 'claude-code';
       const cwd = command.cwd
         ?? this.conversation.getCurrent()?.cwd
         ?? this.options.defaults?.defaultWorkspace

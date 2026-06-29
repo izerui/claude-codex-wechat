@@ -9,7 +9,6 @@ export class RelayTunnelRouter implements TunnelProvider {
     bridgePort: number;
     defaults: {
       tunnel: {
-        enabled: boolean;
         relay?: { serverUrl?: string; authToken?: string };
       };
     };
@@ -33,12 +32,6 @@ export class RelayTunnelRouter implements TunnelProvider {
     return await provider.stop();
   }
 
-  async setEnabled(enabled: boolean): Promise<TunnelStatusView> {
-    const provider = this.getOrCreateRelayProvider();
-    if (!provider) return this.notConfiguredStatus();
-    return await provider.setEnabled(enabled);
-  }
-
   private getOrCreateRelayProvider(): TunnelProvider | null {
     const relay = this.options.defaults.tunnel.relay;
     if (!relay?.serverUrl || !relay.authToken) return null;
@@ -57,7 +50,6 @@ export class RelayTunnelRouter implements TunnelProvider {
   private notConfiguredStatus(): TunnelStatusView {
     return {
       installed: false,
-      enabled: false,
       running: false,
       status: 'error',
       error: 'relay_not_configured',

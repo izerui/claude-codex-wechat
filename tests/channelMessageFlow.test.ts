@@ -70,7 +70,6 @@ describe('channel message flow', () => {
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
     const runningStatus: TunnelStatusView = {
       installed: true,
-      enabled: true,
       running: true,
       status: 'running',
       publicUrl: 'https://relay.style520.com/session-001',
@@ -78,8 +77,7 @@ describe('channel message flow', () => {
     const relayProvider = {
       getStatus: vi.fn(async () => runningStatus),
       start: vi.fn(async () => runningStatus),
-      stop: vi.fn(async () => ({ ...runningStatus, enabled: false, running: false, status: 'stopped' as const })),
-      setEnabled: vi.fn(async () => runningStatus),
+      stop: vi.fn(async () => ({ ...runningStatus, running: false, status: 'stopped' as const })),
     };
     const { app } = createDaemonServer({
       channel,

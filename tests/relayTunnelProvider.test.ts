@@ -42,7 +42,6 @@ describe('RelayTunnelProvider', () => {
     expect(socket.sent[0]).toContain('"authToken":"clrt_1234567890abcdef12345678"');
     expect(status).toMatchObject({
       installed: true,
-      enabled: true,
       running: true,
       status: 'running',
       publicUrl: 'https://relay.style520.com/sjdfh2xxx',
