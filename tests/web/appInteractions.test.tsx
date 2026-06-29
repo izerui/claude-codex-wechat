@@ -4,11 +4,9 @@ import { within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
 import { resetBridgeEventsForTests } from '../../src/web/bridgeEventsSocket';
-import { signRelayAccessCodeBodyForTest } from '../../src/web/accessCode';
 import { resolveApiBaseUrlForTest } from '../../src/web/apiClient';
 import type { ActiveWeChatUserView, BridgeSessionView } from '../../src/web/apiClient';
 
-// The window hook keeps its historical name for compatibility with existing access-code import flows.
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
 
@@ -642,15 +640,14 @@ describe('App admin interactions', () => {
     expect(fetchCalls.some((url) => url.startsWith('http://127.0.0.1:8788/f300f2a605ed/api/channel/state'))).toBe(true);
   });
 
-  it('does not show relay access-code import controls in the help panel', async () => {
+  it('does not show an extra relay action button in the help panel', async () => {
     const { fetchImpl } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
     render(<App />);
 
     await screen.findByRole('heading', { name: '微信远程控制台' });
-    expect(screen.queryByPlaceholderText('Relay Access Code')).toBeNull();
-    expect(screen.queryByRole('button', { name: '导入接入码' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '导入' })).toBeNull();
   });
 
   it('uses relay public status when relay is the selected tunnel provider', async () => {

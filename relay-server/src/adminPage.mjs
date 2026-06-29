@@ -281,35 +281,10 @@ export function renderAdminPage() {
           '<td><code>' + escapeHtml(connection.publicUrl || '') + '</code></td>' +
           '<td><span class="status">在线</span></td>' +
           '<td><div class="row-actions">' +
-            '<button class="button" data-access-code="' + escapeHtml(connection.authToken || '') + '" type="button">复制接入码</button> ' +
             '<button class="button button-danger" data-auth-token="' + escapeHtml(connection.authToken || '') + '" type="button">断开连接</button>' +
           '</div></td>' +
         '</tr>'
       )).join('');
-
-      tbody.querySelectorAll('button[data-access-code]').forEach((button) => {
-        button.addEventListener('click', async () => {
-          const authToken = button.getAttribute('data-access-code');
-          if (!authToken) return;
-          // The HTTP route keeps its historical name for compatibility.
-          const response = await authorizedFetch('/admin/activation-code', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ authToken }),
-          });
-          const payload = await response.json();
-          if (!response.ok) throw new Error(payload.error || 'access_code_generation_failed');
-          // Prefer the new field, but keep the legacy fallback for older servers/clients.
-          const accessCode = payload.accessCode || payload.activationCode;
-          if (!accessCode) throw new Error('access_code_generation_failed');
-          try {
-            await navigator.clipboard.writeText(accessCode);
-            window.alert('接入码已复制');
-          } catch {
-            window.alert('接入码: ' + accessCode);
-          }
-        });
-      });
 
       tbody.querySelectorAll('button[data-auth-token]').forEach((button) => {
         button.addEventListener('click', async () => {

@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadRelayConfig } from '../src/config.mjs';
 
-// These assertions intentionally use the public compatibility key `activationSecret`.
 test('loads relay server config from env', () => {
   const config = loadRelayConfig({
     RELAY_PORT: '9191',
@@ -19,7 +18,6 @@ test('loads relay server config from env', () => {
     relayServerUrl: undefined,
     authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile: undefined,
-    activationSecret: undefined,
     adminToken: undefined,
   });
 });
@@ -37,7 +35,6 @@ test('allows missing RELAY_BASE_DOMAIN when RELAY_SERVER_URL is provided', () =>
     relayServerUrl: 'wss://wechat.style520.com/agent',
     authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile: undefined,
-    activationSecret: undefined,
     adminToken: undefined,
   });
 });
@@ -53,28 +50,8 @@ test('loads relay server config from RELAY_AUTH_TOKENS', () => {
     port: 9191,
     baseDomain: 'style520.com',
     relayServerUrl: undefined,
-    authTokens: ['clrt_aaaaaaaaaaaaaaaaaaaaaaaa', 'clrt_bbbbbbbbbbbbbbbbbbbbbbbb', 'relay-token-c'],
+    authTokens: ['relay-token-a', 'relay-token-b', 'relay-token-c'],
     authTokensFile: undefined,
-    activationSecret: undefined,
-    adminToken: undefined,
-  });
-});
-
-test('keeps RELAY_ACTIVATION_SECRET on the public activationSecret config key', () => {
-  const config = loadRelayConfig({
-    RELAY_PORT: '9191',
-    RELAY_BASE_DOMAIN: 'style520.com',
-    RELAY_AUTH_TOKEN: 'clrt_1234567890abcdef12345678',
-    RELAY_ACTIVATION_SECRET: 'compat-secret',
-  });
-
-  assert.deepEqual(config, {
-    port: 9191,
-    baseDomain: 'style520.com',
-    relayServerUrl: undefined,
-    authTokens: ['clrt_1234567890abcdef12345678'],
-    authTokensFile: undefined,
-    activationSecret: 'compat-secret',
     adminToken: undefined,
   });
 });
@@ -94,9 +71,8 @@ test('loads relay server config from RELAY_AUTH_TOKENS_FILE', () => {
     port: 9191,
     baseDomain: 'style520.com',
     relayServerUrl: undefined,
-    authTokens: ['clrt_aaaaaaaaaaaaaaaaaaaaaaaa', 'clrt_bbbbbbbbbbbbbbbbbbbbbbbb', 'relay-token-c'],
+    authTokens: ['relay-token-a', 'relay-token-b', 'relay-token-c'],
     authTokensFile: tokenFile,
-    activationSecret: undefined,
     adminToken: undefined,
   });
 });
@@ -118,9 +94,8 @@ test('prefers RELAY_AUTH_TOKENS_FILE over inline env tokens', () => {
     port: 9191,
     baseDomain: 'style520.com',
     relayServerUrl: undefined,
-    authTokens: ['clrt_cccccccccccccccccccccccc', 'clrt_dddddddddddddddddddddddd'],
+    authTokens: ['file-token-a', 'file-token-b'],
     authTokensFile: tokenFile,
-    activationSecret: undefined,
     adminToken: undefined,
   });
 });
@@ -151,7 +126,6 @@ test('allows missing RELAY_AUTH_TOKEN during the current open relay phase', () =
     relayServerUrl: undefined,
     authTokens: [],
     authTokensFile: undefined,
-    activationSecret: undefined,
     adminToken: undefined,
   });
 });

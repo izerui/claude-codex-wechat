@@ -6,8 +6,6 @@ export function loadRelayConfig(env = process.env) {
   const relayServerUrl = String(env.RELAY_SERVER_URL ?? '').trim() || undefined;
   const authTokens = parseAuthTokens(env);
   const authTokensFile = String(env.RELAY_AUTH_TOKENS_FILE ?? '').trim() || undefined;
-  // Keep the historical env name for compatibility with existing deployments.
-  const accessCodeSecret = String(env.RELAY_ACTIVATION_SECRET ?? '').trim() || undefined;
   const adminToken = String(env.RELAY_ADMIN_TOKEN ?? '').trim() || undefined;
   if (!baseDomain && !relayServerUrl) throw new Error('RELAY_BASE_DOMAIN or RELAY_SERVER_URL is required');
   return {
@@ -16,8 +14,6 @@ export function loadRelayConfig(env = process.env) {
     relayServerUrl,
     authTokens,
     authTokensFile,
-    // Keep the public config shape stable for existing callers.
-    activationSecret: accessCodeSecret,
     adminToken,
   };
 }

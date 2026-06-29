@@ -1,16 +1,16 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
-import { signAccessCodePayload } from './activationSigning.mjs';
 import { renderAdminPage } from './adminPage.mjs';
 import { createDomainRegistry } from './domainRegistry.mjs';
 import { parseRelayMessage } from './protocol.mjs';
-import { appendTokenToFile, createClientToken, isValidClientToken } from './tokenManager.mjs';
+import { appendTokenToFile, createClientToken } from './tokenManager.mjs';
 import { createWsRegistry } from './wsRegistry.mjs';
 
 export async function startRelayServer(input) {
   const { port, baseDomain, authTokens, authTokensFile, adminToken } = input;
-  // Prefer the new internal name, but keep reading the historical input key for compatibility.
-  const accessCodeSecret = input.accessCodeSecret ?? input.activationSecret;
+  const requestTimeoutMs = Number.isFinite(input.requestTimeoutMs) && input.requestTimeoutMs > 0
+    ? input.requestTimeoutMs
+    : 30_000;
   const relayServerUrl = input.relayServerUrl ?? (baseDomain ? `wss://${baseDomain}/agent` : undefined);
   const domainRegistry = createDomainRegistry({
     resolvePublicBaseUrl(metadata = {}) {
@@ -55,34 +55,6 @@ export async function startRelayServer(input) {
         token,
         totalTokens: result.tokens.length,
       }));
-      return;
-    }
-    // Keep the historical route for compatibility; the UI presents this as an access code action.
-    if (req.method === 'POST' && req.url === '/admin/activation-code') {
-      const chunks = [];
-      req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      req.on('end', () => {
-        const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        const authToken = String(payload.authToken ?? '').trim();
-        if (!authToken || !isValidClientToken(authToken) || !accessCodeSecret) {
-          res.writeHead(404, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: 'auth_token_not_found' }));
-          return;
-        }
-        const accessCode = signAccessCodePayload({
-          version: 1,
-          serverUrl: relayServerUrl,
-          authToken,
-          expiresAt: Date.now() + 24 * 60 * 60 * 1000,
-        }, accessCodeSecret);
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({
-          ok: true,
-          accessCode,
-          // Keep the legacy field for older clients.
-          activationCode: accessCode,
-        }));
-      });
       return;
     }
     if (req.url === '/connections') {
@@ -142,7 +114,14 @@ export async function startRelayServer(input) {
     req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
     req.on('end', () => {
       connection.lastSeenAt = Date.now();
-      pendingResponses.set(requestId, { res });
+      const timeout = setTimeout(() => {
+        const pending = pendingResponses.get(requestId);
+        if (!pending) return;
+        pendingResponses.delete(requestId);
+        if (!pending.res.headersSent) pending.res.writeHead(504);
+        pending.res.end('agent_timeout');
+      }, requestTimeoutMs);
+      pendingResponses.set(requestId, { res, connectionId, timeout });
       socket.send(JSON.stringify({
         type: 'request',
         requestId,
@@ -168,7 +147,17 @@ export async function startRelayServer(input) {
   wss.on('connection', (ws) => {
     let connectionId = null;
     ws.on('message', (raw) => {
-      const message = parseRelayMessage(String(raw));
+      let message;
+      try {
+        message = parseRelayMessage(String(raw));
+      } catch {
+        ws.send(JSON.stringify({
+          type: 'error',
+          error: 'invalid_message',
+        }));
+        ws.close();
+        return;
+      }
       if (message.type === 'register') {
         const existingConnectionId = wsRegistry.lookupConnectionIdByAuthToken(message.authToken);
         if (existingConnectionId) {
@@ -206,6 +195,7 @@ export async function startRelayServer(input) {
         const pending = pendingResponses.get(message.requestId);
         if (!pending) return;
         pendingResponses.delete(message.requestId);
+        clearTimeout(pending.timeout);
         const responseBuffer = Buffer.from(String(message.bodyBase64 ?? ''), 'base64');
         const relayToken = connectionId ? domainRegistry.lookupAllocation(connectionId)?.token : null;
         const rewritten = rewriteTextResponseForRelayPrefix({
@@ -218,6 +208,15 @@ export async function startRelayServer(input) {
       }
     });
     ws.on('close', () => {
+      if (connectionId) {
+        for (const [requestId, pending] of pendingResponses.entries()) {
+          if (pending.connectionId !== connectionId) continue;
+          pendingResponses.delete(requestId);
+          clearTimeout(pending.timeout);
+          if (!pending.res.headersSent) pending.res.writeHead(502);
+          pending.res.end('agent_disconnected');
+        }
+      }
       if (!connectionId) return;
       domainRegistry.release(connectionId);
       wsRegistry.delete(connectionId);
@@ -233,6 +232,12 @@ export async function startRelayServer(input) {
   return {
     port: actualPort,
     close: async () => {
+      for (const [requestId, pending] of pendingResponses.entries()) {
+        pendingResponses.delete(requestId);
+        clearTimeout(pending.timeout);
+        if (!pending.res.headersSent) pending.res.writeHead(503);
+        pending.res.end('relay_shutdown');
+      }
       for (const [, record] of wsRegistry.entries()) {
         record.socket.close();
       }
