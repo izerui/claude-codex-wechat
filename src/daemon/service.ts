@@ -464,7 +464,9 @@ async function spawnDetachedDaemon(spec: ProcessServiceSpec): Promise<number> {
     const [command, ...args] = spec.command;
     const child = spawn(command, args, {
       cwd: spec.workingDirectory,
-      env: spec.environment,
+      // Windows 分离进程需继承完整 process.env（SystemRoot/APPDATA/PATHEXT 等），
+      // 否则子进程及其拉起的 claude/codex 会异常；spec.environment 仅作 BRIDGE_* 等覆盖层。
+      env: { ...process.env, ...spec.environment },
       detached: true,
       windowsHide: true,
       stdio: ['ignore', outFd, errFd],
