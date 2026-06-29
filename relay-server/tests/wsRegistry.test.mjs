@@ -8,13 +8,13 @@ test('stores and removes active relay connections', () => {
 
   registry.set('conn-1', {
     socket,
-    authToken: 'relay-token-001',
+    authToken: 'clrt_111111111111111111111111',
     publicUrl: 'https://style520.com/abc123',
     connectedAt: 1000,
   });
   assert.deepEqual(registry.get('conn-1'), {
     socket,
-    authToken: 'relay-token-001',
+    authToken: 'clrt_111111111111111111111111',
     publicUrl: 'https://style520.com/abc123',
     connectedAt: 1000,
   });

@@ -2,8 +2,14 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
+export const CLIENT_TOKEN_PATTERN = /^clrt_[a-z0-9]{24}$/;
+
 export function createClientToken() {
   return `clrt_${randomBytes(12).toString('hex')}`;
+}
+
+export function isValidClientToken(value) {
+  return typeof value === 'string' && CLIENT_TOKEN_PATTERN.test(value);
 }
 
 export function appendTokenToFile(input) {

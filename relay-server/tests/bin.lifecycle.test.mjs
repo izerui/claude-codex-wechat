@@ -11,7 +11,7 @@ test('relay-server CLI starts, answers /healthz, and shuts down on SIGTERM', asy
       ...process.env,
       RELAY_PORT: '0',
       RELAY_BASE_DOMAIN: 'style520.com',
-      RELAY_AUTH_TOKEN: 'relay-token',
+      RELAY_AUTH_TOKEN: 'clrt_1234567890abcdef12345678',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

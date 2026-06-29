@@ -8,7 +8,7 @@ describe('relay tunnel config wiring', () => {
         enabled: true,
         relay: {
           serverUrl: 'wss://relay.style520.com/agent',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         },
       },
     });
@@ -17,7 +17,7 @@ describe('relay tunnel config wiring', () => {
       enabled: true,
       relay: {
         serverUrl: 'wss://relay.style520.com/agent',
-        authToken: 'relay-token',
+        authToken: 'clrt_1234567890abcdef12345678',
       },
     });
   });

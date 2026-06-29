@@ -11,7 +11,7 @@ describe('relay runtime integration', () => {
     const relay = await startRelayServer({
       port: 0,
       baseDomain: 'style520.com',
-      authTokens: ['relay-token'],
+      authTokens: ['clrt_1234567890abcdef12345678'],
     });
 
     const configDir = mkdtempSync(`${tmpdir()}/bridge-relay-runtime-`);
@@ -26,7 +26,7 @@ describe('relay runtime integration', () => {
         enabled: true,
         relay: {
           serverUrl: `ws://127.0.0.1:${relay.port}/agent`,
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         },
       },
     }, null, 2));
@@ -57,7 +57,7 @@ describe('relay runtime integration', () => {
     const relay = await startRelayServer({
       port: 0,
       baseDomain: 'style520.com',
-      authTokens: ['relay-token'],
+      authTokens: ['clrt_1234567890abcdef12345678'],
     });
 
     const configDir = mkdtempSync(`${tmpdir()}/bridge-relay-runtime-save-`);
@@ -87,7 +87,7 @@ describe('relay runtime integration', () => {
           enabled: true,
           relay: {
             serverUrl: `ws://127.0.0.1:${relay.port}/agent`,
-            authToken: 'relay-token',
+            authToken: 'clrt_1234567890abcdef12345678',
           },
           },
         }),

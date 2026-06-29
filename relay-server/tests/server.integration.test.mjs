@@ -11,7 +11,7 @@ test('accepts agent registration and returns a random public URL', async () => {
   const relay = await startRelayServer({
     port: 0,
     relayServerUrl: 'wss://style520.com/agent',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
   try {
@@ -22,7 +22,7 @@ test('accepts agent registration and returns a random public URL', async () => {
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -44,7 +44,7 @@ test('routes a public HTTP request to the registered agent and returns its respo
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
   try {
@@ -55,7 +55,7 @@ test('routes a public HTTP request to the registered agent and returns its respo
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -111,7 +111,7 @@ test('rewrites root-relative HTML asset URLs to keep the relay token prefix', as
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
   try {
@@ -122,7 +122,7 @@ test('rewrites root-relative HTML asset URLs to keep the relay token prefix', as
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -194,7 +194,7 @@ test('rewrites root-relative module imports to keep the relay token prefix', asy
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
   try {
@@ -205,7 +205,7 @@ test('rewrites root-relative module imports to keep the relay token prefix', asy
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -267,7 +267,7 @@ test('rewrites root-relative CSS asset URLs to keep the relay token prefix', asy
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
   try {
@@ -278,7 +278,7 @@ test('rewrites root-relative CSS asset URLs to keep the relay token prefix', asy
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -336,7 +336,7 @@ test('does not prefix ordinary css payload strings inside vite style modules', a
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
   try {
@@ -347,7 +347,7 @@ test('does not prefix ordinary css payload strings inside vite style modules', a
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -411,7 +411,7 @@ test('rewrites font urls inside vite css payload strings without rewriting unrel
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
   try {
@@ -422,7 +422,7 @@ test('rewrites font urls inside vite css payload strings without rewriting unrel
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -483,7 +483,7 @@ test('accepts registration when auth token is in the whitelist', async () => {
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token-a', 'relay-token-b'],
+    authTokens: ['clrt_aaaaaaaaaaaaaaaaaaaaaaaa', 'clrt_bbbbbbbbbbbbbbbbbbbbbbbb'],
   });
 
   try {
@@ -494,7 +494,7 @@ test('accepts registration when auth token is in the whitelist', async () => {
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token-b',
+          authToken: 'clrt_bbbbbbbbbbbbbbbbbbbbbbbb',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -514,7 +514,7 @@ test('lists active relay connections with client instance metadata', async () =>
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
   try {
@@ -525,7 +525,7 @@ test('lists active relay connections with client instance metadata', async () =>
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -540,8 +540,7 @@ test('lists active relay connections with client instance metadata', async () =>
 
     assert.equal(response.status, 200);
     assert.deepEqual(payload.connections, [{
-      connectionId: registered.connectionId,
-      authToken: 'relay-token',
+      authToken: 'clrt_1234567890abcdef12345678',
       publicUrl: payload.connections[0].publicUrl,
     }]);
     assert.match(payload.connections[0].publicUrl, /^https:\/\/style520\.com\/[a-z0-9]{10,12}$/);
@@ -555,7 +554,7 @@ test('disconnects an active relay connection by id', async () => {
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
   try {
@@ -569,7 +568,7 @@ test('disconnects an active relay connection by id', async () => {
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -598,11 +597,122 @@ test('disconnects an active relay connection by id', async () => {
   }
 });
 
+test('disconnects an active relay connection by auth token', async () => {
+  const relay = await startRelayServer({
+    port: 0,
+    baseDomain: 'style520.com',
+    authTokens: ['clrt_1234567890abcdef12345678'],
+  });
+
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
+    const closePromise = new Promise((resolve) => {
+      ws.addEventListener('close', () => resolve(undefined));
+    });
+    await new Promise((resolve, reject) => {
+      ws.addEventListener('open', () => {
+        ws.send(JSON.stringify({
+          type: 'register',
+          clientVersion: '0.1.0',
+          targetBaseUrl: 'http://127.0.0.1:8787',
+          authToken: 'clrt_1234567890abcdef12345678',
+        }));
+      });
+      ws.addEventListener('message', (raw) => {
+        const payload = JSON.parse(String(raw.data));
+        if (payload.type === 'registered') resolve(payload);
+      });
+      ws.addEventListener('error', reject);
+    });
+
+    const response = await fetch(`http://127.0.0.1:${relay.port}/connections/auth-token/${encodeURIComponent('clrt_1234567890abcdef12345678')}/disconnect`, {
+      method: 'POST',
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(payload, { ok: true });
+    await closePromise;
+  } finally {
+    await relay.close();
+  }
+});
+
+test('rejects a second agent registration when the auth token is already connected', async () => {
+  const relay = await startRelayServer({
+    port: 0,
+    baseDomain: 'style520.com',
+    authTokens: ['clrt_1234567890abcdef12345678'],
+  });
+
+  try {
+    const ws1 = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
+    await new Promise((resolve, reject) => {
+      ws1.addEventListener('open', () => {
+        ws1.send(JSON.stringify({
+          type: 'register',
+          clientVersion: '0.1.0',
+          targetBaseUrl: 'http://127.0.0.1:8787',
+          authToken: 'clrt_1234567890abcdef12345678',
+        }));
+      });
+      ws1.addEventListener('message', (raw) => {
+        const payload = JSON.parse(String(raw.data));
+        if (payload.type === 'registered') resolve(payload);
+      });
+      ws1.addEventListener('error', reject);
+    });
+
+    const ws2 = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
+    const duplicateResult = await new Promise((resolve, reject) => {
+      let errorPayload = null;
+      let closed = false;
+      const maybeResolve = () => {
+        if (errorPayload && closed) resolve(errorPayload);
+      };
+      ws2.addEventListener('open', () => {
+        ws2.send(JSON.stringify({
+          type: 'register',
+          clientVersion: '0.1.0',
+          targetBaseUrl: 'http://127.0.0.1:8787',
+          authToken: 'clrt_1234567890abcdef12345678',
+        }));
+      });
+      ws2.addEventListener('message', (raw) => {
+        const payload = JSON.parse(String(raw.data));
+        if (payload.type === 'error') {
+          errorPayload = payload;
+          maybeResolve();
+        }
+      });
+      ws2.addEventListener('close', () => {
+        closed = true;
+        maybeResolve();
+      });
+      ws2.addEventListener('error', reject);
+    });
+
+    assert.deepEqual(duplicateResult, {
+      type: 'error',
+      error: 'auth_token_in_use',
+    });
+
+    const response = await fetch(`http://127.0.0.1:${relay.port}/connections`);
+    const payload = await response.json();
+    assert.equal(payload.connections.length, 1);
+    assert.equal(payload.connections[0].authToken, 'clrt_1234567890abcdef12345678');
+
+    ws1.close();
+  } finally {
+    await relay.close();
+  }
+});
+
 test('serves the relay admin page', async () => {
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
   });
 
   try {
@@ -634,7 +744,7 @@ test('rejects unauthorized admin access when RELAY_ADMIN_TOKEN is configured', a
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
     adminToken: 'relay-admin-secret',
   });
 
@@ -666,7 +776,7 @@ test('generates and appends a client token through the admin API when RELAY_AUTH
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile,
   });
 
@@ -693,7 +803,7 @@ test('returns only panel fields from /connections after a token is assigned', as
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile,
     activationSecret: 'test-access-code-secret',
   });
@@ -715,7 +825,7 @@ test('returns only panel fields from /connections after a token is assigned', as
           type: 'register',
           clientVersion: '0.1.0',
           targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         }));
       });
       ws.addEventListener('message', (raw) => {
@@ -730,8 +840,7 @@ test('returns only panel fields from /connections after a token is assigned', as
 
     assert.equal(response.status, 200);
     assert.deepEqual(payload.connections, [{
-      connectionId: registered.connectionId,
-      authToken: 'relay-token',
+      authToken: 'clrt_1234567890abcdef12345678',
       publicUrl: payload.connections[0].publicUrl,
     }]);
     assert.match(payload.connections[0].publicUrl, /^https:\/\/style520\.com\/[a-z0-9]{10,12}$/);
@@ -748,7 +857,7 @@ test('builds an access code for an assigned client instance', async () => {
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile,
     activationSecret: 'test-access-code-secret',
   });
@@ -795,7 +904,7 @@ test('builds an access code and auto-assigns a token for an unassigned client in
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile,
     activationSecret: 'test-access-code-secret',
   });
@@ -805,7 +914,7 @@ test('builds an access code and auto-assigns a token for an unassigned client in
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        authToken: 'relay-token',
+        authToken: 'clrt_1234567890abcdef12345678',
       }),
     });
     const payload = await response.json();
@@ -814,7 +923,7 @@ test('builds an access code and auto-assigns a token for an unassigned client in
     assert.equal(payload.activationCode, payload.accessCode);
     const signedEnvelope = JSON.parse(Buffer.from(payload.accessCode, 'base64url').toString('utf8'));
     const decoded = JSON.parse(Buffer.from(signedEnvelope.body, 'base64url').toString('utf8'));
-    assert.equal(decoded.authToken, 'relay-token');
+    assert.equal(decoded.authToken, 'clrt_1234567890abcdef12345678');
     assert.equal(decoded.serverUrl, 'wss://style520.com/agent');
   } finally {
     await relay.close();
@@ -828,7 +937,7 @@ test('builds an access code when the server input uses accessCodeSecret', async 
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
-    authTokens: ['relay-token'],
+    authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile,
     accessCodeSecret: 'test-access-code-secret',
   });
@@ -838,7 +947,7 @@ test('builds an access code when the server input uses accessCodeSecret', async 
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        authToken: 'relay-token',
+        authToken: 'clrt_1234567890abcdef12345678',
       }),
     });
     const payload = await response.json();
@@ -847,7 +956,7 @@ test('builds an access code when the server input uses accessCodeSecret', async 
     assert.equal(payload.activationCode, payload.accessCode);
     const signedEnvelope = JSON.parse(Buffer.from(payload.accessCode, 'base64url').toString('utf8'));
     const decoded = JSON.parse(Buffer.from(signedEnvelope.body, 'base64url').toString('utf8'));
-    assert.equal(decoded.authToken, 'relay-token');
+    assert.equal(decoded.authToken, 'clrt_1234567890abcdef12345678');
   } finally {
     await relay.close();
     await rm(authTokensFile, { force: true });

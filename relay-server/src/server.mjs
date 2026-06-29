@@ -4,7 +4,7 @@ import { signAccessCodePayload } from './activationSigning.mjs';
 import { renderAdminPage } from './adminPage.mjs';
 import { createDomainRegistry } from './domainRegistry.mjs';
 import { parseRelayMessage } from './protocol.mjs';
-import { appendTokenToFile, createClientToken } from './tokenManager.mjs';
+import { appendTokenToFile, createClientToken, isValidClientToken } from './tokenManager.mjs';
 import { createWsRegistry } from './wsRegistry.mjs';
 
 export async function startRelayServer(input) {
@@ -64,7 +64,7 @@ export async function startRelayServer(input) {
       req.on('end', () => {
         const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         const authToken = String(payload.authToken ?? '').trim();
-        if (!authToken || !accessCodeSecret) {
+        if (!authToken || !isValidClientToken(authToken) || !accessCodeSecret) {
           res.writeHead(404, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: 'auth_token_not_found' }));
           return;
@@ -89,11 +89,24 @@ export async function startRelayServer(input) {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         connections: Array.from(wsRegistry.entries()).map(([connectionId, record]) => ({
-          connectionId,
           authToken: record.authToken,
           publicUrl: record.publicUrl,
         })),
       }));
+      return;
+    }
+    const disconnectByAuthTokenMatch = String(req.url ?? '').match(/^\/connections\/auth-token\/([^/]+)\/disconnect$/);
+    if (req.method === 'POST' && disconnectByAuthTokenMatch?.[1]) {
+      const authToken = decodeURIComponent(disconnectByAuthTokenMatch[1]);
+      const connection = wsRegistry.getByAuthToken(authToken);
+      if (!connection) {
+        res.writeHead(404);
+        res.end('not_found');
+        return;
+      }
+      connection.socket.close();
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
       return;
     }
     const disconnectMatch = String(req.url ?? '').match(/^\/connections\/([^/]+)\/disconnect$/);
@@ -157,6 +170,15 @@ export async function startRelayServer(input) {
     ws.on('message', (raw) => {
       const message = parseRelayMessage(String(raw));
       if (message.type === 'register') {
+        const existingConnectionId = wsRegistry.lookupConnectionIdByAuthToken(message.authToken);
+        if (existingConnectionId) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            error: 'auth_token_in_use',
+          }));
+          ws.close();
+          return;
+        }
         connectionId = `conn_${Math.random().toString(36).slice(2, 10)}`;
         const allocation = domainRegistry.allocate(connectionId, {
           relayServerUrl,

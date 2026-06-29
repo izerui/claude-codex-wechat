@@ -76,6 +76,17 @@ export class RelayTunnelProvider implements TunnelProvider {
       });
       socket.on('message', (raw) => {
         const payload = typeof raw === 'string' ? JSON.parse(raw) : typeof raw?.data === 'string' ? JSON.parse(raw.data) : raw;
+        if (payload?.type === 'error') {
+          const message = typeof payload?.error === 'string' && payload.error ? payload.error : 'relay_error';
+          this.status = {
+            ...this.status,
+            running: false,
+            status: 'error',
+            error: message,
+          };
+          finishReject(new Error(message));
+          return;
+        }
         if (payload?.type === 'registered') {
           const publicUrl = typeof payload?.token === 'string'
             ? `${derivePublicBaseUrl(this.options.serverUrl)}/${payload.token}`

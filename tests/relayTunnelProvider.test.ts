@@ -22,7 +22,7 @@ describe('RelayTunnelProvider', () => {
     const createSocket = vi.fn(() => socket as never);
     const provider = new RelayTunnelProvider({
       serverUrl: 'wss://relay.style520.com/agent',
-      authToken: 'relay-token',
+      authToken: 'clrt_1234567890abcdef12345678',
       targetBaseUrl: 'http://127.0.0.1:8787',
       createSocket,
     });
@@ -39,7 +39,7 @@ describe('RelayTunnelProvider', () => {
     expect(createSocket).toHaveBeenCalledWith('wss://relay.style520.com/agent');
     expect(socket.sent[0]).toContain('"type":"register"');
     expect(socket.sent[0]).not.toContain('"clientInstanceId"');
-    expect(socket.sent[0]).toContain('"authToken":"relay-token"');
+    expect(socket.sent[0]).toContain('"authToken":"clrt_1234567890abcdef12345678"');
     expect(status).toMatchObject({
       installed: true,
       enabled: true,
@@ -60,7 +60,7 @@ describe('RelayTunnelProvider', () => {
     }));
     const provider = new RelayTunnelProvider({
       serverUrl: 'wss://relay.style520.com/agent',
-      authToken: 'relay-token',
+      authToken: 'clrt_1234567890abcdef12345678',
       targetBaseUrl: 'http://127.0.0.1:8787',
       createSocket,
       fetchImpl: fetchLocal as typeof fetch,
@@ -104,7 +104,7 @@ describe('RelayTunnelProvider', () => {
     const createSocket = vi.fn(() => socket as never);
     const provider = new RelayTunnelProvider({
       serverUrl: 'wss://relay.style520.com/agent',
-      authToken: 'relay-token',
+      authToken: 'clrt_1234567890abcdef12345678',
       targetBaseUrl: 'http://127.0.0.1:8787',
       createSocket,
     });
@@ -118,6 +118,31 @@ describe('RelayTunnelProvider', () => {
       running: false,
       status: 'error',
       error: 'relay_disconnected',
+    });
+  });
+
+  it('fails startup with a clear error when the auth token is already in use', async () => {
+    const socket = new FakeSocket();
+    const createSocket = vi.fn(() => socket as never);
+    const provider = new RelayTunnelProvider({
+      serverUrl: 'wss://relay.style520.com/agent',
+      authToken: 'clrt_1234567890abcdef12345678',
+      targetBaseUrl: 'http://127.0.0.1:8787',
+      createSocket,
+    });
+
+    const startPromise = provider.start();
+    socket.emit('open');
+    socket.emit('message', JSON.stringify({
+      type: 'error',
+      error: 'auth_token_in_use',
+    }));
+
+    await expect(startPromise).rejects.toThrow(/auth_token_in_use/);
+    await expect(provider.getStatus()).resolves.toMatchObject({
+      running: false,
+      status: 'error',
+      error: 'auth_token_in_use',
     });
   });
 });

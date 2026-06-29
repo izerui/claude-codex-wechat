@@ -158,11 +158,17 @@ Compatibility note:
 - the legacy response field `activationCode` is still returned with the same value for older clients
 - this response compatibility is verified in [`tests/server.integration.test.mjs`](./tests/server.integration.test.mjs)
 
-`/connections` now returns only the fields the panel uses:
+`/connections` returns the fields the admin/API surface may use:
 
 - `connectionId`
 - `authToken`
 - `publicUrl`
+
+Operational rule:
+
+- one `authToken` may have only one active websocket connection at a time
+- if a second client registers with the same `authToken`, relay-server rejects it with `auth_token_in_use`
+- the admin UI uses `authToken` as the operator-facing identity; `connectionId` remains an internal connection handle
 
 ## Production Checklist
 

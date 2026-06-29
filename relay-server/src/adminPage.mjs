@@ -277,12 +277,12 @@ export function renderAdminPage() {
       }
       tbody.innerHTML = connections.map((connection) => (
         '<tr>' +
-          '<td><div class="instance-name">' + escapeHtml(connection.authToken || connection.connectionId) + '</div><code>' + escapeHtml(connection.connectionId) + '</code></td>' +
+          '<td><div class="instance-name">' + escapeHtml(connection.authToken || '') + '</div></td>' +
           '<td><code>' + escapeHtml(connection.publicUrl || '') + '</code></td>' +
           '<td><span class="status">在线</span></td>' +
           '<td><div class="row-actions">' +
             '<button class="button" data-access-code="' + escapeHtml(connection.authToken || '') + '" type="button">复制接入码</button> ' +
-            '<button class="button button-danger" data-connection-id="' + escapeHtml(connection.connectionId) + '" type="button">断开连接</button>' +
+            '<button class="button button-danger" data-auth-token="' + escapeHtml(connection.authToken || '') + '" type="button">断开连接</button>' +
           '</div></td>' +
         '</tr>'
       )).join('');
@@ -311,12 +311,12 @@ export function renderAdminPage() {
         });
       });
 
-      tbody.querySelectorAll('button[data-connection-id]').forEach((button) => {
+      tbody.querySelectorAll('button[data-auth-token]').forEach((button) => {
         button.addEventListener('click', async () => {
-          const connectionId = button.getAttribute('data-connection-id');
-          if (!connectionId) return;
+          const authToken = button.getAttribute('data-auth-token');
+          if (!authToken) return;
           if (!window.confirm('确认断开这个客户端连接？')) return;
-          await authorizedFetch('/connections/' + encodeURIComponent(connectionId) + '/disconnect', { method: 'POST' });
+          await authorizedFetch('/connections/auth-token/' + encodeURIComponent(authToken) + '/disconnect', { method: 'POST' });
           await refreshConnections();
         });
       });

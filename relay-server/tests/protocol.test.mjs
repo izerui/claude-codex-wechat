@@ -21,7 +21,13 @@ test('throws for invalid relay messages', () => {
     type: 'register',
     clientVersion: '0.1.0',
     targetBaseUrl: 'http://127.0.0.1:8787',
-    authToken: 'relay-token',
+    authToken: 'clrt_1234567890abcdef12345678',
+  })), /invalid_register_message/);
+  assert.throws(() => parseRelayMessage(JSON.stringify({
+    type: 'register',
+    clientVersion: '0.1.0',
+    targetBaseUrl: 'http://127.0.0.1:8787',
+    authToken: 'clrt_short',
   })), /invalid_register_message/);
   assert.throws(() => parseRelayMessage('not-json'), /Unexpected token|JSON/);
 });

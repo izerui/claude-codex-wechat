@@ -22,7 +22,7 @@ describe('relay daemon bootstrap', () => {
         enabled: true,
         relay: {
           serverUrl: 'wss://relay.style520.com/agent',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         },
       },
     }, null, 2));
@@ -72,7 +72,7 @@ describe('relay daemon bootstrap', () => {
         enabled: true,
         relay: {
           serverUrl: 'wss://relay.style520.com/agent',
-          authToken: 'relay-token',
+          authToken: 'clrt_1234567890abcdef12345678',
         },
       },
     }, null, 2));
@@ -116,7 +116,7 @@ describe('relay daemon bootstrap', () => {
           enabled: true,
           relay: {
             serverUrl: 'wss://relay.style520.com/agent',
-            authToken: 'relay-token',
+            authToken: 'clrt_1234567890abcdef12345678',
           },
         },
       },

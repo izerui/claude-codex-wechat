@@ -140,7 +140,7 @@ function createFetchStub() {
             enabled: false,
             relay: {
               serverUrl: 'wss://relay.style520.com/agent',
-              authToken: 'relay-token',
+              authToken: 'clrt_1234567890abcdef12345678',
             },
           },
         },
@@ -210,7 +210,7 @@ function createFetchStub() {
           enabled: state.tunnel.enabled,
           relay: {
             serverUrl: 'wss://relay.style520.com/agent',
-            authToken: 'relay-token',
+            authToken: 'clrt_1234567890abcdef12345678',
           },
         },
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -500,7 +500,7 @@ describe('App admin interactions', () => {
               enabled: false,
               relay: {
                 serverUrl: 'wss://relay.style520.com/agent',
-                authToken: 'relay-token',
+                authToken: 'clrt_1234567890abcdef12345678',
               },
             },
           },
@@ -566,7 +566,7 @@ describe('App admin interactions', () => {
               enabled: false,
               relay: {
                 serverUrl: 'wss://relay.style520.com/agent',
-                authToken: 'relay-token',
+                authToken: 'clrt_1234567890abcdef12345678',
               },
             },
           },
@@ -590,7 +590,7 @@ describe('App admin interactions', () => {
             enabled: false,
             relay: {
               serverUrl: 'wss://relay.style520.com/agent',
-              authToken: 'relay-token',
+              authToken: 'clrt_1234567890abcdef12345678',
             },
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -665,7 +665,7 @@ describe('App admin interactions', () => {
             enabled: true,
             relay: {
               serverUrl: 'wss://relay.style520.com/agent',
-              authToken: 'relay-token',
+              authToken: 'clrt_1234567890abcdef12345678',
             },
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
