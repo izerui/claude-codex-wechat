@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { useShellForCli } from '../../shared/platform';
 
 export type CommandRunnerResult =
   | { ok: true; stdout: string; stderr: string }
@@ -12,7 +13,7 @@ export type ClaudeDetectionResult =
 
 export async function defaultCommandRunner(command: string, args: string[]): Promise<CommandRunnerResult> {
   return await new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: useShellForCli() });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += String(chunk); });

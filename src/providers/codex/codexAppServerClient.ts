@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { terminateChild } from '../../shared/platform';
+import { terminateChild, useShellForCli } from '../../shared/platform';
 
 type JsonRpcMessage = {
   id?: string | number | null;
@@ -29,6 +29,7 @@ export class CodexAppServerClient {
     this.child = spawn(command, ['app-server', '--listen', 'stdio://'], {
       cwd: input.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
+      shell: useShellForCli(),
     });
     this.child.stdout.on('data', (chunk) => this.onStdout(String(chunk)));
     this.child.stderr.on('data', () => {

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { useShellForCli } from '../../shared/platform';
 
 export type CodexCommandRunnerResult =
   | { ok: true; stdout: string; stderr: string }
@@ -12,7 +13,7 @@ export type CodexDetectionResult =
 
 export async function defaultCodexCommandRunner(command: string, args: string[]): Promise<CodexCommandRunnerResult> {
   return await new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: useShellForCli() });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += String(chunk); });

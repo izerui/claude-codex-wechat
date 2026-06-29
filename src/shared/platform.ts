@@ -76,6 +76,16 @@ export function defaultWorkspaceDir(): string {
   return join(tmpdir(), 'project');
 }
 
+/**
+ * 启动 claude/codex 这类 CLI 时是否需要经 shell。
+ * Windows 上 npm 全局安装的可执行文件是 .cmd shim，Node 的 spawn 不带 shell 时
+ * 既不会按 PATHEXT 解析裸命令（ENOENT），也无法直接执行 .cmd（Node 18.20+/20.12+ 抛 EINVAL）。
+ * 交给 shell（cmd.exe）即可由其完成 PATHEXT 查找并执行 shim。posix 无此问题，返回 false。
+ */
+export function useShellForCli(): boolean {
+  return isWindows;
+}
+
 /** 状态/缓存文件路径：放在系统临时目录下。 */
 export function statePath(filename: string): string {
   return join(tmpdir(), filename);

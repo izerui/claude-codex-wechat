@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { expandTilde } from '../../shared/expandTilde';
-import { terminateChild } from '../../shared/platform';
+import { terminateChild, useShellForCli } from '../../shared/platform';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 // A persistent claude session driven over stream-json stdio. Unlike the
@@ -222,7 +222,7 @@ function parseJsonLine(line: string): unknown | null {
 }
 
 function defaultClaudeStreamSpawner(call: { command: string; args: string[]; cwd: string }): ClaudeStreamHandle {
-  const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: useShellForCli() });
   let stderr = '';
   let buffer = '';
   const queue: ClaudeStreamChunk[] = [];

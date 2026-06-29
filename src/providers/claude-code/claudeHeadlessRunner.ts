@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { expandTilde } from '../../shared/expandTilde';
-import { terminateChild } from '../../shared/platform';
+import { terminateChild, useShellForCli } from '../../shared/platform';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 export type ClaudeProcessCall = {
@@ -197,7 +197,7 @@ function wrapProcessRunner(processRunner: ClaudeProcessRunner): ClaudeLineStream
 }
 
 async function* defaultClaudeLineStreamer(call: ClaudeProcessCall): AsyncIterable<ClaudeStreamChunk> {
-  const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: useShellForCli() });
   child.stdin.end(call.input);
 
   const onAbort = () => {
