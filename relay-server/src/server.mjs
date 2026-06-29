@@ -159,6 +159,7 @@ export async function startRelayServer(input) {
         }
         connectionId = `conn_${Math.random().toString(36).slice(2, 10)}`;
         const allocation = domainRegistry.allocate(connectionId, {
+          authToken: message.authToken,
         });
         wsRegistry.set(connectionId, {
           socket: ws,
