@@ -1,6 +1,6 @@
 {
   "name": "claude-codex-wechat",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "private": false,
   "type": "module",
   "bin": {
