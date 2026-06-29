@@ -144,6 +144,7 @@ function cmdInit(): void {
   writeFileSync(configPath, `${JSON.stringify(template, null, 2)}\n`, 'utf8');
   console.log(`已创建配置: ${configPath}`);
   console.log('请填入微信 token / accountId 后运行: claude-codex-wechat start');
+  console.log('首次启动时将自动生成 relay 接入凭据（tunnel.relay.authToken）并写回配置，无需手动填写。');
 }
 
 async function cmdDoctor(): Promise<void> {
