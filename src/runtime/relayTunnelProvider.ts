@@ -111,6 +111,10 @@ export class RelayTunnelProvider implements TunnelProvider {
             error: message,
           };
           finishReject(new Error(message));
+          // 注册被服务端拒绝（如旧实现的 auth_token_in_use，或瞬时冲突）后，
+          // 服务端通常会随即关闭连接；但不依赖 close 事件，这里主动排程一次退避
+          // 重连，确保任何错误都能自愈，不会停在 error 状态等人工重启。
+          this.scheduleReconnect();
           return;
         }
         if (payload?.type === 'registered') {

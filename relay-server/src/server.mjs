@@ -11,6 +11,9 @@ export async function startRelayServer(input) {
   const requestTimeoutMs = Number.isFinite(input.requestTimeoutMs) && input.requestTimeoutMs > 0
     ? input.requestTimeoutMs
     : 30_000;
+  const heartbeatIntervalMs = Number.isFinite(input.heartbeatIntervalMs) && input.heartbeatIntervalMs > 0
+    ? input.heartbeatIntervalMs
+    : 30_000;
   const domainRegistry = createDomainRegistry({});
   const wsRegistry = createWsRegistry();
   const pendingResponses = new Map();
@@ -123,6 +126,24 @@ export async function startRelayServer(input) {
   });
 
   const wss = new WebSocketServer({ noServer: true });
+  // 周期性 ping 所有 agent 连接：既给空闲隧道注入流量、避免被 NAT / 云网关静默回收，
+  // 又能探测“半开”死连接——未在一个周期内回 pong 的连接会被 terminate，从而触发其
+  // close 处理、及时释放 authToken 与域名分配，避免残留注册项卡死后续重连。
+  const heartbeatTimer = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (ws.isAlive === false) {
+        ws.terminate();
+        continue;
+      }
+      ws.isAlive = false;
+      try {
+        ws.ping();
+      } catch {
+        // 发送失败说明连接已坏，下一轮会被 terminate。
+      }
+    }
+  }, heartbeatIntervalMs);
+  heartbeatTimer.unref?.();
   server.on('upgrade', (request, socket, head) => {
     if (request.url !== '/agent') {
       socket.destroy();
@@ -135,6 +156,11 @@ export async function startRelayServer(input) {
 
   wss.on('connection', (ws) => {
     let connectionId = null;
+    // 心跳存活标记：每收到一个 pong 就续命；心跳定时器会把它复位为 false 再 ping。
+    ws.isAlive = true;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
     ws.on('message', (raw) => {
       let message;
       try {
@@ -150,12 +176,19 @@ export async function startRelayServer(input) {
       if (message.type === 'register') {
         const existingConnectionId = wsRegistry.lookupConnectionIdByAuthToken(message.authToken);
         if (existingConnectionId) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            error: 'auth_token_in_use',
-          }));
-          ws.close();
-          return;
+          // 同一 authToken 重连：旧连接往往是网络静默中断后残留的“半开”注册项，
+          // 服务端还没收到它的 close。直接顶替——先同步释放旧的域名分配与注册项，
+          // 再关闭旧 socket，让最新的客户端接管。否则重连会被 auth_token_in_use
+          // 拒死，必须重启进程才能恢复。先 release 旧分配再分配新连接，能让确定性
+          // 派生的公网 token 原样保留、地址保持稳定。
+          const stale = wsRegistry.get(existingConnectionId);
+          domainRegistry.release(existingConnectionId);
+          wsRegistry.delete(existingConnectionId);
+          try {
+            stale?.socket.close();
+          } catch {
+            // 旧 socket 可能已断开，忽略。
+          }
         }
         connectionId = `conn_${Math.random().toString(36).slice(2, 10)}`;
         const allocation = domainRegistry.allocate(connectionId, {
@@ -222,6 +255,7 @@ export async function startRelayServer(input) {
   return {
     port: actualPort,
     close: async () => {
+      clearInterval(heartbeatTimer);
       for (const [requestId, pending] of pendingResponses.entries()) {
         pendingResponses.delete(requestId);
         clearTimeout(pending.timeout);

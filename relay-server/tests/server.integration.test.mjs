@@ -753,7 +753,7 @@ test('disconnects an active relay connection by auth token', async () => {
   }
 });
 
-test('rejects a second agent registration when the auth token is already connected', async () => {
+test('a second agent registration with the same auth token takes over the first', async () => {
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
@@ -762,6 +762,9 @@ test('rejects a second agent registration when the auth token is already connect
 
   try {
     const ws1 = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
+    const ws1Closed = new Promise((resolve) => {
+      ws1.addEventListener('close', () => resolve(undefined));
+    });
     await new Promise((resolve, reject) => {
       ws1.addEventListener('open', () => {
         ws1.send(JSON.stringify({
@@ -779,12 +782,7 @@ test('rejects a second agent registration when the auth token is already connect
     });
 
     const ws2 = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
-    const duplicateResult = await new Promise((resolve, reject) => {
-      let errorPayload = null;
-      let closed = false;
-      const maybeResolve = () => {
-        if (errorPayload && closed) resolve(errorPayload);
-      };
+    const takeover = await new Promise((resolve, reject) => {
       ws2.addEventListener('open', () => {
         ws2.send(JSON.stringify({
           type: 'register',
@@ -795,29 +793,22 @@ test('rejects a second agent registration when the auth token is already connect
       });
       ws2.addEventListener('message', (raw) => {
         const payload = JSON.parse(String(raw.data));
-        if (payload.type === 'error') {
-          errorPayload = payload;
-          maybeResolve();
-        }
-      });
-      ws2.addEventListener('close', () => {
-        closed = true;
-        maybeResolve();
+        if (payload.type === 'registered') resolve(payload);
+        if (payload.type === 'error') reject(new Error(payload.error));
       });
       ws2.addEventListener('error', reject);
     });
 
-    assert.deepEqual(duplicateResult, {
-      type: 'error',
-      error: 'auth_token_in_use',
-    });
+    assert.equal(takeover.type, 'registered');
+    // The stale first connection is evicted by the takeover.
+    await ws1Closed;
 
     const response = await fetch(`http://127.0.0.1:${relay.port}/connections`);
     const payload = await response.json();
     assert.equal(payload.connections.length, 1);
     assert.equal(payload.connections[0].authToken, 'clrt_1234567890abcdef12345678');
 
-    ws1.close();
+    ws2.close();
   } finally {
     await relay.close();
   }
