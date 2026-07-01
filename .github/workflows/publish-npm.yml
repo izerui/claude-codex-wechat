@@ -1,0 +1,59 @@
+name: Publish to npm
+
+# push 到 main 即触发。仅当 package.json 的 version 尚未发布到 npm 时才真正发布，
+# 因此重复 push 不会报错——想发新版本只需 bump package.json 的 version 再 push。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC / Trusted Publishing 必需，用它免密钥发布并生成 provenance
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # Trusted Publishing 需要 npm >= 11.5.1，Node 22 自带的 npm 版本偏旧，这里升级。
+      - name: Upgrade npm (for trusted publishing)
+        run: npm install -g npm@latest
+
+      - name: Publish if version is new
+        run: |
+          NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "· $NAME@$VERSION 已在 npm 上，跳过发布。"
+            exit 0
+          fi
+          echo "· 发布 $NAME@$VERSION"
+          # 无需 NODE_AUTH_TOKEN：OIDC 会在配置了 Trusted Publisher 后自动完成鉴权，
+          # 并自动附带 provenance 来源证明。npm publish 会先跑 prepublishOnly 构建 dist。
+          npm publish

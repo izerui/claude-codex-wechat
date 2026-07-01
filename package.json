@@ -29,7 +29,7 @@
     "build": "vite build && node scripts/build-server.mjs",
     "relay:start": "pnpm --dir relay-server start",
     "relay:test": "pnpm --dir relay-server test",
-    "prepublishOnly": "npm version patch --no-git-tag-version"
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@fastify/static": "^9.1.3",
