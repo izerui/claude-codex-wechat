@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { DirectoryTree } from './DirectoryTree';
+import { ChevronDown, ChevronUp, FolderOpen } from 'lucide-react';
 
 export function DirectoryPicker(input: { value: string; onChange(path: string): void; ariaLabel?: string }) {
   const { value, onChange, ariaLabel } = input;
@@ -25,9 +26,9 @@ export function DirectoryPicker(input: { value: string; onChange(path: string): 
         aria-label={ariaLabel}
         aria-expanded={open}
       >
-        <i className="bi bi-folder2-open text-muted-soft flex-shrink-0" />
+        <FolderOpen size={16} className="text-muted-soft flex-shrink-0" />
         <span className="font-monospace text-truncate flex-grow-1">{value || '选择工作目录…'}</span>
-        <i className={`bi ${open ? 'bi-chevron-up' : 'bi-chevron-down'} flex-shrink-0`} />
+        {open ? <ChevronUp size={16} className="flex-shrink-0" /> : <ChevronDown size={16} className="flex-shrink-0" />}
       </button>
       {open ? (
         <div

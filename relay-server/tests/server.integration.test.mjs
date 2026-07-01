@@ -1002,3 +1002,252 @@ test('returns only panel fields from /connections after a token is assigned', as
     await rm(authTokensFile, { force: true });
   }
 });
+
+test('advertises streaming support in the registered handshake', async () => {
+  const relay = await startRelayServer({
+    port: 0,
+    authTokens: ['clrt_1234567890abcdef12345678'],
+  });
+
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
+    const registered = await new Promise((resolve, reject) => {
+      ws.addEventListener('open', () => {
+        ws.send(JSON.stringify({
+          type: 'register',
+          clientVersion: '0.1.0',
+          targetBaseUrl: 'http://127.0.0.1:8787',
+          authToken: 'clrt_1234567890abcdef12345678',
+          supportsStreaming: true,
+        }));
+      });
+      ws.addEventListener('message', (raw) => {
+        const payload = JSON.parse(String(raw.data));
+        if (payload.type === 'registered') resolve(payload);
+      });
+      ws.addEventListener('error', reject);
+    });
+
+    assert.equal(registered.type, 'registered');
+    assert.equal(registered.streaming, true);
+    ws.close();
+  } finally {
+    await relay.close();
+  }
+});
+
+test('streams a non-rewritten response chunk to the client before the stream ends (SSE never buffers)', async () => {
+  // 请求超时设得很短:若走缓冲(等整个响应体),无限流会被判 agent_timeout。
+  // 流式透传下首字节 response-start 应取消超时,chunk 立即抵达浏览器。
+  const relay = await startRelayServer({
+    port: 0,
+    authTokens: ['clrt_1234567890abcdef12345678'],
+    requestTimeoutMs: 100,
+  });
+
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
+    const registered = await new Promise((resolve, reject) => {
+      ws.addEventListener('open', () => {
+        ws.send(JSON.stringify({
+          type: 'register',
+          clientVersion: '0.1.0',
+          targetBaseUrl: 'http://127.0.0.1:8787',
+          authToken: 'clrt_1234567890abcdef12345678',
+          supportsStreaming: true,
+        }));
+      });
+      ws.addEventListener('message', (raw) => {
+        const payload = JSON.parse(String(raw.data));
+        if (payload.type === 'registered') resolve(payload);
+      });
+      ws.addEventListener('error', reject);
+    });
+
+    ws.addEventListener('message', (raw) => {
+      const payload = JSON.parse(String(raw.data));
+      if (payload.type !== 'request') return;
+      // 模拟无限 SSE 流:发头 + 一块事件,但故意不发 response-end。
+      ws.send(JSON.stringify({
+        type: 'response-start',
+        requestId: payload.requestId,
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }));
+      ws.send(JSON.stringify({
+        type: 'response-chunk',
+        requestId: payload.requestId,
+        chunkBase64: Buffer.from('event: hello\n\n').toString('base64'),
+      }));
+    });
+
+    const firstChunk = await new Promise((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1',
+        port: relay.port,
+        path: `/${registered.token}/api/bridge-events`,
+        method: 'GET',
+      }, (res) => {
+        assert.equal(res.statusCode, 200);
+        res.on('data', (chunk) => resolve(Buffer.from(chunk).toString('utf8')));
+      });
+      req.setTimeout(1000, () => reject(new Error('request_timed_out')));
+      req.on('error', reject);
+      req.end();
+    });
+
+    assert.equal(firstChunk, 'event: hello\n\n');
+    ws.close();
+  } finally {
+    await relay.close();
+  }
+});
+
+test('reassembles a chunked html response and still rewrites root-relative URLs', async () => {
+  const relay = await startRelayServer({
+    port: 0,
+    baseDomain: 'style520.com',
+    authTokens: ['clrt_1234567890abcdef12345678'],
+  });
+
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
+    const registered = await new Promise((resolve, reject) => {
+      ws.addEventListener('open', () => {
+        ws.send(JSON.stringify({
+          type: 'register',
+          clientVersion: '0.1.0',
+          targetBaseUrl: 'http://127.0.0.1:8787',
+          authToken: 'clrt_1234567890abcdef12345678',
+          supportsStreaming: true,
+        }));
+      });
+      ws.addEventListener('message', (raw) => {
+        const payload = JSON.parse(String(raw.data));
+        if (payload.type === 'registered') resolve(payload);
+      });
+      ws.addEventListener('error', reject);
+    });
+
+    const html = '<!doctype html>\n<a href="/api/status">status</a>\n<script src="/@vite/client"></script>';
+    const half = Math.floor(html.length / 2);
+    ws.addEventListener('message', (raw) => {
+      const payload = JSON.parse(String(raw.data));
+      if (payload.type !== 'request') return;
+      ws.send(JSON.stringify({
+        type: 'response-start',
+        requestId: payload.requestId,
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      }));
+      ws.send(JSON.stringify({
+        type: 'response-chunk',
+        requestId: payload.requestId,
+        chunkBase64: Buffer.from(html.slice(0, half)).toString('base64'),
+      }));
+      ws.send(JSON.stringify({
+        type: 'response-chunk',
+        requestId: payload.requestId,
+        chunkBase64: Buffer.from(html.slice(half)).toString('base64'),
+      }));
+      ws.send(JSON.stringify({ type: 'response-end', requestId: payload.requestId }));
+    });
+
+    const response = await new Promise((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1',
+        port: relay.port,
+        path: `/${registered.token}`,
+        method: 'GET',
+      }, (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        res.on('end', () => resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          text: Buffer.concat(chunks).toString('utf8'),
+        }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+
+    assert.equal(response.status, 200);
+    assert.match(response.text, new RegExp(`href="/${registered.token}/api/status"`));
+    assert.match(response.text, new RegExp(`src="/${registered.token}/@vite/client"`));
+    assert.equal(response.headers['content-length'], String(Buffer.byteLength(response.text)));
+    ws.close();
+  } finally {
+    await relay.close();
+  }
+});
+
+test('ends a streaming response cleanly when the agent disconnects mid-stream', async () => {
+  const relay = await startRelayServer({
+    port: 0,
+    authTokens: ['clrt_1234567890abcdef12345678'],
+  });
+
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
+    const registered = await new Promise((resolve, reject) => {
+      ws.addEventListener('open', () => {
+        ws.send(JSON.stringify({
+          type: 'register',
+          clientVersion: '0.1.0',
+          targetBaseUrl: 'http://127.0.0.1:8787',
+          authToken: 'clrt_1234567890abcdef12345678',
+          supportsStreaming: true,
+        }));
+      });
+      ws.addEventListener('message', (raw) => {
+        const payload = JSON.parse(String(raw.data));
+        if (payload.type === 'registered') resolve(payload);
+      });
+      ws.addEventListener('error', reject);
+    });
+
+    ws.addEventListener('message', (raw) => {
+      const payload = JSON.parse(String(raw.data));
+      if (payload.type !== 'request') return;
+      ws.send(JSON.stringify({
+        type: 'response-start',
+        requestId: payload.requestId,
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }));
+      ws.send(JSON.stringify({
+        type: 'response-chunk',
+        requestId: payload.requestId,
+        chunkBase64: Buffer.from('partial').toString('base64'),
+      }));
+      // 发完首块立即断开,模拟 agent 中途掉线。
+      setTimeout(() => ws.close(), 20);
+    });
+
+    const response = await new Promise((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1',
+        port: relay.port,
+        path: `/${registered.token}/api/bridge-events`,
+        method: 'GET',
+      }, (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        res.on('end', () => resolve({
+          status: res.statusCode,
+          text: Buffer.concat(chunks).toString('utf8'),
+        }));
+      });
+      req.setTimeout(1000, () => reject(new Error('request_timed_out')));
+      req.on('error', reject);
+      req.end();
+    });
+
+    assert.equal(response.status, 200);
+    // 头已发,断开时干净收尾——已收到的内容原样保留,不追加 agent_disconnected。
+    assert.equal(response.text, 'partial');
+  } finally {
+    await relay.close();
+  }
+});

@@ -17,6 +17,9 @@ export class RelayTunnelProvider implements TunnelProvider {
   private stopped = true;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // 能力协商结果:仅当服务器在 registered 回包里声明 streaming:true 时才走流式,
+  // 否则退回缓冲(兼容老服务器)。
+  private serverSupportsStreaming = false;
 
   constructor(private readonly options: {
     serverUrl: string;
@@ -98,6 +101,9 @@ export class RelayTunnelProvider implements TunnelProvider {
           clientVersion: '0.1.0',
           targetBaseUrl: this.options.targetBaseUrl,
           authToken: this.options.authToken,
+          // 声明支持流式转发。新服务器会在 registered 回包里回 streaming:true;
+          // 老服务器忽略此字段,客户端据此自动退回缓冲。
+          supportsStreaming: true,
         }));
       });
       socket.on('message', (raw) => {
@@ -120,6 +126,8 @@ export class RelayTunnelProvider implements TunnelProvider {
         if (payload?.type === 'registered') {
           // 注册成功，重置退避计数，下次断开从最短间隔重连。
           this.reconnectAttempts = 0;
+          // 记录服务器是否支持流式转发;只有支持时 handleRequest 才走流式协议。
+          this.serverSupportsStreaming = payload?.streaming === true;
           const publicUrl = typeof payload?.publicUrl === 'string' && payload.publicUrl
             ? payload.publicUrl
             : typeof payload?.token === 'string'
@@ -201,6 +209,11 @@ export class RelayTunnelProvider implements TunnelProvider {
       headers: payload.headers,
       body: payload.bodyBase64 ? Buffer.from(payload.bodyBase64, 'base64') : undefined,
     });
+    if (this.serverSupportsStreaming) {
+      await this.streamResponse(payload.requestId, response);
+      return;
+    }
+    // 老服务器不支持流式:退回缓冲——读完整个响应体再一次性回传(原行为)。
     const bodyBuffer = Buffer.from(await response.arrayBuffer());
     this.socket?.send(JSON.stringify({
       type: 'response',
@@ -209,6 +222,31 @@ export class RelayTunnelProvider implements TunnelProvider {
       headers: Object.fromEntries(response.headers.entries()),
       bodyBase64: bodyBuffer.toString('base64'),
     }));
+  }
+
+  // 流式回传:把响应拆成 response-start → response-chunk* → response-end 三段边收边发。
+  // 不区分 content-type——服务器按 content-type 决定透传还是收齐重写(html/js/css)。
+  // 对无限流(SSE)这是关键:响应体永不结束,绝不能 await 读完再发。
+  private async streamResponse(requestId: string, response: Response): Promise<void> {
+    const status = response.status;
+    const headers = Object.fromEntries(response.headers.entries());
+    this.socket?.send(JSON.stringify({ type: 'response-start', requestId, status, headers }));
+    try {
+      const body = response.body;
+      if (body) {
+        // Node 18+ 的 fetch 响应体是可异步迭代的 Web ReadableStream。
+        for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+          this.socket?.send(JSON.stringify({
+            type: 'response-chunk',
+            requestId,
+            chunkBase64: Buffer.from(chunk).toString('base64'),
+          }));
+        }
+      }
+    } finally {
+      // 无论正常结束还是读流中途出错,都要发 response-end 让服务器干净收尾。
+      this.socket?.send(JSON.stringify({ type: 'response-end', requestId }));
+    }
   }
 }
 

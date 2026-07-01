@@ -212,6 +212,9 @@ export async function startRelayServer(input) {
           type: 'registered',
           connectionId,
           token: allocation.token,
+          // 能力协商:向客户端宣告本服务器支持流式转发。老客户端会忽略该字段;
+          // 新客户端据此决定走流式(response-start/chunk/end)还是退回缓冲(response)。
+          streaming: true,
           ...(allocation.publicUrl ? { publicUrl: allocation.publicUrl } : {}),
         }));
         return;
@@ -235,6 +238,74 @@ export async function startRelayServer(input) {
         pending.res.writeHead(message.status ?? 200, rewritten.headers);
         pending.res.end(rewritten.body);
       }
+      // 流式转发:客户端把每个响应拆成 response-start → response-chunk* → response-end 三段。
+      // 服务器按 content-type 分流:
+      //   - 需要重写的 html/js/css：攒齐 body，收到 response-end 后复用整体重写函数（与缓冲路径
+      //     完全一致，重写正则物理上必须看到完整 body），零回归。
+      //   - 其余（SSE / JSON / 图片 / 下载）：真流式透传，收到 chunk 立即 res.write，SSE 长连接
+      //     不受请求超时约束。
+      if (message.type === 'response-start') {
+        if (connectionId) {
+          const connection = wsRegistry.get(connectionId);
+          if (connection) connection.lastSeenAt = Date.now();
+        }
+        const pending = pendingResponses.get(message.requestId);
+        if (!pending) return;
+        const headers = message.headers ?? {};
+        const contentType = String(headers['content-type'] ?? headers['Content-Type'] ?? '');
+        if (shouldRewriteTextResponse(contentType)) {
+          // 需重写：暂存头与状态，攒 body 到 response-end。沿用现有“等完整响应”的超时语义
+          // （有限响应会及时 end），不在此清 timeout。
+          pending.rewriteBuffer = [];
+          pending.startStatus = message.status ?? 200;
+          pending.startHeaders = headers;
+        } else {
+          // 真流式透传：首字节已到，取消缓冲超时；后续 chunk 直接下发。
+          clearTimeout(pending.timeout);
+          pending.streaming = true;
+          pending.res.writeHead(message.status ?? 200, headers);
+        }
+        return;
+      }
+      if (message.type === 'response-chunk') {
+        if (connectionId) {
+          const connection = wsRegistry.get(connectionId);
+          if (connection) connection.lastSeenAt = Date.now();
+        }
+        const pending = pendingResponses.get(message.requestId);
+        if (!pending) return;
+        const chunk = Buffer.from(String(message.chunkBase64 ?? ''), 'base64');
+        if (pending.streaming) {
+          pending.res.write(chunk);
+        } else if (pending.rewriteBuffer) {
+          pending.rewriteBuffer.push(chunk);
+        }
+        return;
+      }
+      if (message.type === 'response-end') {
+        if (connectionId) {
+          const connection = wsRegistry.get(connectionId);
+          if (connection) connection.lastSeenAt = Date.now();
+        }
+        const pending = pendingResponses.get(message.requestId);
+        if (!pending) return;
+        pendingResponses.delete(message.requestId);
+        clearTimeout(pending.timeout);
+        if (pending.streaming) {
+          pending.res.end();
+          return;
+        }
+        // 重写模式：拿到完整 body，走与缓冲路径完全相同的整体重写。
+        const responseBuffer = Buffer.concat(pending.rewriteBuffer ?? []);
+        const relayToken = connectionId ? domainRegistry.lookupAllocation(connectionId)?.token : null;
+        const rewritten = rewriteTextResponseForRelayPrefix({
+          headers: pending.startHeaders ?? {},
+          body: responseBuffer,
+          relayToken,
+        });
+        pending.res.writeHead(pending.startStatus ?? 200, rewritten.headers);
+        pending.res.end(rewritten.body);
+      }
     });
     ws.on('close', () => {
       if (connectionId) {
@@ -242,8 +313,14 @@ export async function startRelayServer(input) {
           if (pending.connectionId !== connectionId) continue;
           pendingResponses.delete(requestId);
           clearTimeout(pending.timeout);
-          if (!pending.res.headersSent) pending.res.writeHead(502);
-          pending.res.end('agent_disconnected');
+          // 流式透传已发过头,不能再改状态码,也不该把错误文本追加进流末尾——直接干净收尾。
+          // 缓冲/重写模式尚未发头,回 502 告知上游 agent 断线。
+          if (!pending.res.headersSent) {
+            pending.res.writeHead(502);
+            pending.res.end('agent_disconnected');
+          } else {
+            pending.res.end();
+          }
         }
       }
       if (!connectionId) return;
@@ -265,8 +342,12 @@ export async function startRelayServer(input) {
       for (const [requestId, pending] of pendingResponses.entries()) {
         pendingResponses.delete(requestId);
         clearTimeout(pending.timeout);
-        if (!pending.res.headersSent) pending.res.writeHead(503);
-        pending.res.end('relay_shutdown');
+        if (!pending.res.headersSent) {
+          pending.res.writeHead(503);
+          pending.res.end('relay_shutdown');
+        } else {
+          pending.res.end();
+        }
       }
       for (const [, record] of wsRegistry.entries()) {
         record.socket.close();
