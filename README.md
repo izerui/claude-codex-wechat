@@ -64,26 +64,24 @@ pnpm add -g claude-codex-wechat
 安装后按以下顺序跑通：
 
 ```bash
-# 1. 生成默认配置
-claude-codex-wechat init
-
-# 2. 编辑 ~/.claude-codex-wechat/config.json，填入微信 token / accountId
-#    （配置说明见下方「配置」一节）
-
-# 3. 检查环境（配置、前端产物、claude/codex 是否就绪）
-claude-codex-wechat doctor
-
-# 4. 后台启动（首次会自动注册为系统服务并守护运行）
+# 1. 后台启动（首次会自动注册为系统服务并守护运行；
+#    首次启动自动生成 relay 接入凭据、自动连接默认中转，无需手动配置）
 claude-codex-wechat start
 
-# 5. 查看状态 / 日志
+# 2. 打开管理页，用微信扫码登录完成绑定
+#    http://127.0.0.1:8787
+
+# 3. 查看状态 / 日志
 claude-codex-wechat status
 claude-codex-wechat logs
+
+# 可选：检查环境（配置、前端产物、claude/codex 是否就绪）
+claude-codex-wechat doctor
 ```
 
 启动后：
 
-- 管理页：`http://127.0.0.1:8787`
+- 管理页：`http://127.0.0.1:8787`（在此扫码登录微信）
 - 微信侧即可直接给机器人发消息，驱动本机 `Claude Code` / `Codex CLI` 会话
 
 停止 / 重启 / 卸载：
@@ -119,8 +117,6 @@ pnpm install
   - 打印 / 实时跟随日志
 - `claude-codex-wechat doctor`
   - 检查配置、前端产物、`claude`/`codex` 可执行文件
-- `claude-codex-wechat init`
-  - 写默认配置到 `~/.claude-codex-wechat/config.json`
 - `claude-codex-wechat uninstall`
   - 卸载后台服务
 - `claude-codex-wechat print-config`
@@ -140,13 +136,7 @@ pnpm install
 ~/.claude-codex-wechat/config.json
 ```
 
-推荐先初始化：
-
-```bash
-claude-codex-wechat init
-```
-
-最小配置示例：
+该文件在**首次 `start` 时自动创建**（并自动写入生成的 relay 接入凭据），正常使用无需手动编辑。以下为可选的进阶自定义示例：
 
 ```json
 {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startDaemon } from './daemon/bootstrap';
@@ -42,9 +42,6 @@ async function main(): Promise<void> {
       return;
     case 'tail':
       await cmdTail();
-      return;
-    case 'init':
-      cmdInit();
       return;
     case 'doctor':
       await cmdDoctor();
@@ -120,37 +117,10 @@ async function cmdDaemon(): Promise<void> {
   });
 }
 
-function cmdInit(): void {
-  const configPath = process.env.BRIDGE_CONFIG ?? defaultConfigPath();
-  const dir = dirname(configPath);
-  mkdirSync(dir, { recursive: true });
-  if (existsSync(configPath)) {
-    console.log(`配置已存在，未覆盖: ${configPath}`);
-    return;
-  }
-  const template = {
-    wechat: {
-      enabled: true,
-      baseUrl: 'https://ilinkai.weixin.qq.com',
-      token: 'replace-with-weixin-bot-token',
-      accountId: 'replace-with-weixin-account-id',
-    },
-    providers: {},
-    bridge: {
-      defaultProvider: 'claude-code',
-      defaultWorkspace: process.cwd(),
-    },
-  };
-  writeFileSync(configPath, `${JSON.stringify(template, null, 2)}\n`, 'utf8');
-  console.log(`已创建配置: ${configPath}`);
-  console.log('请填入微信 token / accountId 后运行: claude-codex-wechat start');
-  console.log('首次启动时将自动生成 relay 接入凭据（tunnel.relay.authToken）并写回配置，无需手动填写。');
-}
-
 async function cmdDoctor(): Promise<void> {
   const configPath = process.env.BRIDGE_CONFIG ?? defaultConfigPath();
   console.log('claude-codex-wechat doctor\n');
-  report('配置文件', existsSync(configPath) ? configPath : `缺失 (${configPath})，运行 init 创建`);
+  report('配置文件', existsSync(configPath) ? configPath : `缺失 (${configPath})，首次 start 时自动创建`);
   report('前端产物', existsSync(webRoot) ? webRoot : `缺失 (${webRoot})`);
   const claude = await findExecutable('claude');
   report('claude 可执行', claude ?? '未找到，需先安装并登录 Claude Code');
@@ -168,7 +138,7 @@ async function cmdDoctor(): Promise<void> {
 function cmdPrintConfig(): void {
   const configPath = process.env.BRIDGE_CONFIG ?? defaultConfigPath();
   if (!existsSync(configPath)) {
-    console.error(`配置不存在: ${configPath}（运行 init 创建）`);
+    console.error(`配置不存在: ${configPath}（首次 start 后自动生成）`);
     process.exitCode = 1;
     return;
   }
@@ -218,7 +188,6 @@ function printUsage(): void {
   logs           打印最近日志
   tail           实时跟随日志
   doctor         检查配置、前端产物与 claude/codex 可执行文件
-  init           在 ~/.claude-codex-wechat/ 创建默认配置
   uninstall      卸载后台服务
   print-config   打印当前配置文件内容
   help           显示本帮助

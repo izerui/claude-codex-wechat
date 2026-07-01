@@ -2,6 +2,7 @@ import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { renderAdminPage } from './adminPage.mjs';
 import { createDomainRegistry } from './domainRegistry.mjs';
+import { renderLandingPage } from './landingPage.mjs';
 import { parseRelayMessage } from './protocol.mjs';
 import { appendTokenToFile, createClientToken } from './tokenManager.mjs';
 import { createWsRegistry } from './wsRegistry.mjs';
@@ -28,6 +29,11 @@ export async function startRelayServer(input) {
     if (req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.url === '/' || req.url === '') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(renderLandingPage());
       return;
     }
     if (req.url === '/admin') {
