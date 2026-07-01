@@ -46,3 +46,29 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  deploy-relay:
+    needs: publish-relay-image
+    runs-on: ubuntu-latest
+    # 仅在推送/手动触发时部署；镜像 tag 固定为 latest，靠重启 Deployment 拉取新镜像。
+    # 需要在仓库 Settings > Secrets and variables > Actions 里配置：
+    #   secrets.KUBE_CONFIG        —— base64 编码的 kubeconfig 内容
+    #   vars.RELAY_K8S_NAMESPACE   —— 目标 namespace（可选，默认 default）
+    #   vars.RELAY_K8S_DEPLOYMENT  —— Deployment 名称（可选，默认 relay-server）
+    steps:
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Restart relay-server deployment
+        env:
+          NAMESPACE: ${{ vars.RELAY_K8S_NAMESPACE || 'prod' }}
+          DEPLOYMENT: ${{ vars.RELAY_K8S_DEPLOYMENT || 'relay-server' }}
+        run: |
+          kubectl -n "$NAMESPACE" rollout restart deployment/"$DEPLOYMENT"
+          kubectl -n "$NAMESPACE" rollout status deployment/"$DEPLOYMENT" --timeout=180s
