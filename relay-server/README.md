@@ -117,7 +117,8 @@ Current row actions:
 Operational rule:
 
 - one `authToken` may have only one active websocket connection at a time
-- if a second client registers with the same `authToken`, relay-server rejects it with `auth_token_in_use`
+- if a second client registers with the same `authToken`, the new connection takes over: relay-server evicts the stale registration (releasing its domain allocation), then registers the newcomer — the deterministic public address is preserved, so a reconnecting client keeps the same URL
+- this lets a client that was silently dropped (NAT/gateway timeout) reconnect without a server restart; the relay also pings idle agent connections on a heartbeat and terminates any that stop answering, freeing their `authToken`
 - the admin UI uses `authToken` as the operator-facing identity
 
 ## Production Checklist
