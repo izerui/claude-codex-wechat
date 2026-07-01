@@ -414,7 +414,8 @@ test('rewrites root-relative CSS asset URLs to keep the relay token prefix', asy
           'content-type': 'text/css; charset=utf-8',
         },
         bodyBase64: Buffer.from(`@font-face { src: url("/fonts/dev.woff2") format("woff2"); }
-.app { background-image: url('/images/bg.png'); }`).toString('base64'),
+.app { background-image: url('/images/bg.png'); }
+.icon { src: url(/assets/bootstrap-icons.woff2?abc) format("woff2"); }`).toString('base64'),
       }));
     });
 
@@ -441,6 +442,7 @@ test('rewrites root-relative CSS asset URLs to keep the relay token prefix', asy
     assert.equal(response.status, 200);
     assert.match(response.text, new RegExp(`url\\("/${registered.token}/fonts/dev\\.woff2"\\)`));
     assert.match(response.text, new RegExp(`url\\('/${registered.token}/images/bg\\.png'\\)`));
+    assert.match(response.text, new RegExp(`url\\(/${registered.token}/assets/bootstrap-icons\\.woff2\\?abc\\)`));
     ws.close();
   } finally {
     await relay.close();

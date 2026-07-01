@@ -298,7 +298,7 @@ function derivePublicBaseUrlFromRequest(req) {
   return `${proto}://${host}`.replace(/\/+$/, '');
 }
 
-function rewriteTextResponseForRelayPrefix(input) {
+export function rewriteTextResponseForRelayPrefix(input) {
   const headers = { ...input.headers };
   const contentType = String(headers['content-type'] ?? headers['Content-Type'] ?? '');
   if (!input.relayToken || !shouldRewriteTextResponse(contentType)) {
@@ -320,8 +320,13 @@ function rewriteTextResponseForRelayPrefix(input) {
     : originalText;
   const rewrittenText = /javascript|ecmascript|text\/css/i.test(contentType)
     ? htmlRewritten.replace(
-        /((?:import\s+(?:[^'"]+?\s+from\s+)?|import\s*\(|export\s+[^'"]+?\s+from\s+|from\s+|url\(\s*))(["'])\/(?!\/|#)/g,
+        /((?:import\s+(?:[^'"]+?\s+from\s+)?|import\s*\(|export\s+[^'"]+?\s+from\s+|from\s+))(["'])\/(?!\/|#)/g,
         `$1$2${prefix}/`,
+      ).replace(
+        // CSS 的 url() 引号可选：Vite 打包产物里字体/图片是无引号的 url(/assets/...)，
+        // 强制引号的旧正则会漏掉它们，导致子路径代理下字体图标 404、图标不显示。
+        /(url\(\s*["']?)\/(?!\/|#)/g,
+        `$1${prefix}/`,
       ).replace(
         /((?:new\s+URL\s*\(\s*|createHotContext\(\s*))(["'])\/(?!\/|#)/g,
         `$1$2${prefix}/`,
@@ -329,7 +334,7 @@ function rewriteTextResponseForRelayPrefix(input) {
         /(const\s+__vite__css\s*=\s*")((?:[^"\\]|\\.)*)(")/g,
         (_match, start, cssPayload, end) => {
           const rewrittenPayload = cssPayload.replace(
-            /(url\(\s*\\?["'])\/(?!\/|#)/g,
+            /(url\(\s*\\?["']?)\/(?!\/|#)/g,
             `$1${prefix}/`,
           );
           return `${start}${rewrittenPayload}${end}`;
