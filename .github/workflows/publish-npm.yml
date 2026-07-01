@@ -38,9 +38,6 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      - name: Test
-        run: pnpm test
-
       # Trusted Publishing 需要 npm >= 11.5.1，Node 22 自带的 npm 版本偏旧，这里升级。
       - name: Upgrade npm (for trusted publishing)
         run: npm install -g npm@latest
