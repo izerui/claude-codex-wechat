@@ -31,23 +31,13 @@ export type ServiceContext = {
 export async function installService(context: ServiceContext): Promise<ServiceStatus> {
   if (process.platform === 'darwin') {
     const spec = buildLaunchdSpec(context);
-    await mkdir(dirname(spec.plistPath), { recursive: true });
-    await mkdir(dirname(spec.stdoutPath), { recursive: true });
-    await writeFile(spec.plistPath, renderLaunchdPlist(spec), 'utf8');
-    // 用现代 bootout/bootstrap(与 stopService 的 bootout 对称);旧的 unload/load 在被 bootout
-    // 过的服务上不可靠。bootout 清除可能残留的旧注册(catch 忽略"未注册"),bootstrap 重新注册。
-    const guiDomain = `gui/${process.getuid?.() ?? 0}`;
-    await runLaunchctl(['bootout', guiDomain, spec.plistPath]).catch(() => undefined);
-    await runLaunchctl(['bootstrap', guiDomain, spec.plistPath]);
-    await runLaunchctl(['kickstart', '-k', `${guiDomain}/${spec.label}`]);
+    await applyLaunchdService(spec);
     return await readServiceStatus(context);
   }
 
   if (process.platform === 'linux') {
     const spec = buildSystemdUserSpec(context);
-    await mkdir(dirname(spec.unitPath), { recursive: true });
-    await mkdir(dirname(spec.stdoutPath), { recursive: true });
-    await writeFile(spec.unitPath, renderSystemdUnit(spec), 'utf8');
+    await writeSystemdUnit(spec);
     await runSystemctl(['--user', 'daemon-reload']);
     await runSystemctl(['--user', 'enable', '--now', spec.unitName]);
     return await readServiceStatus(context);
@@ -63,18 +53,17 @@ export async function installService(context: ServiceContext): Promise<ServiceSt
 export async function startService(context: ServiceContext): Promise<ServiceStatus> {
   if (process.platform === 'darwin') {
     const spec = buildLaunchdSpec(context);
-    await ensureFileExists(spec.plistPath, 'service_not_installed');
-    // bootstrap 保证服务已注册进 launchd(旧的 load 在被 bootout 过的服务上不可靠);
-    // 已注册时 bootstrap 报 EALREADY,catch 忽略,再 kickstart 拉起。
-    const guiDomain = `gui/${process.getuid?.() ?? 0}`;
-    await runLaunchctl(['bootstrap', guiDomain, spec.plistPath]).catch(() => undefined);
-    await runLaunchctl(['kickstart', '-k', `${guiDomain}/${spec.label}`]);
+    // 重写 plist 再重载,而不是复用磁盘上可能已过时的旧 plist(如换了 Node 环境、包重装到别的
+    // prefix,旧 plist 会把服务锁死在失效路径)。applyLaunchdService 让 start 始终指向当前这份 node+cli.js。
+    await applyLaunchdService(spec);
     return await readServiceStatus(context);
   }
 
   if (process.platform === 'linux') {
     const spec = buildSystemdUserSpec(context);
-    await ensureFileExists(spec.unitPath, 'service_not_installed');
+    // 同 macOS:重写 unit 再启动,保证 ExecStart 指向当前实际调用的 node+cli.js,不被旧 unit 锁死。
+    await writeSystemdUnit(spec);
+    await runSystemctl(['--user', 'daemon-reload']);
     await runSystemctl(['--user', 'start', spec.unitName]);
     return await readServiceStatus(context);
   }
@@ -150,23 +139,19 @@ export async function uninstallService(context: ServiceContext): Promise<Service
 export async function restartService(context: ServiceContext): Promise<ServiceStatus> {
   if (process.platform === 'darwin') {
     const spec = buildLaunchdSpec(context);
-    await ensureFileExists(spec.plistPath, 'service_not_installed');
-    // plist 文件存在不代表服务已 bootstrap 进 launchd(重启电脑或被 stop 的 bootout 后会脱管),
-    // 直接 kickstart 会报 "Could not find service"。先 bootstrap 保证服务已注册(与 stop 的
-    // bootout 对称;旧的 load 在被 bootout 过的服务上不可靠),已注册则 catch 忽略 EALREADY,
-    // 再 kickstart 重启。使 restart 具备与 start 相同的自愈能力。
-    const guiDomain = `gui/${process.getuid?.() ?? 0}`;
-    await runLaunchctl(['bootstrap', guiDomain, spec.plistPath]).catch(() => undefined);
-    await runLaunchctl(['kickstart', '-k', `${guiDomain}/${spec.label}`]);
+    // 关键:restart 必须重写 plist,而不是复用磁盘上的旧 plist 直接 kickstart。否则一旦历史 plist
+    // 指向已失效的路径(换了 Node 环境、包重装到别的 prefix),无论 restart 多少次都拉起旧的那份。
+    // applyLaunchdService 先写最新 plist(指向当前实际调用的 node+cli.js),再 bootout→bootstrap→
+    // kickstart 强制重载,使 restart 具备把服务重新对齐到当前安装的自愈能力。
+    await applyLaunchdService(spec);
     return await readServiceStatus(context);
   }
 
   if (process.platform === 'linux') {
     const spec = buildSystemdUserSpec(context);
-    await ensureFileExists(spec.unitPath, 'service_not_installed');
-    // 与 macOS 的 load 对称：unit 文件存在但 systemd 未感知时(外部写入/未 reload),
-    // 直接 restart 会报 "Unit not found"。先 daemon-reload 保证单元已注册,使 restart 自愈。
-    await runSystemctl(['--user', 'daemon-reload']).catch(() => undefined);
+    // 同 macOS:重写 unit 再重启,保证 ExecStart 对齐当前安装,而不是被旧 unit 锁死。
+    await writeSystemdUnit(spec);
+    await runSystemctl(['--user', 'daemon-reload']);
     await runSystemctl(['--user', 'restart', spec.unitName]);
     return await readServiceStatus(context);
   }
@@ -345,6 +330,27 @@ function buildServiceEnvironment(context: ServiceContext): Record<string, string
   return env;
 }
 
+// 写入 plist 后强制重载:bootout 清除旧注册(可能残留、且可能指向已失效的 node/入口路径),
+// bootstrap 用刚写的最新 plist 重新注册,kickstart -k 杀掉旧进程并按新定义拉起。
+// install/start/restart 共用,保证服务定义始终对齐当前实际调用的这份 node + cli.js。
+async function applyLaunchdService(spec: LaunchdSpec): Promise<void> {
+  await mkdir(dirname(spec.plistPath), { recursive: true });
+  await mkdir(dirname(spec.stdoutPath), { recursive: true });
+  await writeFile(spec.plistPath, renderLaunchdPlist(spec), 'utf8');
+  const guiDomain = `gui/${process.getuid?.() ?? 0}`;
+  await runLaunchctl(['bootout', guiDomain, spec.plistPath]).catch(() => undefined);
+  await runLaunchctl(['bootstrap', guiDomain, spec.plistPath]);
+  await runLaunchctl(['kickstart', '-k', `${guiDomain}/${spec.label}`]);
+}
+
+// 写入 systemd user unit(不含 daemon-reload/启动动作),供 install/start/restart 各自按语义
+// 追加 enable/start/restart 动词。始终重写,保证 ExecStart 对齐当前实际调用的 node + cli.js。
+async function writeSystemdUnit(spec: SystemdUserSpec): Promise<void> {
+  await mkdir(dirname(spec.unitPath), { recursive: true });
+  await mkdir(dirname(spec.stdoutPath), { recursive: true });
+  await writeFile(spec.unitPath, renderSystemdUnit(spec), 'utf8');
+}
+
 function renderLaunchdPlist(spec: LaunchdSpec): string {
   const programArgs = spec.programArgs.map((arg) => `    <string>${escapeXml(arg)}</string>`).join('\n');
   const envEntries = Object.entries(spec.environment)
@@ -497,11 +503,6 @@ async function spawnDetachedDaemon(spec: ProcessServiceSpec): Promise<number> {
     closeSync(outFd);
     closeSync(errFd);
   }
-}
-
-async function ensureFileExists(path: string, errorCode: string): Promise<void> {
-  if (!existsSync(path)) throw new Error(errorCode);
-  await readFile(path, 'utf8');
 }
 
 async function tailFile(path: string, lines: number): Promise<string> {
