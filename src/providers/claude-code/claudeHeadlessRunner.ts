@@ -2,6 +2,8 @@ import { spawn } from 'node:child_process';
 import { expandTilde } from '../../shared/expandTilde';
 import { terminateChild, useShellForCli } from '../../shared/platform';
 import { extractAssistantBlocks } from './assistantContent';
+import { BRIDGE_APPEND_SYSTEM_PROMPT } from './bridgeSystemPrompt';
+import { probeAppendSystemPromptSupport, type ClaudeCapabilityProbe } from './claudeCapabilities';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 export type ClaudeProcessCall = {
@@ -36,9 +38,11 @@ export class ClaudeHeadlessRunner implements ClaudeRunner {
   private readonly sessions = new Map<string, StoredClaudeSession>();
   private readonly command: string;
   private readonly lineStreamer: ClaudeLineStreamer;
+  private readonly capabilityProbe: ClaudeCapabilityProbe;
 
-  constructor(input: { command?: string; processRunner?: ClaudeProcessRunner; lineStreamer?: ClaudeLineStreamer } = {}) {
+  constructor(input: { command?: string; processRunner?: ClaudeProcessRunner; lineStreamer?: ClaudeLineStreamer; capabilityProbe?: ClaudeCapabilityProbe } = {}) {
     this.command = input.command ?? 'claude';
+    this.capabilityProbe = input.capabilityProbe ?? probeAppendSystemPromptSupport;
     if (input.lineStreamer) this.lineStreamer = input.lineStreamer;
     else if (input.processRunner) this.lineStreamer = wrapProcessRunner(input.processRunner);
     else this.lineStreamer = defaultClaudeLineStreamer;
@@ -69,7 +73,8 @@ export class ClaudeHeadlessRunner implements ClaudeRunner {
 
     const controller = new AbortController();
     session.abortController = controller;
-    const args = buildClaudeArgs(input.text, session.claudeSessionId, session.sessionName);
+    const appendSystemPrompt = await this.capabilityProbe(this.command);
+    const args = buildClaudeArgs(input.text, session.claudeSessionId, session.sessionName, appendSystemPrompt);
     const call: ClaudeProcessCall = { command: this.command, args, cwd: session.cwd, input: '', signal: controller.signal };
 
     let emittedDone = false;
@@ -109,8 +114,9 @@ export class ClaudeHeadlessRunner implements ClaudeRunner {
   }
 }
 
-function buildClaudeArgs(prompt: string, claudeSessionId: string | undefined, sessionName: string | undefined): string[] {
+function buildClaudeArgs(prompt: string, claudeSessionId: string | undefined, sessionName: string | undefined, appendSystemPrompt: boolean): string[] {
   const args = ['-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--dangerously-skip-permissions'];
+  if (appendSystemPrompt) args.push('--append-system-prompt', BRIDGE_APPEND_SYSTEM_PROMPT);
   if (claudeSessionId) args.push('--resume', claudeSessionId);
   else if (sessionName) args.push('-n', sessionName);
   args.push(prompt);

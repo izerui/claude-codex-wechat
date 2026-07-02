@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { expandTilde } from '../../shared/expandTilde';
 import { terminateChild, useShellForCli } from '../../shared/platform';
 import { extractAssistantBlocks } from './assistantContent';
+import { BRIDGE_APPEND_SYSTEM_PROMPT } from './bridgeSystemPrompt';
+import { probeAppendSystemPromptSupport, type ClaudeCapabilityProbe } from './claudeCapabilities';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 // A persistent claude session driven over stream-json stdio. Unlike the
@@ -30,16 +32,19 @@ type StreamingSession = ClaudeRunnerSession & {
   handle?: ClaudeStreamHandle;
   resumeId?: string;
   pendingFollowUps: number;
+  supportsAppendSystemPrompt?: boolean;
 };
 
 export class ClaudeStreamingRunner implements ClaudeRunner {
   private readonly sessions = new Map<string, StreamingSession>();
   private readonly command: string;
   private readonly spawner: ClaudeStreamSpawner;
+  private readonly capabilityProbe: ClaudeCapabilityProbe;
 
-  constructor(input: { command?: string; spawner?: ClaudeStreamSpawner } = {}) {
+  constructor(input: { command?: string; spawner?: ClaudeStreamSpawner; capabilityProbe?: ClaudeCapabilityProbe } = {}) {
     this.command = input.command ?? 'claude';
     this.spawner = input.spawner ?? defaultClaudeStreamSpawner;
+    this.capabilityProbe = input.capabilityProbe ?? probeAppendSystemPromptSupport;
   }
 
   async startSession(input: {
@@ -67,6 +72,9 @@ export class ClaudeStreamingRunner implements ClaudeRunner {
   async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ClaudeRunnerEvent> {
     const session = this.sessions.get(input.bridgeSessionId);
     if (!session) throw new Error(`claude_session_not_found:${input.bridgeSessionId}`);
+    if (session.supportsAppendSystemPrompt === undefined) {
+      session.supportsAppendSystemPrompt = await this.capabilityProbe(this.command);
+    }
     const handle = this.ensureHandle(session);
     session.pendingFollowUps = 0;
     handle.write(userEnvelope(input.text));
@@ -178,6 +186,7 @@ function buildStreamingArgs(session: StreamingSession): string[] {
     '--include-partial-messages',
     '--verbose',
     '--dangerously-skip-permissions',
+    ...(session.supportsAppendSystemPrompt ? ['--append-system-prompt', BRIDGE_APPEND_SYSTEM_PROMPT] : []),
     '--replay-user-messages',
   ];
   if (session.resumeId) {

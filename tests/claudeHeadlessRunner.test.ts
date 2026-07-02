@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeHeadlessRunner, type ClaudeProcessRunner } from '../src/providers/claude-code/claudeHeadlessRunner';
+import { BRIDGE_APPEND_SYSTEM_PROMPT } from '../src/providers/claude-code/bridgeSystemPrompt';
 
 describe('ClaudeHeadlessRunner', () => {
   it('starts a logical bridge session without spawning Claude until a message is sent', async () => {
     const calls: Array<{ command: string; args: string[]; cwd: string; input: string }> = [];
-    const runner = new ClaudeHeadlessRunner({
+    const runner = new ClaudeHeadlessRunner({ capabilityProbe: async () => true,
       command: 'claude',
       processRunner: async (call) => {
         calls.push(call);
@@ -25,7 +26,7 @@ describe('ClaudeHeadlessRunner', () => {
 
   it('spawns Claude print stream-json and maps result events', async () => {
     const calls: Parameters<ClaudeProcessRunner>[0][] = [];
-    const runner = new ClaudeHeadlessRunner({
+    const runner = new ClaudeHeadlessRunner({ capabilityProbe: async () => true,
       command: 'claude',
       processRunner: async (call) => {
         calls.push(call);
@@ -49,7 +50,7 @@ describe('ClaudeHeadlessRunner', () => {
     expect(calls).toEqual([
       expect.objectContaining({
         command: 'claude',
-        args: ['-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--dangerously-skip-permissions', '-n', '微信 · Alice', 'say hello'],
+        args: ['-p', '--output-format', 'stream-json', '--include-partial-messages', '--verbose', '--dangerously-skip-permissions', '--append-system-prompt', BRIDGE_APPEND_SYSTEM_PROMPT, '-n', '微信 · Alice', 'say hello'],
         cwd: '/tmp/project',
         input: '',
       }),
@@ -63,7 +64,7 @@ describe('ClaudeHeadlessRunner', () => {
   });
 
   it('streams completed assistant rounds incrementally', async () => {
-    const runner = new ClaudeHeadlessRunner({
+    const runner = new ClaudeHeadlessRunner({ capabilityProbe: async () => true,
       lineStreamer: async function* () {
         yield { type: 'line', line: JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'round-1' }] } }) };
         await new Promise((resolve) => setTimeout(resolve, 5));
@@ -85,7 +86,7 @@ describe('ClaudeHeadlessRunner', () => {
 
   it('resumes the captured Claude session on later messages', async () => {
     const calls: Parameters<ClaudeProcessRunner>[0][] = [];
-    const runner = new ClaudeHeadlessRunner({
+    const runner = new ClaudeHeadlessRunner({ capabilityProbe: async () => true,
       command: 'claude',
       processRunner: async (call) => {
         calls.push(call);
@@ -108,6 +109,8 @@ describe('ClaudeHeadlessRunner', () => {
       '--include-partial-messages',
       '--verbose',
       '--dangerously-skip-permissions',
+      '--append-system-prompt',
+      BRIDGE_APPEND_SYSTEM_PROMPT,
       '--resume',
       'claude-session-1',
       'second',
@@ -116,7 +119,7 @@ describe('ClaudeHeadlessRunner', () => {
 
   it('can resume immediately from a persisted Claude session id', async () => {
     const calls: Parameters<ClaudeProcessRunner>[0][] = [];
-    const runner = new ClaudeHeadlessRunner({
+    const runner = new ClaudeHeadlessRunner({ capabilityProbe: async () => true,
       command: 'claude',
       processRunner: async (call) => {
         calls.push(call);
@@ -143,14 +146,34 @@ describe('ClaudeHeadlessRunner', () => {
       '--include-partial-messages',
       '--verbose',
       '--dangerously-skip-permissions',
+      '--append-system-prompt',
+      BRIDGE_APPEND_SYSTEM_PROMPT,
       '--resume',
       'claude-session-1',
       'after restart',
     ]);
   });
 
-  it('emits error events when Claude exits unsuccessfully', async () => {
+  it('omits --append-system-prompt when the CLI does not support it', async () => {
+    const calls: Parameters<ClaudeProcessRunner>[0][] = [];
     const runner = new ClaudeHeadlessRunner({
+      capabilityProbe: async () => false,
+      command: 'claude',
+      processRunner: async (call) => {
+        calls.push(call);
+        return { code: 0, stdout: JSON.stringify({ type: 'result', session_id: 'claude-session-1' }), stderr: '' };
+      },
+    });
+    await runner.startSession({ bridgeSessionId: 'bs_1', cwd: '/tmp/project' });
+
+    for await (const _event of runner.sendMessage({ bridgeSessionId: 'bs_1', text: 'hi' })) {}
+
+    expect(calls[0].args).not.toContain('--append-system-prompt');
+    expect(calls[0].args).not.toContain(BRIDGE_APPEND_SYSTEM_PROMPT);
+  });
+
+  it('emits error events when Claude exits unsuccessfully', async () => {
+    const runner = new ClaudeHeadlessRunner({ capabilityProbe: async () => true,
       processRunner: async () => ({ code: 1, stdout: '', stderr: 'not logged in' }),
     });
     await runner.startSession({ bridgeSessionId: 'bs_1', cwd: '/tmp/project' });

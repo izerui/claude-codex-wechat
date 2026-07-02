@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ClaudeStreamingRunner, type ClaudeStreamChunk, type ClaudeStreamHandle } from '../src/providers/claude-code/claudeStreamingRunner';
+import { BRIDGE_APPEND_SYSTEM_PROMPT } from '../src/providers/claude-code/bridgeSystemPrompt';
 import type { ClaudeRunnerEvent } from '../src/providers/claude-code/claudeRunner';
 
 class FakeHandle implements ClaudeStreamHandle {
@@ -45,7 +46,7 @@ async function collect(iter: AsyncIterable<ClaudeRunnerEvent>): Promise<ClaudeRu
 describe('ClaudeStreamingRunner', () => {
   it('drives a persistent process and maps a turn to events', async () => {
     const handle = new FakeHandle();
-    const runner = new ClaudeStreamingRunner({ spawner: () => handle });
+    const runner = new ClaudeStreamingRunner({ spawner: () => handle, capabilityProbe: async () => true });
     await runner.startSession({ bridgeSessionId: 'bs1', cwd: '/tmp/project', options: { providerSessionId: 'sess-1' } });
 
     const collected = collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'hi' }));
@@ -65,7 +66,7 @@ describe('ClaudeStreamingRunner', () => {
 
   it('renders an AskUserQuestion tool_use into a forwardable options message', async () => {
     const handle = new FakeHandle();
-    const runner = new ClaudeStreamingRunner({ spawner: () => handle });
+    const runner = new ClaudeStreamingRunner({ spawner: () => handle, capabilityProbe: async () => true });
     await runner.startSession({ bridgeSessionId: 'bs1', cwd: '/tmp/project', options: { providerSessionId: 'sess-1' } });
 
     const collected = collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'ask me' }));
@@ -108,10 +109,26 @@ describe('ClaudeStreamingRunner', () => {
     expect(choice).toEqual({ type: 'choice_prompt', labels: ['米饭', '面条'], multiSelect: false });
   });
 
+  it('passes the fixed bridge system prompt via --append-system-prompt', async () => {
+    const calls: Array<{ command: string; args: string[]; cwd: string }> = [];
+    const handle = new FakeHandle();
+    const runner = new ClaudeStreamingRunner({ spawner: (call) => { calls.push(call); return handle; }, capabilityProbe: async () => true });
+    await runner.startSession({ bridgeSessionId: 'bs1', cwd: '/tmp/project', options: { providerSessionId: 'sess-1' } });
+
+    const collected = collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'hi' }));
+    await tick();
+    handle.feedLine({ type: 'result', session_id: 'sess-1' });
+    await collected;
+
+    const idx = calls[0].args.indexOf('--append-system-prompt');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(calls[0].args[idx + 1]).toBe(BRIDGE_APPEND_SYSTEM_PROMPT);
+  });
+
   it('reuses the same handle across turns and resumes with --resume', async () => {
     let spawnCount = 0;
     const handle = new FakeHandle();
-    const runner = new ClaudeStreamingRunner({ spawner: () => { spawnCount += 1; return handle; } });
+    const runner = new ClaudeStreamingRunner({ spawner: () => { spawnCount += 1; return handle; }, capabilityProbe: async () => true });
     await runner.startSession({ bridgeSessionId: 'bs1', cwd: '/tmp/project', options: { providerSessionId: 'sess-1' } });
 
     const first = collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'one' }));
@@ -130,7 +147,7 @@ describe('ClaudeStreamingRunner', () => {
 
   it('consumes a steered follow-up turn within the same generation', async () => {
     const handle = new FakeHandle();
-    const runner = new ClaudeStreamingRunner({ spawner: () => handle });
+    const runner = new ClaudeStreamingRunner({ spawner: () => handle, capabilityProbe: async () => true });
     await runner.startSession({ bridgeSessionId: 'bs1', cwd: '/tmp/project', options: { providerSessionId: 'sess-1' } });
 
     const collected = collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'start' }));
@@ -153,7 +170,7 @@ describe('ClaudeStreamingRunner', () => {
 
   it('writes a native control_request interrupt envelope', async () => {
     const handle = new FakeHandle();
-    const runner = new ClaudeStreamingRunner({ spawner: () => handle });
+    const runner = new ClaudeStreamingRunner({ spawner: () => handle, capabilityProbe: async () => true });
     await runner.startSession({ bridgeSessionId: 'bs1', cwd: '/tmp/project', options: { providerSessionId: 'sess-1' } });
 
     const collected = collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'go' }));

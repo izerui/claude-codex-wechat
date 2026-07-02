@@ -1,4 +1,5 @@
 import { mkdtempSync } from 'node:fs';
+import { BRIDGE_APPEND_SYSTEM_PROMPT } from '../src/providers/claude-code/bridgeSystemPrompt';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,7 +25,7 @@ describe('daemon provider session recovery', () => {
       });
 
       const firstRunnerCalls: Parameters<ClaudeProcessRunner>[0][] = [];
-      const firstRunner = new ClaudeHeadlessRunner({
+      const firstRunner = new ClaudeHeadlessRunner({ capabilityProbe: async () => true,
         command: 'claude',
         processRunner: async (call) => {
           firstRunnerCalls.push(call);
@@ -73,7 +74,7 @@ describe('daemon provider session recovery', () => {
       await firstServer.app.close();
 
       const secondRunnerCalls: Parameters<ClaudeProcessRunner>[0][] = [];
-      const secondRunner = new ClaudeHeadlessRunner({
+      const secondRunner = new ClaudeHeadlessRunner({ capabilityProbe: async () => true,
         command: 'claude',
         processRunner: async (call) => {
           secondRunnerCalls.push(call);
@@ -111,6 +112,8 @@ describe('daemon provider session recovery', () => {
         '--include-partial-messages',
         '--verbose',
         '--dangerously-skip-permissions',
+        '--append-system-prompt',
+        BRIDGE_APPEND_SYSTEM_PROMPT,
         '--resume',
         'claude-session-1',
         'second',
@@ -174,7 +177,7 @@ describe('daemon provider session recovery', () => {
 
       const server = createDaemonServer({
         channel: new MockChannelAdapter(),
-        providers: [new ClaudeCodeProvider({ runner: new ClaudeHeadlessRunner() })],
+        providers: [new ClaudeCodeProvider({ runner: new ClaudeHeadlessRunner({ capabilityProbe: async () => true }) })],
         activeUserStore: store.activeUserStore,
         configPath: store.configPath,
       });
@@ -228,7 +231,7 @@ describe('daemon provider session recovery', () => {
       });
 
       const runnerCalls: Parameters<ClaudeProcessRunner>[0][] = [];
-      const runner = new ClaudeHeadlessRunner({
+      const runner = new ClaudeHeadlessRunner({ capabilityProbe: async () => true,
         command: 'claude',
         processRunner: async (call) => {
           runnerCalls.push(call);
@@ -266,6 +269,8 @@ describe('daemon provider session recovery', () => {
         '--include-partial-messages',
         '--verbose',
         '--dangerously-skip-permissions',
+        '--append-system-prompt',
+        BRIDGE_APPEND_SYSTEM_PROMPT,
         '--resume',
         'claude-session-1',
         'second',
