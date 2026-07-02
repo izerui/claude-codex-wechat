@@ -28,6 +28,18 @@ import type { TunnelProvider, TunnelStatusView } from '../runtime/tunnelProvider
 import { RelayTunnelRouter } from '../runtime/relayTunnelRouter';
 import { ensureRelayAuthTokenSync } from './configPersistence';
 
+// 读取 config 里的更新检测块。区分“读成功”(ok:true,update 可能为 undefined 表示无更新块)
+// 与“读失败”(ok:false,config 缺失/损坏)——调用方只在读失败时才回退到启动快照,
+// 避免把“配置已重置、无更新块”误当成失败而显示过期数据。
+function readUpdateStatusBestEffort(configPath: string | undefined): { ok: boolean; update?: BridgeConfig['update'] } {
+  if (!configPath) return { ok: false };
+  try {
+    return { ok: true, update: loadBridgeConfig(configPath).update };
+  } catch {
+    return { ok: false };
+  }
+}
+
 export function createDaemonServer(options: {
   db?: unknown;
   channel?: ChannelAdapter;
@@ -231,16 +243,23 @@ export function createDaemonServer(options: {
 
   registerFsBrowseRoutes({ app });
 
-  app.get('/api/status', async () => ({
-    ok: true,
-    sessions: conversation.getCurrent() ? [conversation.getCurrent()!] : [],
-    preferredLocalUrl: (() => {
-      const lan = listLanIpv4Addresses()[0];
-      const port = process.env.BRIDGE_PORT ?? 8787;
-      if (lan) return `http://${lan}:${port}`;
-      return `http://127.0.0.1:${port}`;
-    })(),
-  }));
+  app.get('/api/status', async () => {
+    // 每次请求重新读 config,反映 daemon 每小时刷新的更新检测结果(持久化在 config)。
+    // 仅当读失败(config 缺失/损坏)时才回退到启动快照;读成功但无 update 块 → 显示无更新。
+    const read = readUpdateStatusBestEffort(configPath);
+    const update = read.ok ? (read.update ?? null) : (persistedConfig.update ?? null);
+    return {
+      ok: true,
+      sessions: conversation.getCurrent() ? [conversation.getCurrent()!] : [],
+      update,
+      preferredLocalUrl: (() => {
+        const lan = listLanIpv4Addresses()[0];
+        const port = process.env.BRIDGE_PORT ?? 8787;
+        if (lan) return `http://${lan}:${port}`;
+        return `http://127.0.0.1:${port}`;
+      })(),
+    };
+  });
 
   app.get('/api/providers/status', async () => providers.getStatus());
 

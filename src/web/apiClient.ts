@@ -133,10 +133,18 @@ export type CurrentSessionView = {
 
 export type BridgeSessionView = CurrentSessionView;
 
+export type UpdateStatusView = {
+  currentVersion?: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  lastCheckedAt?: number;
+};
+
 export type StatusView = {
   ok: boolean;
   sessions: CurrentSessionView[];
   preferredLocalUrl?: string;
+  update?: UpdateStatusView | null;
 };
 
 export type BridgeSettingsView = {

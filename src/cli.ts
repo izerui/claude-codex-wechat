@@ -16,6 +16,7 @@ import {
   uninstallService,
 } from './daemon/service';
 import { findExecutable } from './shared/platform';
+import { readClientVersion } from './shared/version';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // 生产打包后 cli.js 位于 dist/server/，前端静态资源位于 dist/web/。
@@ -96,6 +97,7 @@ async function cmdRestart(): Promise<void> {
 async function cmdStatus(): Promise<void> {
   const status = await readServiceStatus(createServiceContext());
   printServiceStatus('service status', status);
+  printUpdateHint();
 }
 
 async function cmdLogs(): Promise<void> {
@@ -114,6 +116,7 @@ async function cmdDaemon(): Promise<void> {
   }
   await startDaemon({
     attachFrontend: attachStaticFrontend(webRoot),
+    enableUpdateCheck: true,
   });
 }
 
@@ -133,6 +136,25 @@ async function cmdDoctor(): Promise<void> {
     report('微信 token', wechat?.token ? '已配置' : '未配置');
     report('微信 accountId', wechat?.accountId ? '已配置' : '未配置');
   }
+  printUpdateHint();
+}
+
+// 读 config 里 daemon 写入的更新检测结果;有新版就打印一行提示。config 无该块则不打印。
+// config 若被改坏(非法 JSON)也静默跳过,保证 status/doctor 作为诊断命令始终可用。
+function printUpdateHint(): void {
+  const configPath = process.env.BRIDGE_CONFIG ?? defaultConfigPath();
+  if (!existsSync(configPath)) return;
+  let update;
+  try {
+    update = loadBridgeConfig(configPath).update;
+  } catch {
+    return;
+  }
+  if (!update?.updateAvailable) return;
+  const current = update.currentVersion ?? readClientVersion();
+  console.log(`\n发现新版 v${update.latestVersion}（当前 v${current}）。更新：`);
+  console.log('  npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/');
+  console.log('  claude-codex-wechat restart');
 }
 
 function cmdPrintConfig(): void {

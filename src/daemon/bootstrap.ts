@@ -3,7 +3,9 @@ import type { FastifyInstance } from 'fastify';
 import { createDaemonServer } from './server';
 import { defaultConfigPath, loadBridgeConfig } from './config';
 import { persistProviderCommandsToConfigFile } from './configPersistence';
+import { createUpdateChecker } from './updateChecker';
 import { findExecutable } from '../shared/platform';
+import { readClientVersion } from '../shared/version';
 import type { TunnelProvider } from '../runtime/tunnelProvider';
 
 export type AttachFrontend = (app: FastifyInstance) => Promise<void> | void;
@@ -16,6 +18,9 @@ export type StartDaemonOptions = {
   host?: string;
   configPath?: string;
   tunnelProvider?: TunnelProvider;
+  // 是否启动版本更新检测（每小时查一次、结果写 config）。默认关闭，
+  // 仅真实长驻入口（CLI __daemon、pnpm dev main.ts）显式开启；单测默认不联网。
+  enableUpdateCheck?: boolean;
 };
 
 export async function startDaemon(options: StartDaemonOptions): Promise<{
@@ -56,6 +61,12 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
   const actualPort = typeof address === 'object' && address ? address.port : port;
   if (config.tunnel?.relay?.serverUrl && config.tunnel?.relay?.authToken) {
     await resolvedTunnelProvider?.start().catch(() => undefined);
+  }
+  if (options.enableUpdateCheck) {
+    // best-effort：查一次 + 每小时一次，结果持久化写入 config，供管理页/CLI 读取。
+    createUpdateChecker({ currentVersion: readClientVersion(), configPath })
+      .start()
+      .catch(() => undefined);
   }
   console.log('claude-codex-wechat listening:');
   console.log(`  Local:   http://127.0.0.1:${actualPort}`);

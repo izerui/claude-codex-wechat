@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ProviderId } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
-import type { BridgeConfig } from './config';
+import type { BridgeConfig, UpdateStatusConfig } from './config';
 
 export async function persistWechatCredentialsToConfigFile(input: {
   configPath: string;
@@ -35,6 +35,29 @@ export async function deleteConfigFile(configPath: string): Promise<void> {
     if (isMissingFileError(error)) return;
     throw error;
   }
+}
+
+// 更新检测结果写入。刻意使用**同步** read-modify-write（与 config 的其它写入者
+// currentConversationStore / runtimeUserStore / lastProviderSessionStore /
+// weixinStateStore 一致）：在单线程 event loop 里，同步的“读→改→写”整体原子、
+// 不会和别的同步写交错，也不会被 /api/status 的同步 readFileSync 读到中间态。
+// 若改成异步 writeFile，就会在 await 间隙里被其它同步写覆盖——那正是要避免的并发窗口。
+export function persistUpdateStatusToConfigFile(input: {
+  configPath: string;
+  status: UpdateStatusConfig;
+}): void {
+  const currentConfig = readConfigFileSync(input.configPath);
+  const nextConfig = {
+    ...currentConfig,
+    update: {
+      ...(input.status.currentVersion ? { currentVersion: input.status.currentVersion } : {}),
+      ...(input.status.latestVersion ? { latestVersion: input.status.latestVersion } : {}),
+      updateAvailable: input.status.updateAvailable,
+      ...(input.status.lastCheckedAt !== undefined ? { lastCheckedAt: input.status.lastCheckedAt } : {}),
+    },
+  };
+  mkdirSync(dirname(input.configPath), { recursive: true });
+  writeFileSync(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
 }
 
 export async function persistBridgeDefaultsToConfigFile(input: {

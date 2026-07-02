@@ -27,10 +27,18 @@ export type TunnelConfig = {
   relay?: RelayTunnelConfig;
 };
 
+export type UpdateStatusConfig = {
+  currentVersion?: string;
+  latestVersion?: string;
+  updateAvailable: boolean;
+  lastCheckedAt?: number;
+};
+
 export type BridgeConfig = {
   wechat?: WeixinConfig;
   bridge?: BridgeDefaultsConfig;
   tunnel?: TunnelConfig;
+  update?: UpdateStatusConfig;
   providers?: {
     claude?: ProviderCommandConfig;
     codex?: ProviderCommandConfig;
@@ -61,7 +69,23 @@ function normalizeBridgeConfig(raw: unknown, env: NodeJS.ProcessEnv, path: strin
     wechat: normalizeWechatConfig(record.wechat, env),
     bridge: normalizeBridgeDefaultsConfig(record.bridge),
     tunnel: normalizeTunnelConfig(record.tunnel),
+    update: normalizeUpdateStatusConfig(record.update),
     providers: normalizeProvidersConfig(record.providers, env),
+  };
+}
+
+function normalizeUpdateStatusConfig(raw: unknown): UpdateStatusConfig | undefined {
+  const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const currentVersion = typeof record.currentVersion === 'string' && record.currentVersion ? record.currentVersion : undefined;
+  const latestVersion = typeof record.latestVersion === 'string' && record.latestVersion ? record.latestVersion : undefined;
+  const lastCheckedAt = typeof record.lastCheckedAt === 'number' && Number.isFinite(record.lastCheckedAt) ? record.lastCheckedAt : undefined;
+  const updateAvailable = record.updateAvailable === true;
+  if (!currentVersion && !latestVersion && lastCheckedAt === undefined && !updateAvailable) return undefined;
+  return {
+    ...(currentVersion ? { currentVersion } : {}),
+    ...(latestVersion ? { latestVersion } : {}),
+    updateAvailable,
+    ...(lastCheckedAt !== undefined ? { lastCheckedAt } : {}),
   };
 }
 

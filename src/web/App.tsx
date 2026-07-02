@@ -14,6 +14,7 @@ import { WeChatPanel } from './WeChatPanel';
 
 export function App() {
   const [status, setStatus] = useState<StatusView | null>(null);
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
   const [providerStatus, setProviderStatus] = useState<ProviderStatusView | null>(null);
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusView | null>(null);
   const [settings, setSettings] = useState<BridgeSettingsView | null>(null);
@@ -81,6 +82,30 @@ export function App() {
   return (
     <div className="app-bg">
       <main className="container-fluid py-4" style={{ maxWidth: 1200 }}>
+        {status?.update?.updateAvailable && status.update.latestVersion !== dismissedUpdateVersion ? (
+          <div className="alert alert-warning d-flex justify-content-between align-items-start gap-3 mb-3" role="alert">
+            <div style={{ minWidth: 0 }}>
+              <strong>发现新版 v{status.update.latestVersion}</strong>
+              {status.update.currentVersion ? <span className="text-muted-soft">（当前 v{status.update.currentVersion}）</span> : null}
+              <div className="small mt-1">更新命令（更新后需重启服务生效）：</div>
+              <code className="d-block mt-1" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/{'\n'}claude-codex-wechat restart
+              </code>
+            </div>
+            <div className="d-flex gap-2 flex-shrink-0">
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary"
+                onClick={() => {
+                  void navigator.clipboard?.writeText('npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/\nclaude-codex-wechat restart');
+                }}
+              >
+                复制
+              </button>
+              <button type="button" className="btn-close" aria-label="关闭" onClick={() => setDismissedUpdateVersion(status.update?.latestVersion ?? null)} />
+            </div>
+          </div>
+        ) : null}
         <header className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
           <div>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>微信远程控制台</h1>
