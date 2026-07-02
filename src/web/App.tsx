@@ -83,7 +83,7 @@ export function App() {
     <div className="app-bg">
       <main className="container-fluid py-4" style={{ maxWidth: 1200 }}>
         {status?.update?.updateAvailable && status.update.latestVersion !== dismissedUpdateVersion ? (
-          <div className="alert alert-warning d-flex justify-content-between align-items-start gap-3 mb-3" role="alert">
+          <div className="alert alert-soft-warning d-flex justify-content-between align-items-start gap-3 mb-3" role="alert">
             <div style={{ minWidth: 0 }}>
               <strong>发现新版 v{status.update.latestVersion}</strong>
               {status.update.currentVersion ? <span className="text-muted-soft">（当前 v{status.update.currentVersion}）</span> : null}
@@ -143,7 +143,7 @@ export function App() {
         ) : null}
 
         {tunnelWarning ? (
-          <div className="alert alert-warning py-2 px-3 mb-3" role="status">
+          <div className="alert alert-soft-warning py-2 px-3 mb-3" role="status">
             {tunnelWarning}
           </div>
         ) : null}

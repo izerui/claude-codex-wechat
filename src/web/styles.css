@@ -205,6 +205,20 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--muted-foreground);
 }
 
+/* ── Alerts: soft warning override so提示不刺眼,复用设计系统柔和暖色 ── */
+.alert.alert-soft-warning {
+  background: var(--soft-warning-bg);
+  border-color: var(--soft-warning-border);
+  color: var(--soft-warning-fg);
+}
+.alert.alert-soft-warning code {
+  color: inherit;
+}
+.alert.alert-soft-warning .btn-close {
+  filter: none;
+  opacity: 0.55;
+}
+
 /* ── Tabs: line style, orange active underline ── */
 .nav-accent {
   border-bottom: 1px solid var(--border);
