@@ -49,7 +49,6 @@ export function renderAdminPage() {
       cursor: pointer;
       font: inherit;
     }
-    .button-danger { color: var(--danger); }
     .button-link {
       background: transparent;
       border-color: transparent;
@@ -125,11 +124,6 @@ export function renderAdminPage() {
       background: #22c55e;
       flex: 0 0 auto;
     }
-    .row-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
     .empty {
       padding: 28px 16px;
       text-align: center;
@@ -183,11 +177,10 @@ export function renderAdminPage() {
               <th>客户端</th>
               <th>公网地址</th>
               <th>状态</th>
-              <th>操作</th>
             </tr>
           </thead>
           <tbody id="connections">
-            <tr><td colspan="4" class="empty">Loading…</td></tr>
+            <tr><td colspan="3" class="empty">Loading…</td></tr>
           </tbody>
         </table>
       </section>
@@ -272,7 +265,7 @@ export function renderAdminPage() {
       const payload = await response.json();
       const connections = Array.isArray(payload.connections) ? payload.connections : [];
       if (connections.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="empty">当前没有在线客户端。</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" class="empty">当前没有在线客户端。</td></tr>';
         return;
       }
       tbody.innerHTML = connections.map((connection) => (
@@ -280,21 +273,8 @@ export function renderAdminPage() {
           '<td><div class="instance-name">' + escapeHtml(connection.authToken || '') + '</div></td>' +
           '<td><code>' + escapeHtml(connection.publicUrl || '') + '</code></td>' +
           '<td><span class="status">在线</span></td>' +
-          '<td><div class="row-actions">' +
-            '<button class="button button-danger" data-auth-token="' + escapeHtml(connection.authToken || '') + '" type="button">断开连接</button>' +
-          '</div></td>' +
         '</tr>'
       )).join('');
-
-      tbody.querySelectorAll('button[data-auth-token]').forEach((button) => {
-        button.addEventListener('click', async () => {
-          const authToken = button.getAttribute('data-auth-token');
-          if (!authToken) return;
-          if (!window.confirm('确认断开这个客户端连接？')) return;
-          await authorizedFetch('/connections/auth-token/' + encodeURIComponent(authToken) + '/disconnect', { method: 'POST' });
-          await refreshConnections();
-        });
-      });
     }
 
     async function enterDashboard() {
