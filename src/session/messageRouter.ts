@@ -33,9 +33,10 @@ export class MessageRouter {
   private opSeq = 0;
   private readonly latestMutatingSeq = new Map<string, number>();
   private readonly activeGenerations = new Map<string, { genId: number; providerId: ProviderId; bridgeSessionId: string; abort: () => void }>();
-  // 最近一次 AskUserQuestion 的选项，按 chatId 暂存。下一条入站消息若是纯序号，
-  // 用它翻译成选项文字再转发（消费一次即清除）；不是序号则原样透传。
-  private readonly pendingChoices = new Map<string, { labels: string[]; multiSelect: boolean }>();
+  // 最近一次 AskUserQuestion 的选项，按 chatId 暂存，并记住是哪个 bridge 会话发出的。
+  // 下一条入站消息若是纯序号，用它翻译成选项文字再转发（消费一次即清除）；不是序号、
+  // 或当前会话已变（sessionId 不匹配）则原样透传，避免旧选项串到别的会话。
+  private readonly pendingChoices = new Map<string, { sessionId: string; labels: string[]; multiSelect: boolean }>();
 
   constructor(
     private readonly options: {
@@ -182,11 +183,14 @@ export class MessageRouter {
   }
 
   // 消费一次上一轮暂存的 AskUserQuestion 选项：纯序号回复翻译成对应选项文字，
-  // 其它情况原样透传。无论是否命中，取用后即清除，避免过期映射误伤后续消息。
+  // 其它情况原样透传。取用后即清除，避免过期映射误伤后续消息。若暂存所属会话
+  // 与当前会话不一致（用户已 /new、/resume 或切换 provider），也一律不翻译，
+  // 防止旧会话的选项串到新会话。
   private resolveChoiceReply(chatId: string, text: string): string {
     const pending = this.pendingChoices.get(chatId);
     if (!pending) return text;
     this.pendingChoices.delete(chatId);
+    if (pending.sessionId !== this.conversation.getCurrent()?.id) return text;
     return mapChoiceReply(text, pending.labels, pending.multiSelect) ?? text;
   }
 
@@ -352,7 +356,7 @@ export class MessageRouter {
           bufferedText = '';
         }
         if (event.type === 'choice_prompt' && event.labels.length > 0) {
-          this.pendingChoices.set(message.chatId, { labels: event.labels, multiSelect: event.multiSelect });
+          this.pendingChoices.set(message.chatId, { sessionId: session.id, labels: event.labels, multiSelect: event.multiSelect });
         }
         if (event.type === 'session_state') {
           const updated = this.conversation.update({
@@ -442,6 +446,7 @@ export class MessageRouter {
     }
 
     if (command.kind === 'new_session') {
+      this.pendingChoices.delete(chatId);
       await this.preemptActiveGeneration(chatId);
       const providerId = command.providerId
         ?? this.conversation.getCurrent()?.providerId
@@ -519,6 +524,7 @@ export class MessageRouter {
     }
 
     if (command.kind === 'resume_session') {
+      this.pendingChoices.delete(chatId);
       const ref = command.ref.trim();
       if (!ref) {
         await this.sendToChat({ chatId, kind: 'status', text: '用法：/resume <编号>' });

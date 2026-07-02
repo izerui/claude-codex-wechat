@@ -62,6 +62,9 @@ export function renderAskUserQuestion(
 
   // Numeric mapping is only unambiguous for a single question — with several
   // questions each restarts its own 1..n, so a bare "1" could mean any of them.
+  // Invariant kept below: options are numbered (and a numeric reply advertised)
+  // ONLY when mapping is enabled; multi-question prompts drop the numbers and
+  // ask for the option's text, so we never promise a reply format we can't map.
   const singleQuestion = questions.length === 1;
 
   const blocks: string[] = [];
@@ -85,12 +88,17 @@ export function renderAskUserQuestion(
       if (!label) continue;
       const description = typeof option.description === 'string' ? option.description.trim() : '';
       labels.push(label);
-      lines.push(description ? `${labels.length}. ${label} —— ${description}` : `${labels.length}. ${label}`);
+      const bullet = singleQuestion ? `${labels.length}.` : '・';
+      lines.push(description ? `${bullet} ${label} —— ${description}` : `${bullet} ${label}`);
     }
 
-    lines.push(multiSelect
-      ? '（可多选，回复序号或选项文字，多个用逗号分隔，如 1,2）'
-      : '（回复序号或选项文字即可，如 1）');
+    if (!singleQuestion) {
+      lines.push('（回复对应选项的文字即可）');
+    } else {
+      lines.push(multiSelect
+        ? '（可多选，回复序号或选项文字，多个用逗号分隔，如 1,2）'
+        : '（回复序号或选项文字即可，如 1）');
+    }
     blocks.push(lines.join('\n'));
 
     if (singleQuestion) {
@@ -107,18 +115,26 @@ export function renderAskUserQuestion(
 // matching option label(s). Returns null when the reply is not a clean numeric
 // selection (empty, non-numeric, out of range, or multi-number for a
 // single-select prompt) — the caller then forwards the reply verbatim.
+//
+// Tolerant of the shapes users naturally send given the rendered "1." list and
+// Chinese IMEs: full-width digits (１), and trailing selectors like `1.` `1、`
+// `1）` `1:`.
 export function mapChoiceReply(text: string, labels: string[], multiSelect: boolean): string | null {
   if (labels.length === 0) return null;
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  const tokens = trimmed.split(/[\s,，、]+/).filter(Boolean);
+  const normalized = text
+    .trim()
+    .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFF10 + 0x30));
+  if (!normalized) return null;
+  const tokens = normalized.split(/[\s,，、]+/).filter(Boolean);
   if (tokens.length === 0) return null;
   if (!multiSelect && tokens.length > 1) return null;
 
   const picked: string[] = [];
   for (const token of tokens) {
-    if (!/^\d+$/.test(token)) return null;
-    const index = Number(token);
+    // Strip trailing selectors (`.`、`。`、`)`、`）`、`:`、`：`) left by "1." style replies.
+    const digits = token.replace(/[.。)）:：]+$/, '');
+    if (!/^\d+$/.test(digits)) return null;
+    const index = Number(digits);
     if (index < 1 || index > labels.length) return null;
     const label = labels[index - 1];
     if (!picked.includes(label)) picked.push(label);

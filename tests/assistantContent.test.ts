@@ -34,6 +34,12 @@ describe('renderAskUserQuestion', () => {
     expect(rendered!.labels).toEqual([]);
     expect(rendered!.text).toContain('❓ A?');
     expect(rendered!.text).toContain('❓ B?');
+    // Multi-question: options are NOT numbered and we only ask for the text,
+    // so we never promise a numeric reply we can't map.
+    expect(rendered!.text).toContain('・ a1');
+    expect(rendered!.text).toContain('回复对应选项的文字');
+    expect(rendered!.text).not.toContain('回复序号');
+    expect(rendered!.text).not.toMatch(/^\s*1\./m);
   });
 
   it('returns null for malformed input', () => {
@@ -65,6 +71,15 @@ describe('mapChoiceReply', () => {
   it('maps a single number to its label', () => {
     expect(mapChoiceReply('1', labels, false)).toBe('米饭');
     expect(mapChoiceReply(' 2 ', labels, false)).toBe('面条');
+  });
+
+  it('tolerates punctuation-suffixed and full-width numeric replies', () => {
+    expect(mapChoiceReply('1.', labels, false)).toBe('米饭');
+    expect(mapChoiceReply('2、', labels, false)).toBe('面条');
+    expect(mapChoiceReply('3）', labels, false)).toBe('饺子');
+    expect(mapChoiceReply('1：', labels, false)).toBe('米饭');
+    expect(mapChoiceReply('２', labels, false)).toBe('面条'); // full-width digit
+    expect(mapChoiceReply('１、３', labels, true)).toBe('米饭, 饺子');
   });
 
   it('maps multiple numbers only when multiSelect', () => {
