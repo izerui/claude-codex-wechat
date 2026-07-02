@@ -12,6 +12,7 @@ import type { BridgeEventHub } from '../daemon/events';
 import { buildSessionBridgeName } from './sessionBridgeTag';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
 import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
+import { mapChoiceReply } from '../providers/claude-code/assistantContent';
 import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 
 export class MessageRouter {
@@ -32,6 +33,9 @@ export class MessageRouter {
   private opSeq = 0;
   private readonly latestMutatingSeq = new Map<string, number>();
   private readonly activeGenerations = new Map<string, { genId: number; providerId: ProviderId; bridgeSessionId: string; abort: () => void }>();
+  // 最近一次 AskUserQuestion 的选项，按 chatId 暂存。下一条入站消息若是纯序号，
+  // 用它翻译成选项文字再转发（消费一次即清除）；不是序号则原样透传。
+  private readonly pendingChoices = new Map<string, { labels: string[]; multiSelect: boolean }>();
 
   constructor(
     private readonly options: {
@@ -168,11 +172,22 @@ export class MessageRouter {
     if ((this.latestMutatingSeq.get(message.chatId) ?? 0) > seq) {
       return { status: 'accepted' };
     }
-    if (await this.maybeSteer(message.chatId, command.text)) {
+    // 若上一轮发出过 AskUserQuestion 选项且这条是纯序号，翻译成选项文字。
+    const chatText = this.resolveChoiceReply(message.chatId, command.text);
+    if (await this.maybeSteer(message.chatId, chatText)) {
       return { status: 'accepted' };
     }
-    await this.runExclusive(() => this.runChatGeneration(message, user, command.text, seq));
+    await this.runExclusive(() => this.runChatGeneration(message, user, chatText, seq));
     return { status: 'accepted' };
+  }
+
+  // 消费一次上一轮暂存的 AskUserQuestion 选项：纯序号回复翻译成对应选项文字，
+  // 其它情况原样透传。无论是否命中，取用后即清除，避免过期映射误伤后续消息。
+  private resolveChoiceReply(chatId: string, text: string): string {
+    const pending = this.pendingChoices.get(chatId);
+    if (!pending) return text;
+    this.pendingChoices.delete(chatId);
+    return mapChoiceReply(text, pending.labels, pending.multiSelect) ?? text;
   }
 
   // A chat message arriving while a turn is in flight: if the provider supports
@@ -335,6 +350,9 @@ export class MessageRouter {
         if (event.type === 'message_done' && bufferedText.trim()) {
           await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
           bufferedText = '';
+        }
+        if (event.type === 'choice_prompt' && event.labels.length > 0) {
+          this.pendingChoices.set(message.chatId, { labels: event.labels, multiSelect: event.multiSelect });
         }
         if (event.type === 'session_state') {
           const updated = this.conversation.update({

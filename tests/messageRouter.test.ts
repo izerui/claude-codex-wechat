@@ -181,6 +181,66 @@ describe('MessageRouter', () => {
     expect(typings[typings.length - 1]).toBe(false);
   });
 
+  it('translates a numeric reply into the option label after a choice_prompt', async () => {
+    const received: string[] = [];
+    class ChoiceProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `choice_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        received.push(input.text);
+        if (received.length === 1) {
+          yield { type: 'text_delta', text: '❓ 吃什么？\n1. 米饭\n2. 面条' };
+          yield { type: 'choice_prompt', labels: ['米饭', '面条'], multiSelect: false };
+          yield { type: 'message_done' };
+        } else {
+          yield { type: 'text_delta', text: `收到：${input.text}` };
+          yield { type: 'message_done' };
+        }
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+    }
+    const channel = new MockChannelAdapter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new ChoiceProvider()],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '问我吃什么' }, timestamp: 1,
+    });
+    await router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '2' }, timestamp: 2,
+    });
+
+    // The bare "2" reaching the provider was translated to the option label.
+    expect(received[1]).toBe('面条');
+
+    // Mapping is consumed once: a following bare number is forwarded verbatim.
+    await router.handleMessage({
+      id: 'm3', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '1' }, timestamp: 3,
+    });
+    expect(received[2]).toBe('1');
+  });
+
   it('stops refreshing typing once the provider goes silent (no timer keepalive)', async () => {
     const neverResolves = new Promise<void>(() => {}); // provider hangs, emits nothing
     class SilentProvider implements NativeProviderAdapter {

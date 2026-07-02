@@ -14,6 +14,7 @@ export type ProviderEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'message_done'; text?: string }
   | { type: 'tool_event'; title: string; summary?: string }
+  | { type: 'choice_prompt'; labels: string[]; multiSelect: boolean }
   | { type: 'session_state'; state: ProviderSession }
   | { type: 'error'; error: string };
 

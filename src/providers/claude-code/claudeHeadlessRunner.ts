@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { expandTilde } from '../../shared/expandTilde';
 import { terminateChild, useShellForCli } from '../../shared/platform';
-import { extractAssistantText } from './assistantContent';
+import { extractAssistantBlocks } from './assistantContent';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 export type ClaudeProcessCall = {
@@ -125,8 +125,11 @@ function parseClaudeLine(input: { bridgeSessionId: string; cwd: string; line: st
 
   if (record.type === 'assistant') {
     let emittedText = false;
-    for (const text of extractAssistantText(record.message)) {
-      events.push({ type: 'text_delta', text });
+    for (const block of extractAssistantBlocks(record.message)) {
+      events.push({ type: 'text_delta', text: block.text });
+      if (block.type === 'choice' && block.labels.length > 0) {
+        events.push({ type: 'choice_prompt', labels: block.labels, multiSelect: block.multiSelect });
+      }
       emittedText = true;
     }
     // Flush each completed LLM round as its own message so multi-round

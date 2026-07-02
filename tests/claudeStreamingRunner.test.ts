@@ -103,6 +103,9 @@ describe('ClaudeStreamingRunner', () => {
     expect(text).toContain('晚饭吃米饭还是面条？');
     expect(text).toContain('1. 米饭 —— 吃米饭');
     expect(text).toContain('2. 面条 —— 吃面条');
+
+    const choice = events.find((event) => event.type === 'choice_prompt');
+    expect(choice).toEqual({ type: 'choice_prompt', labels: ['米饭', '面条'], multiSelect: false });
   });
 
   it('reuses the same handle across turns and resumes with --resume', async () => {

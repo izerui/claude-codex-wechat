@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { expandTilde } from '../../shared/expandTilde';
 import { terminateChild, useShellForCli } from '../../shared/platform';
-import { extractAssistantText } from './assistantContent';
+import { extractAssistantBlocks } from './assistantContent';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 // A persistent claude session driven over stream-json stdio. Unlike the
@@ -107,8 +107,11 @@ export class ClaudeStreamingRunner implements ClaudeRunner {
 
       if (type === 'assistant') {
         let emitted = false;
-        for (const text of extractAssistantText(record.message)) {
-          yield { type: 'text_delta', text };
+        for (const block of extractAssistantBlocks(record.message)) {
+          yield { type: 'text_delta', text: block.text };
+          if (block.type === 'choice' && block.labels.length > 0) {
+            yield { type: 'choice_prompt', labels: block.labels, multiSelect: block.multiSelect };
+          }
           emitted = true;
         }
         if (emitted) yield { type: 'message_done' };
