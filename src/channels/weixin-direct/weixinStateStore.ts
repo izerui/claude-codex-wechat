@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { writeFileAtomicSync } from '../../shared/atomicFile';
 
 /** iLink 平台硬限制:每个最新 token 开启的 24h 窗口内,bot 最多主动发 10 条。 */
 export const PUSH_QUOTA_LIMIT = 10;
@@ -196,7 +196,6 @@ export class FileWeixinStateStore implements WeixinStateStore {
       ...state,
       bridge: { ...(state.bridge ?? {}), weixinChannel: channel },
     };
-    mkdirSync(dirname(this.configPath), { recursive: true });
-    writeFileSync(this.configPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+    writeFileAtomicSync(this.configPath, `${JSON.stringify(next, null, 2)}\n`);
   }
 }

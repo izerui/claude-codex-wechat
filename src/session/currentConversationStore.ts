@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { writeFileAtomicSync } from '../shared/atomicFile';
 import { nanoid } from 'nanoid';
 import type { ProviderId, ProviderSessionStatus } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
@@ -128,7 +128,6 @@ export class CurrentConversationStore {
   }
 
   private writeState(state: RuntimeStateFile): void {
-    mkdirSync(dirname(this.configPath), { recursive: true });
-    writeFileSync(this.configPath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    writeFileAtomicSync(this.configPath, `${JSON.stringify(state, null, 2)}\n`);
   }
 }

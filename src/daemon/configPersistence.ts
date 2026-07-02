@@ -1,10 +1,10 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import type { ProviderId } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import type { BridgeConfig, UpdateStatusConfig } from './config';
+import { writeFileAtomic, writeFileAtomicSync } from '../shared/atomicFile';
 
 export async function persistWechatCredentialsToConfigFile(input: {
   configPath: string;
@@ -24,8 +24,7 @@ export async function persistWechatCredentialsToConfigFile(input: {
     },
   };
 
-  await mkdir(dirname(input.configPath), { recursive: true });
-  await writeFile(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+  await writeFileAtomic(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`);
 }
 
 export async function deleteConfigFile(configPath: string): Promise<void> {
@@ -56,8 +55,7 @@ export function persistUpdateStatusToConfigFile(input: {
       ...(input.status.lastCheckedAt !== undefined ? { lastCheckedAt: input.status.lastCheckedAt } : {}),
     },
   };
-  mkdirSync(dirname(input.configPath), { recursive: true });
-  writeFileSync(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+  writeFileAtomicSync(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`);
 }
 
 export async function persistBridgeDefaultsToConfigFile(input: {
@@ -87,8 +85,7 @@ export async function persistBridgeDefaultsToConfigFile(input: {
     } : {}),
   };
 
-  await mkdir(dirname(input.configPath), { recursive: true });
-  await writeFile(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+  await writeFileAtomic(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`);
 }
 
 export async function ensureRelayAuthToken(input: {
@@ -114,8 +111,7 @@ export async function ensureRelayAuthToken(input: {
     },
   };
 
-  await mkdir(dirname(input.configPath), { recursive: true });
-  await writeFile(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+  await writeFileAtomic(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`);
   return authToken;
 }
 
@@ -142,8 +138,7 @@ export function ensureRelayAuthTokenSync(input: {
     },
   };
 
-  mkdirSync(dirname(input.configPath), { recursive: true });
-  writeFileSync(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+  writeFileAtomicSync(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`);
   return authToken;
 }
 
@@ -160,8 +155,7 @@ export async function persistActiveWeChatUserToConfigFile(input: {
     },
   };
 
-  await mkdir(dirname(input.configPath), { recursive: true });
-  await writeFile(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+  await writeFileAtomic(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`);
 }
 
 export async function persistProviderCommandsToConfigFile(input: {
@@ -175,8 +169,7 @@ export async function persistProviderCommandsToConfigFile(input: {
     providers: normalizedProviders,
   };
 
-  await mkdir(dirname(input.configPath), { recursive: true });
-  await writeFile(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+  await writeFileAtomic(input.configPath, `${JSON.stringify(nextConfig, null, 2)}\n`);
 }
 
 async function readConfigFile(path: string): Promise<Record<string, unknown>> {
