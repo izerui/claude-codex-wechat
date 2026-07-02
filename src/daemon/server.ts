@@ -27,6 +27,7 @@ import { listLanIpv4Addresses } from './bootstrap';
 import type { TunnelProvider, TunnelStatusView } from '../runtime/tunnelProvider';
 import { RelayTunnelRouter } from '../runtime/relayTunnelRouter';
 import { ensureRelayAuthTokenSync } from './configPersistence';
+import { readClientVersion } from '../shared/version';
 
 // 读取 config 里的更新检测块。区分“读成功”(ok:true,update 可能为 undefined 表示无更新块)
 // 与“读失败”(ok:false,config 缺失/损坏)——调用方只在读失败时才回退到启动快照,
@@ -250,6 +251,7 @@ export function createDaemonServer(options: {
     const update = read.ok ? (read.update ?? null) : (persistedConfig.update ?? null);
     return {
       ok: true,
+      version: readClientVersion(),
       sessions: conversation.getCurrent() ? [conversation.getCurrent()!] : [],
       update,
       preferredLocalUrl: (() => {

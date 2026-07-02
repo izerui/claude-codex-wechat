@@ -108,7 +108,12 @@ export function App() {
         ) : null}
         <header className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>微信远程控制台</h1>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }} className="d-flex align-items-baseline gap-2">
+              微信远程控制台
+              {status?.version ? (
+                <span className="text-muted-soft font-monospace fw-normal" style={{ fontSize: 12 }}>v{status.version}</span>
+              ) : null}
+            </h1>
             <p className="text-muted-soft" style={{ margin: '4px 0 0', fontSize: 13 }}>通过微信控制本地 Claude Code / Codex 会话。</p>
           </div>
           <div className="d-flex flex-column align-items-end gap-1" style={{ minWidth: 260 }}>

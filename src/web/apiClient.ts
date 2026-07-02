@@ -142,6 +142,7 @@ export type UpdateStatusView = {
 
 export type StatusView = {
   ok: boolean;
+  version?: string;
   sessions: CurrentSessionView[];
   preferredLocalUrl?: string;
   update?: UpdateStatusView | null;
