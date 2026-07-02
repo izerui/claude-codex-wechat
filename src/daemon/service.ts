@@ -34,9 +34,12 @@ export async function installService(context: ServiceContext): Promise<ServiceSt
     await mkdir(dirname(spec.plistPath), { recursive: true });
     await mkdir(dirname(spec.stdoutPath), { recursive: true });
     await writeFile(spec.plistPath, renderLaunchdPlist(spec), 'utf8');
-    await runLaunchctl(['unload', spec.plistPath]).catch(() => undefined);
-    await runLaunchctl(['load', spec.plistPath]);
-    await runLaunchctl(['kickstart', '-k', `gui/${process.getuid?.() ?? 0}/${spec.label}`]);
+    // 用现代 bootout/bootstrap(与 stopService 的 bootout 对称);旧的 unload/load 在被 bootout
+    // 过的服务上不可靠。bootout 清除可能残留的旧注册(catch 忽略"未注册"),bootstrap 重新注册。
+    const guiDomain = `gui/${process.getuid?.() ?? 0}`;
+    await runLaunchctl(['bootout', guiDomain, spec.plistPath]).catch(() => undefined);
+    await runLaunchctl(['bootstrap', guiDomain, spec.plistPath]);
+    await runLaunchctl(['kickstart', '-k', `${guiDomain}/${spec.label}`]);
     return await readServiceStatus(context);
   }
 
@@ -61,8 +64,11 @@ export async function startService(context: ServiceContext): Promise<ServiceStat
   if (process.platform === 'darwin') {
     const spec = buildLaunchdSpec(context);
     await ensureFileExists(spec.plistPath, 'service_not_installed');
-    await runLaunchctl(['load', spec.plistPath]).catch(() => undefined);
-    await runLaunchctl(['kickstart', '-k', `gui/${process.getuid?.() ?? 0}/${spec.label}`]);
+    // bootstrap 保证服务已注册进 launchd(旧的 load 在被 bootout 过的服务上不可靠);
+    // 已注册时 bootstrap 报 EALREADY,catch 忽略,再 kickstart 拉起。
+    const guiDomain = `gui/${process.getuid?.() ?? 0}`;
+    await runLaunchctl(['bootstrap', guiDomain, spec.plistPath]).catch(() => undefined);
+    await runLaunchctl(['kickstart', '-k', `${guiDomain}/${spec.label}`]);
     return await readServiceStatus(context);
   }
 
@@ -145,11 +151,13 @@ export async function restartService(context: ServiceContext): Promise<ServiceSt
   if (process.platform === 'darwin') {
     const spec = buildLaunchdSpec(context);
     await ensureFileExists(spec.plistPath, 'service_not_installed');
-    // plist 文件存在不代表服务已 bootstrap 进 launchd（重启电脑或 bootout 后会脱管），
-    // 直接 kickstart 会报 "Could not find service"。先 load 保证服务已注册，再 kickstart 重启，
-    // 使 restart 具备与 start 相同的自愈能力。
-    await runLaunchctl(['load', spec.plistPath]).catch(() => undefined);
-    await runLaunchctl(['kickstart', '-k', `gui/${process.getuid?.() ?? 0}/${spec.label}`]);
+    // plist 文件存在不代表服务已 bootstrap 进 launchd(重启电脑或被 stop 的 bootout 后会脱管),
+    // 直接 kickstart 会报 "Could not find service"。先 bootstrap 保证服务已注册(与 stop 的
+    // bootout 对称;旧的 load 在被 bootout 过的服务上不可靠),已注册则 catch 忽略 EALREADY,
+    // 再 kickstart 重启。使 restart 具备与 start 相同的自愈能力。
+    const guiDomain = `gui/${process.getuid?.() ?? 0}`;
+    await runLaunchctl(['bootstrap', guiDomain, spec.plistPath]).catch(() => undefined);
+    await runLaunchctl(['kickstart', '-k', `${guiDomain}/${spec.label}`]);
     return await readServiceStatus(context);
   }
 

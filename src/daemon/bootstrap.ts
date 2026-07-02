@@ -6,6 +6,7 @@ import { persistProviderCommandsToConfigFile } from './configPersistence';
 import { createUpdateChecker } from './updateChecker';
 import { findExecutable } from '../shared/platform';
 import { readClientVersion } from '../shared/version';
+import { cleanupStaleTempFiles } from '../shared/atomicFile';
 import type { TunnelProvider } from '../runtime/tunnelProvider';
 
 export type AttachFrontend = (app: FastifyInstance) => Promise<void> | void;
@@ -32,6 +33,8 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
   const port = options.port ?? Number(process.env.BRIDGE_PORT ?? 8787);
   const host = options.host ?? '0.0.0.0';
   const configPath = options.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath();
+  // 回收上次运行崩溃在 write→rename 窗口残留的原子写临时文件。
+  await cleanupStaleTempFiles(configPath).catch(() => undefined);
   const config = loadBridgeConfig(configPath);
   const providerCommands = await resolveProviderCommands(config.providers);
   await persistProviderCommandsToConfigFile({
