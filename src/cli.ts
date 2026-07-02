@@ -224,4 +224,15 @@ function printUsage(): void {
   重启电脑后需重新运行 start。`);
 }
 
-await main();
+// 服务托管命令（start/stop/restart 等）失败时,避免直接抛出 Node 崩溃栈吓到用户,
+// 转成一行可读的错误 + 排查建议。已知的服务未安装错误给出明确指引。
+main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === 'service_not_installed') {
+    console.error('后台服务尚未安装。请先运行:\n  claude-codex-wechat start');
+  } else {
+    console.error(`命令执行失败: ${message}`);
+    console.error('可运行 `claude-codex-wechat doctor` 检查环境,或 `claude-codex-wechat start` 重新安装服务。');
+  }
+  process.exitCode = 1;
+});

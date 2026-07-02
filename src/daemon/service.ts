@@ -145,6 +145,10 @@ export async function restartService(context: ServiceContext): Promise<ServiceSt
   if (process.platform === 'darwin') {
     const spec = buildLaunchdSpec(context);
     await ensureFileExists(spec.plistPath, 'service_not_installed');
+    // plist 文件存在不代表服务已 bootstrap 进 launchd（重启电脑或 bootout 后会脱管），
+    // 直接 kickstart 会报 "Could not find service"。先 load 保证服务已注册，再 kickstart 重启，
+    // 使 restart 具备与 start 相同的自愈能力。
+    await runLaunchctl(['load', spec.plistPath]).catch(() => undefined);
     await runLaunchctl(['kickstart', '-k', `gui/${process.getuid?.() ?? 0}/${spec.label}`]);
     return await readServiceStatus(context);
   }
@@ -152,6 +156,9 @@ export async function restartService(context: ServiceContext): Promise<ServiceSt
   if (process.platform === 'linux') {
     const spec = buildSystemdUserSpec(context);
     await ensureFileExists(spec.unitPath, 'service_not_installed');
+    // 与 macOS 的 load 对称：unit 文件存在但 systemd 未感知时(外部写入/未 reload),
+    // 直接 restart 会报 "Unit not found"。先 daemon-reload 保证单元已注册,使 restart 自愈。
+    await runSystemctl(['--user', 'daemon-reload']).catch(() => undefined);
     await runSystemctl(['--user', 'restart', spec.unitName]);
     return await readServiceStatus(context);
   }
