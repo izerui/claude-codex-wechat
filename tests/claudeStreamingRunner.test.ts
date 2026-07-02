@@ -63,6 +63,48 @@ describe('ClaudeStreamingRunner', () => {
     ]);
   });
 
+  it('renders an AskUserQuestion tool_use into a forwardable options message', async () => {
+    const handle = new FakeHandle();
+    const runner = new ClaudeStreamingRunner({ spawner: () => handle });
+    await runner.startSession({ bridgeSessionId: 'bs1', cwd: '/tmp/project', options: { providerSessionId: 'sess-1' } });
+
+    const collected = collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'ask me' }));
+    await tick();
+    handle.feedLine({
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'AskUserQuestion',
+            input: {
+              questions: [
+                {
+                  question: '晚饭吃米饭还是面条？',
+                  header: '晚饭',
+                  multiSelect: false,
+                  options: [
+                    { label: '米饭', description: '吃米饭' },
+                    { label: '面条', description: '吃面条' },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+    handle.feedLine({ type: 'result', session_id: 'sess-1' });
+    const events = await collected;
+
+    const delta = events.find((event) => event.type === 'text_delta');
+    expect(delta).toBeDefined();
+    const text = (delta as { text: string }).text;
+    expect(text).toContain('晚饭吃米饭还是面条？');
+    expect(text).toContain('1. 米饭 —— 吃米饭');
+    expect(text).toContain('2. 面条 —— 吃面条');
+  });
+
   it('reuses the same handle across turns and resumes with --resume', async () => {
     let spawnCount = 0;
     const handle = new FakeHandle();

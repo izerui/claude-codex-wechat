@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { expandTilde } from '../../shared/expandTilde';
 import { terminateChild, useShellForCli } from '../../shared/platform';
+import { extractAssistantText } from './assistantContent';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 // A persistent claude session driven over stream-json stdio. Unlike the
@@ -191,17 +192,6 @@ function buildStreamingArgs(session: StreamingSession): string[] {
 
 function userEnvelope(text: string): string {
   return `${JSON.stringify({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null })}\n`;
-}
-
-function extractAssistantText(message: unknown): string[] {
-  if (!message || typeof message !== 'object') return [];
-  const content = (message as Record<string, unknown>).content;
-  if (!Array.isArray(content)) return [];
-  return content.flatMap((item) => {
-    if (!item || typeof item !== 'object') return [];
-    const record = item as Record<string, unknown>;
-    return record.type === 'text' && typeof record.text === 'string' ? [record.text] : [];
-  });
 }
 
 function extractError(record: Record<string, unknown>): string {

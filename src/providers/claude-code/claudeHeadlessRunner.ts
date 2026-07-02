@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { expandTilde } from '../../shared/expandTilde';
 import { terminateChild, useShellForCli } from '../../shared/platform';
+import { extractAssistantText } from './assistantContent';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 export type ClaudeProcessCall = {
@@ -155,17 +156,6 @@ function parseClaudeLine(input: { bridgeSessionId: string; cwd: string; line: st
   }
 
   return events;
-}
-
-function extractAssistantText(message: unknown): string[] {
-  if (!message || typeof message !== 'object') return [];
-  const content = (message as Record<string, unknown>).content;
-  if (!Array.isArray(content)) return [];
-  return content.flatMap((item) => {
-    if (!item || typeof item !== 'object') return [];
-    const record = item as Record<string, unknown>;
-    return record.type === 'text' && typeof record.text === 'string' ? [record.text] : [];
-  });
 }
 
 function extractError(record: Record<string, unknown>): string {
