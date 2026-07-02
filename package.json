@@ -1,6 +1,6 @@
 {
   "name": "claude-codex-wechat",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "private": false,
   "type": "module",
   "packageManager": "pnpm@11.5.0",
@@ -34,7 +34,8 @@
     "build": "vite build && node scripts/build-server.mjs",
     "relay:start": "pnpm --dir relay-server start",
     "relay:test": "pnpm --dir relay-server test",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "postpublish": "node scripts/sync-mirror.mjs"
   },
   "dependencies": {
     "@fastify/static": "^9.1.3",
