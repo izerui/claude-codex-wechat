@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { encryptAesEcb, generateAesKey, encodeAesKeyBase64, encodeAesKeyHex } from './mediaCrypto';
@@ -12,14 +13,31 @@ export type MediaUploadResult =
   | { ok: true; media: CDNMedia; aesKeyHex: string }
   | { ok: false; reason: string };
 
-type UploadUrlProvider = (input?: { contextToken?: string; mediaType?: number; toUserId?: string }) => Promise<{ uploadParam: string }>;
+export type GetUploadUrlInput = {
+  filekey: string;
+  mediaType?: number;
+  toUserId?: string;
+  contextToken?: string;
+  rawsize: number;
+  rawfilemd5: string;
+  filesize: number;
+  aeskey: string;
+  noNeedThumb?: boolean;
+};
+
+export type GetUploadUrlResult = {
+  uploadParam: string;
+  uploadFullUrl?: string;
+};
+
+type UploadUrlProvider = (input: GetUploadUrlInput) => Promise<GetUploadUrlResult>;
 
 /**
  * Handles the outbound media upload flow:
- * 1. Read local file
+ * 1. Read local file, compute size + MD5
  * 2. Generate random AES-128 key
- * 3. Encrypt with AES-128-ECB + PKCS#7
- * 4. Get upload URL from iLink platform
+ * 3. Encrypt with AES-128-ECB + PKCS#7, compute encrypted size
+ * 4. Call getUploadUrl with full metadata
  * 5. Upload ciphertext to CDN
  * 6. Return CDNMedia reference for use in sendmessage
  */
@@ -39,16 +57,19 @@ export class WeixinMediaUploader {
   }
 
   async upload(filePath: string, options?: { contextToken?: string; mediaType?: number; toUserId?: string }): Promise<MediaUploadResult> {
-    // 1. Read local file
+    // 1. Read local file, compute size + MD5
     let plaintext: Buffer;
     try {
       plaintext = readFileSync(filePath);
     } catch {
       return { ok: false, reason: 'read_failed' };
     }
+    const rawsize = plaintext.length;
+    const rawfilemd5 = createHash('md5').update(plaintext).digest('hex');
 
     // 2. Generate random AES key
     const key = generateAesKey();
+    const aeskeyHex = encodeAesKeyHex(key);
 
     // 3. Encrypt file
     let ciphertext: Buffer;
@@ -57,24 +78,34 @@ export class WeixinMediaUploader {
     } catch {
       return { ok: false, reason: 'encrypt_failed' };
     }
+    const filesize = ciphertext.length;
 
-    // 4. Get upload URL
+    // 4. Get upload URL with full metadata
+    const filekey = randomUUID();
     let uploadParam: string;
+    let uploadFullUrl: string | undefined;
     try {
       const result = await this.getUploadUrl({
+        filekey,
+        rawsize,
+        rawfilemd5,
+        filesize,
+        aeskey: aeskeyHex,
+        noNeedThumb: true,
         ...(options?.contextToken ? { contextToken: options.contextToken } : {}),
         ...(options?.mediaType != null ? { mediaType: options.mediaType } : {}),
         ...(options?.toUserId ? { toUserId: options.toUserId } : {}),
       });
       uploadParam = result.uploadParam;
+      uploadFullUrl = result.uploadFullUrl;
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       return { ok: false, reason: msg || 'get_upload_url_failed' };
     }
 
     // 5. Upload ciphertext to CDN
-    const fileKey = randomUUID();
-    const uploadUrl = `${this.cdnBaseUrl}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(fileKey)}`;
+    const uploadUrl = uploadFullUrl
+      || `${this.cdnBaseUrl}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(filekey)}`;
 
     let response: Response;
     try {
@@ -106,7 +137,7 @@ export class WeixinMediaUploader {
     return {
       ok: true,
       media,
-      aesKeyHex: encodeAesKeyHex(key),
+      aesKeyHex: aeskeyHex,
     };
   }
 }

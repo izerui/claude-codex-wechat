@@ -245,7 +245,17 @@ export class WeixinDirectApiClient {
   }
 
   /** Request a CDN upload URL from the iLink platform. */
-  async getUploadUrl(input?: { contextToken?: string; mediaType?: number; toUserId?: string }): Promise<{ uploadParam: string }> {
+  async getUploadUrl(input: {
+    filekey: string;
+    mediaType?: number;
+    toUserId?: string;
+    contextToken?: string;
+    rawsize: number;
+    rawfilemd5: string;
+    filesize: number;
+    aeskey: string;
+    noNeedThumb?: boolean;
+  }): Promise<{ uploadParam: string; uploadFullUrl?: string }> {
     const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/getuploadurl`, {
       method: 'POST',
       headers: {
@@ -255,9 +265,15 @@ export class WeixinDirectApiClient {
         'X-WECHAT-UIN': this.wechatUin,
       },
       body: JSON.stringify({
-        ...(input?.toUserId ? { to_user_id: input.toUserId } : {}),
-        ...(input?.contextToken ? { context_token: input.contextToken } : {}),
-        ...(input?.mediaType != null ? { media_type: input.mediaType } : {}),
+        filekey: input.filekey,
+        media_type: input.mediaType,
+        to_user_id: input.toUserId,
+        rawsize: input.rawsize,
+        rawfilemd5: input.rawfilemd5,
+        filesize: input.filesize,
+        no_need_thumb: input.noNeedThumb ?? true,
+        aeskey: input.aeskey,
+        ...(input.contextToken ? { context_token: input.contextToken } : {}),
         base_info: { channel_version: this.channelVersion },
       }),
     });
@@ -270,14 +286,18 @@ export class WeixinDirectApiClient {
       errcode?: number;
       errmsg?: string;
       upload_param?: string;
+      upload_full_url?: string;
     };
     if ((payload.errcode ?? 0) !== 0 || (payload.ret ?? 0) !== 0) {
       throw new Error(`weixin_get_upload_url_failed:${payload.errcode ?? payload.ret ?? -1}:${payload.errmsg ?? 'unknown_error'}`);
     }
-    if (!payload.upload_param) {
+    if (!payload.upload_param && !payload.upload_full_url) {
       throw new Error('weixin_get_upload_url_failed:no_upload_param');
     }
-    return { uploadParam: payload.upload_param };
+    return {
+      uploadParam: payload.upload_param ?? '',
+      uploadFullUrl: payload.upload_full_url,
+    };
   }
 
   /**
