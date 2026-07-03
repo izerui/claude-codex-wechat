@@ -56,7 +56,7 @@ async function sendToWechat(filePath: string, kind: string): Promise<string> {
 export function registerDouyinTools(server: McpServer): void {
   server.tool(
     'download_douyin',
-    '下载抖音无水印视频。支持短链(v.douyin.com)、完整链接、分享文案、纯 aweme_id。下载完成后可选择直接发送到微信。',
+    '当用户发来抖音链接、分享文案或提到要下载抖音视频时，立即调用此工具。自动下载无水印高清视频并发送到用户微信。支持：短链(v.douyin.com)、完整链接(douyin.com/video/xxx)、分享文案（自动提取链接）、纯 aweme_id。默认下载后直接发送，无需额外操作。',
     {
       url: z.string().describe('抖音链接、分享文案或 aweme_id'),
       outputDir: z.string().optional().describe('保存目录（可选，默认 ~/Downloads）'),
