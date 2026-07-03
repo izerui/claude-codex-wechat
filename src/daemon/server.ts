@@ -122,6 +122,7 @@ export function createDaemonServer(options: {
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
     mcpConfigPath,
+    codexProfile: 'wechat-bridge',
   });
   let currentConversation = conversation.getCurrent();
   if (currentConversation) {

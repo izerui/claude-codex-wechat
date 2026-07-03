@@ -24,9 +24,9 @@ export class CodexAppServerClient {
   private disposed = false;
   private buffer = '';
 
-  constructor(input: { command?: string; cwd: string }) {
+  constructor(input: { command?: string; cwd: string; profile?: string }) {
     const command = input.command ?? 'codex';
-    this.child = spawn(command, ['app-server', '--listen', 'stdio://'], {
+    this.child = spawn(command, ['app-server', '--listen', 'stdio://', ...(input.profile ? ['--profile', input.profile] : [])], {
       cwd: input.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: useShellForCli(),
