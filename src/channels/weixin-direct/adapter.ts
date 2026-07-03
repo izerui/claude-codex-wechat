@@ -149,7 +149,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       throw new Error('weixin_media_no_file_path');
     }
 
-    const result = await uploader.upload(message.filePath, { contextToken, mediaType: mediaKindToMediaType(message.kind) });
+    const result = await uploader.upload(message.filePath, { contextToken, mediaType: mediaKindToMediaType(message.kind), toUserId: message.chatId });
     if (!result.ok) {
       throw new Error(`weixin_media_upload_failed:${result.reason}`);
     }
