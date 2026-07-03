@@ -149,7 +149,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       throw new Error('weixin_media_no_file_path');
     }
 
-    const result = await uploader.upload(message.filePath, { contextToken });
+    const result = await uploader.upload(message.filePath, { contextToken, mediaType: mediaKindToMediaType(message.kind) });
     if (!result.ok) {
       throw new Error(`weixin_media_upload_failed:${result.reason}`);
     }
@@ -365,5 +365,16 @@ function mediaKindToItemType(kind: string): 2 | 3 | 4 | 5 {
     case 'file': return 4;
     case 'video': return 5;
     default: throw new Error(`weixin_unknown_media_kind:${kind}`);
+  }
+}
+
+/** Map outbound message kind to iLink MediaType (used for getuploadurl). */
+function mediaKindToMediaType(kind: string): number {
+  switch (kind) {
+    case 'image': return 1;
+    case 'video': return 2;
+    case 'file': return 3;
+    case 'audio': return 4;
+    default: return 3; // default to FILE
   }
 }

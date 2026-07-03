@@ -245,7 +245,7 @@ export class WeixinDirectApiClient {
   }
 
   /** Request a CDN upload URL from the iLink platform. */
-  async getUploadUrl(input?: { contextToken?: string }): Promise<{ uploadParam: string }> {
+  async getUploadUrl(input?: { contextToken?: string; mediaType?: number }): Promise<{ uploadParam: string }> {
     const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/getuploadurl`, {
       method: 'POST',
       headers: {
@@ -256,6 +256,7 @@ export class WeixinDirectApiClient {
       },
       body: JSON.stringify({
         ...(input?.contextToken ? { context_token: input.contextToken } : {}),
+        ...(input?.mediaType != null ? { media_type: input.mediaType } : {}),
         base_info: { channel_version: this.channelVersion },
       }),
     });
