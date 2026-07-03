@@ -245,7 +245,7 @@ export class WeixinDirectApiClient {
   }
 
   /** Request a CDN upload URL from the iLink platform. */
-  async getUploadUrl(): Promise<{ uploadParam: string }> {
+  async getUploadUrl(input?: { contextToken?: string }): Promise<{ uploadParam: string }> {
     const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/getuploadurl`, {
       method: 'POST',
       headers: {
@@ -255,11 +255,13 @@ export class WeixinDirectApiClient {
         'X-WECHAT-UIN': this.wechatUin,
       },
       body: JSON.stringify({
+        ...(input?.contextToken ? { context_token: input.contextToken } : {}),
         base_info: { channel_version: this.channelVersion },
       }),
     });
     if (!response.ok) {
-      throw new Error(`weixin_get_upload_url_failed:${response.status}`);
+      const text = await response.text().catch(() => '');
+      throw new Error(`weixin_get_upload_url_failed:http_${response.status}:${text.slice(0, 200)}`);
     }
     const payload = await response.json() as {
       ret?: number;

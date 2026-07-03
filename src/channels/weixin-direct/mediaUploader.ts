@@ -12,7 +12,7 @@ export type MediaUploadResult =
   | { ok: true; media: CDNMedia; aesKeyHex: string }
   | { ok: false; reason: string };
 
-type UploadUrlProvider = () => Promise<{ uploadParam: string }>;
+type UploadUrlProvider = (input?: { contextToken?: string }) => Promise<{ uploadParam: string }>;
 
 /**
  * Handles the outbound media upload flow:
@@ -38,7 +38,7 @@ export class WeixinMediaUploader {
     this.getUploadUrl = options.getUploadUrl;
   }
 
-  async upload(filePath: string): Promise<MediaUploadResult> {
+  async upload(filePath: string, options?: { contextToken?: string }): Promise<MediaUploadResult> {
     // 1. Read local file
     let plaintext: Buffer;
     try {
@@ -61,10 +61,11 @@ export class WeixinMediaUploader {
     // 4. Get upload URL
     let uploadParam: string;
     try {
-      const result = await this.getUploadUrl();
+      const result = await this.getUploadUrl(options?.contextToken ? { contextToken: options.contextToken } : undefined);
       uploadParam = result.uploadParam;
-    } catch {
-      return { ok: false, reason: 'get_upload_url_failed' };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      return { ok: false, reason: msg || 'get_upload_url_failed' };
     }
 
     // 5. Upload ciphertext to CDN

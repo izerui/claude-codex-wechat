@@ -101,7 +101,7 @@ function createWeixinAdapter(config: WeixinConfig | undefined, stateStore?: Weix
     wechatUin,
   });
   const mediaUploader = new WeixinMediaUploader({
-    getUploadUrl: () => apiClient.getUploadUrl(),
+    getUploadUrl: (input) => apiClient.getUploadUrl(input),
   });
   return new WeixinDirectAdapter({
     api: apiClient,
