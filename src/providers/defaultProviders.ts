@@ -8,10 +8,9 @@ export function createDefaultProviders(input: {
   claudeCommand?: string;
   codexCommand?: string;
   mcpConfigPath?: string;
-  codexMcpServerConfigs?: string[];
 } = {}): NativeProviderAdapter[] {
   return [
     new ClaudeCodeProvider({ runner: new ClaudeStreamingRunner({ command: input.claudeCommand, mcpConfigPath: input.mcpConfigPath }) }),
-    new CodexProvider({ runner: new CodexInteractiveRunner({ command: input.codexCommand, mcpServerConfigs: input.codexMcpServerConfigs }) }),
+    new CodexProvider({ runner: new CodexInteractiveRunner({ command: input.codexCommand }) }),
   ];
 }

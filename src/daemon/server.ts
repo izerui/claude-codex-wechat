@@ -118,18 +118,10 @@ export function createDaemonServer(options: {
       },
     },
   }, null, 2) + '\n');
-  // Codex app-server uses -c flags to inject MCP server config (no --profile support)
-  const codexMcpScript = useTs ? mcpMediaServerTs : mcpMediaServerJs;
-  const codexMcpServerConfigs = [
-    '-c', `mcp_servers.wechat-media.command="${mcpCommand}"`,
-    '-c', `mcp_servers.wechat-media.args=["${codexMcpScript}"]`,
-    '-c', `mcp_servers.wechat-media.env.BRIDGE_API_URL="http://localhost:${bridgePort}"`,
-  ];
   const providerAdapters = options.providers ?? createDefaultProviders({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
     mcpConfigPath,
-    codexMcpServerConfigs,
   });
   let currentConversation = conversation.getCurrent();
   if (currentConversation) {

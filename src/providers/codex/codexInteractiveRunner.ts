@@ -58,15 +58,11 @@ export class CodexInteractiveRunner {
   private readonly command?: string;
   private readonly syncThreadForResume: typeof syncCodexThreadForResume;
 
-  private readonly mcpServerConfigs?: string[];
-
   constructor(input: {
     command?: string;
-    mcpServerConfigs?: string[];
     syncThreadForResume?: typeof syncCodexThreadForResume;
   } = {}) {
     this.command = input.command;
-    this.mcpServerConfigs = input.mcpServerConfigs;
     this.syncThreadForResume = input.syncThreadForResume ?? syncCodexThreadForResume;
   }
 
@@ -206,7 +202,7 @@ export class CodexInteractiveRunner {
     const client = new CodexAppServerClient({
       command: this.command,
       cwd: session.cwd,
-      ...(this.mcpServerConfigs?.length ? { mcpServerConfigs: this.mcpServerConfigs } : {}),
+
     });
     await client.initialize();
     client.onNotification('item/agentMessage/delta', (params) => {

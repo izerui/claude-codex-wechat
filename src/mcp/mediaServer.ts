@@ -13,10 +13,24 @@ import { registerDouyinTools } from './tools/douyinDownload.js';
  * - send_image / send_video / send_audio / send_file — 发送媒体到微信
  * - download_douyin — 抖音无水印视频下载（可选自动发送到微信）
  */
-const server = new McpServer({
-  name: 'wechat-bridge',
-  version: '1.0.0',
-});
+const server = new McpServer(
+  {
+    name: 'wechat-bridge',
+    version: '1.0.0',
+  },
+  {
+    instructions: [
+      '你正运行在一个微信桥接环境中，用户通过微信与你对话。',
+      '用户说的"发给我""发到微信""发出来""传给我"都是指通过本服务器的工具发送文件到用户微信。',
+      '',
+      '关键行为：',
+      '- 当用户发来抖音链接或分享文案时，立即调用 download_douyin 下载并发送，无需询问。',
+      '- 当用户说"把XX发给我"时，根据文件类型调用 send_image/send_video/send_file。',
+      '- 生成了文件后用户说"发给我"，直接调用对应工具发送。',
+      '- 完成后简短确认即可，不需要冗长解释。',
+    ].join('\n'),
+  },
+);
 
 // 注册各能力域的工具
 registerSendMediaTools(server);
