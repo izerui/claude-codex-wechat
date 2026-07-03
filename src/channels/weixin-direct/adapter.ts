@@ -4,7 +4,6 @@ import type { ChannelAdapter, ChannelAttachment, ChannelIncomingMessage, Channel
 import { PRIMARY_WEIXIN_PLATFORM } from '../platforms';
 import type { WeixinStateStore } from './weixinStateStore';
 import type { InboundAttachmentMeta, InboundWeixinMessage } from './apiClient';
-import type { CDNMedia } from './mediaDownloader';
 import type { WeixinMediaDownloader } from './mediaDownloader';
 import type { WeixinMediaUploader } from './mediaUploader';
 import { TypingController } from './typingController';
@@ -25,8 +24,10 @@ type WeixinDirectApi = {
     toUserId: string;
     contextToken: string;
     itemType: 2 | 3 | 4 | 5;
-    media: CDNMedia;
-    aesKey?: string;
+    downloadParam: string;
+    aesKeyHex: string;
+    rawSize: number;
+    ciphertextSize: number;
     fileName?: string;
   }): Promise<void>;
   getConfig?(input: { ilinkUserId: string; contextToken?: string }): Promise<{ typingTicket: string }>;
@@ -159,8 +160,10 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       toUserId: message.chatId,
       contextToken,
       itemType,
-      media: result.media,
-      aesKey: itemType === 2 ? result.aesKeyHex : undefined, // image_item uses aeskey field
+      downloadParam: result.downloadParam,
+      aesKeyHex: result.aesKeyHex,
+      rawSize: result.rawSize,
+      ciphertextSize: result.ciphertextSize,
       fileName: message.fileName,
     });
   }

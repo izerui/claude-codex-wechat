@@ -309,11 +309,17 @@ export class WeixinDirectApiClient {
     contextToken: string;
     /** MessageItemType: IMAGE=2, VOICE=3, FILE=4, VIDEO=5 */
     itemType: 2 | 3 | 4 | 5;
-    media: CDNMedia;
-    aesKey?: string;
+    /** CDN download encrypted_query_param from upload response. */
+    downloadParam: string;
+    /** AES key as hex string (32 chars). */
+    aesKeyHex: string;
+    /** Plaintext file size in bytes. */
+    rawSize: number;
+    /** Ciphertext file size in bytes. */
+    ciphertextSize: number;
     fileName?: string;
   }): Promise<void> {
-    const item = this.buildMediaItem(input.itemType, input.media, input.aesKey, input.fileName);
+    const item = this.buildMediaItem(input);
     const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/sendmessage`, {
       method: 'POST',
       headers: {
@@ -324,6 +330,7 @@ export class WeixinDirectApiClient {
       },
       body: JSON.stringify({
         msg: {
+          from_user_id: '',
           to_user_id: input.toUserId,
           client_id: randomUUID(),
           message_type: 2,
@@ -343,26 +350,30 @@ export class WeixinDirectApiClient {
     }
   }
 
-  private buildMediaItem(
-    itemType: 2 | 3 | 4 | 5,
-    media: CDNMedia,
-    aesKey?: string,
-    fileName?: string,
-  ): Record<string, unknown> {
+  private buildMediaItem(input: {
+    itemType: 2 | 3 | 4 | 5;
+    downloadParam: string;
+    aesKeyHex: string;
+    rawSize: number;
+    ciphertextSize: number;
+    fileName?: string;
+  }): Record<string, unknown> {
+    // aes_key in CDNMedia uses format B: base64(hex string)
+    const aesKeyBase64 = Buffer.from(input.aesKeyHex).toString('base64');
     const cdnMedia = {
-      encrypt_query_param: media.encrypt_query_param,
-      aes_key: media.aes_key,
-      ...(media.full_url ? { full_url: media.full_url } : {}),
+      encrypt_query_param: input.downloadParam,
+      aes_key: aesKeyBase64,
+      encrypt_type: 1,
     };
-    switch (itemType) {
+    switch (input.itemType) {
       case 2: // IMAGE
-        return { type: 2, image_item: { media: cdnMedia, ...(aesKey ? { aeskey: aesKey } : {}) } };
+        return { type: 2, image_item: { media: cdnMedia, mid_size: input.ciphertextSize } };
       case 3: // VOICE
         return { type: 3, voice_item: { media: cdnMedia } };
       case 4: // FILE
-        return { type: 4, file_item: { media: cdnMedia, ...(fileName ? { file_name: fileName } : {}) } };
+        return { type: 4, file_item: { media: cdnMedia, file_name: input.fileName ?? 'file', len: String(input.rawSize) } };
       case 5: // VIDEO
-        return { type: 5, video_item: { media: cdnMedia } };
+        return { type: 5, video_item: { media: cdnMedia, video_size: input.ciphertextSize } };
     }
   }
 }
