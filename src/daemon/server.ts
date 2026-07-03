@@ -1,4 +1,4 @@
-import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -118,10 +118,23 @@ export function createDaemonServer(options: {
       },
     },
   }, null, 2) + '\n');
+  // Generate a session-scoped CODEX_HOME with MCP config for Codex app-server.
+  const codexHomePath = join(dirname(configPath), 'codex-home');
+  mkdirSync(codexHomePath, { recursive: true });
+  writeFileSync(join(codexHomePath, 'config.toml'), [
+    '[mcp_servers.wechat-media]',
+    `command = "${mcpCommand}"`,
+    `args = ["${useTs ? mcpMediaServerTs : mcpMediaServerJs}"]`,
+    '',
+    '[mcp_servers.wechat-media.env]',
+    `BRIDGE_API_URL = "http://localhost:${bridgePort}"`,
+    '',
+  ].join('\n'));
   const providerAdapters = options.providers ?? createDefaultProviders({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
     mcpConfigPath,
+    codexHome: codexHomePath,
   });
   let currentConversation = conversation.getCurrent();
   if (currentConversation) {
