@@ -10,9 +10,7 @@ const external = [
   ...Object.keys(pkg.devDependencies ?? {}),
 ];
 
-await build({
-  entryPoints: ['src/cli.ts'],
-  outdir: 'dist/server',
+const sharedOptions = {
   platform: 'node',
   format: 'esm',
   target: 'node20',
@@ -23,6 +21,19 @@ await build({
     // esm 产物中部分依赖可能用到 require，注入兼容垫片。
     js: "import { createRequire as __cjsCreateRequire } from 'node:module'; const require = __cjsCreateRequire(import.meta.url);",
   },
+};
+
+await build({
+  ...sharedOptions,
+  entryPoints: ['src/cli.ts'],
+  outdir: 'dist/server',
+});
+
+await build({
+  ...sharedOptions,
+  entryPoints: ['src/mcp/mediaServer.ts'],
+  outdir: 'dist/mcp',
 });
 
 console.log('server build -> dist/server/cli.js');
+console.log('mcp build    -> dist/mcp/mediaServer.js');

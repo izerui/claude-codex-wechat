@@ -7,9 +7,10 @@ import type { NativeProviderAdapter } from './types';
 export function createDefaultProviders(input: {
   claudeCommand?: string;
   codexCommand?: string;
+  mcpConfigPath?: string;
 } = {}): NativeProviderAdapter[] {
   return [
-    new ClaudeCodeProvider({ runner: new ClaudeStreamingRunner({ command: input.claudeCommand }) }),
+    new ClaudeCodeProvider({ runner: new ClaudeStreamingRunner({ command: input.claudeCommand, mcpConfigPath: input.mcpConfigPath }) }),
     new CodexProvider({ runner: new CodexInteractiveRunner({ command: input.codexCommand }) }),
   ];
 }

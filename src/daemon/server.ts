@@ -1,6 +1,7 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
 import { registerTunnelRoutes } from '../admin/tunnelRoutes';
@@ -97,9 +98,30 @@ export function createDaemonServer(options: {
     ?? new RuntimeUserStore(configPath);
   const lastProviderSessions = new LastProviderSessionStore(configPath);
   const sessionBindingMatch = new Map<string, boolean>();
+  // Generate MCP config for Claude Code to access media-sending tools.
+  const bridgePort = process.env.BRIDGE_PORT ?? '8787';
+  const mcpConfigPath = join(dirname(configPath), 'mcp-media.json');
+  const serverDir = dirname(fileURLToPath(import.meta.url));
+  // In dev (tsx): serverDir is src/daemon, mediaServer is src/mcp/mediaServer.ts
+  // In prod (built): serverDir is dist/server, mediaServer is dist/mcp/mediaServer.js
+  const mcpMediaServerTs = join(serverDir, '..', 'mcp', 'mediaServer.ts');
+  const mcpMediaServerJs = join(serverDir, '..', 'mcp', 'mediaServer.js');
+  const useTs = existsSync(mcpMediaServerTs) && !existsSync(mcpMediaServerJs);
+  const mcpCommand = useTs ? 'tsx' : 'node';
+  const mcpArgs = [useTs ? mcpMediaServerTs : mcpMediaServerJs];
+  writeFileSync(mcpConfigPath, JSON.stringify({
+    mcpServers: {
+      'wechat-media': {
+        command: mcpCommand,
+        args: mcpArgs,
+        env: { BRIDGE_API_URL: `http://localhost:${bridgePort}` },
+      },
+    },
+  }, null, 2) + '\n');
   const providerAdapters = options.providers ?? createDefaultProviders({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
+    mcpConfigPath,
   });
   let currentConversation = conversation.getCurrent();
   if (currentConversation) {
@@ -298,6 +320,38 @@ export function createDaemonServer(options: {
     request.raw.on('error', cleanup);
 
     return reply.hijack();
+  });
+
+  app.post<{ Body: { kind: string; filePath: string; fileName?: string; chatId?: string } }>('/api/channel/send-media', async (request, reply) => {
+    const { kind, filePath, fileName, chatId } = request.body ?? {};
+    if (!filePath || typeof filePath !== 'string') {
+      return reply.code(400).send({ ok: false, error: 'filePath is required' });
+    }
+    const validKinds = ['image', 'video', 'audio', 'file'];
+    if (!kind || !validKinds.includes(kind)) {
+      return reply.code(400).send({ ok: false, error: `kind must be one of: ${validKinds.join(', ')}` });
+    }
+    if (!channel) {
+      return reply.code(503).send({ ok: false, error: 'channel not available' });
+    }
+    // Resolve target chatId: explicit param > active user from store
+    const targetChatId = chatId || activeUserStore.getActiveUser()?.platformUserId;
+    if (!targetChatId) {
+      return reply.code(400).send({ ok: false, error: 'no active chat target; provide chatId or ensure an active user exists' });
+    }
+    try {
+      await channel.sendMessage({
+        chatId: targetChatId,
+        kind: kind as ChannelOutgoingMessage['kind'],
+        text: '',
+        filePath,
+        ...(fileName ? { fileName } : {}),
+      });
+      return { ok: true };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return reply.code(500).send({ ok: false, error: msg });
+    }
   });
 
   app.addHook('onReady', async () => {

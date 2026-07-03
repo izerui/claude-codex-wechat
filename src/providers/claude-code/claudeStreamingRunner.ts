@@ -40,11 +40,13 @@ export class ClaudeStreamingRunner implements ClaudeRunner {
   private readonly command: string;
   private readonly spawner: ClaudeStreamSpawner;
   private readonly capabilityProbe: ClaudeCapabilityProbe;
+  private readonly mcpConfigPath?: string;
 
-  constructor(input: { command?: string; spawner?: ClaudeStreamSpawner; capabilityProbe?: ClaudeCapabilityProbe } = {}) {
+  constructor(input: { command?: string; spawner?: ClaudeStreamSpawner; capabilityProbe?: ClaudeCapabilityProbe; mcpConfigPath?: string } = {}) {
     this.command = input.command ?? 'claude';
     this.spawner = input.spawner ?? defaultClaudeStreamSpawner;
     this.capabilityProbe = input.capabilityProbe ?? probeAppendSystemPromptSupport;
+    this.mcpConfigPath = input.mcpConfigPath;
   }
 
   async startSession(input: {
@@ -172,13 +174,13 @@ export class ClaudeStreamingRunner implements ClaudeRunner {
 
   private ensureHandle(session: StreamingSession): ClaudeStreamHandle {
     if (session.handle) return session.handle;
-    const args = buildStreamingArgs(session);
+    const args = buildStreamingArgs(session, this.mcpConfigPath);
     session.handle = this.spawner({ command: this.command, args, cwd: session.cwd });
     return session.handle;
   }
 }
 
-function buildStreamingArgs(session: StreamingSession): string[] {
+function buildStreamingArgs(session: StreamingSession, mcpConfigPath?: string): string[] {
   const args = [
     '-p',
     '--input-format', 'stream-json',
@@ -188,6 +190,7 @@ function buildStreamingArgs(session: StreamingSession): string[] {
     '--dangerously-skip-permissions',
     ...(session.supportsAppendSystemPrompt ? ['--append-system-prompt', BRIDGE_APPEND_SYSTEM_PROMPT] : []),
     '--replay-user-messages',
+    ...(mcpConfigPath ? ['--mcp-config', mcpConfigPath] : []),
   ];
   if (session.resumeId) {
     args.push('--resume', session.resumeId);
