@@ -490,7 +490,8 @@ export class MessageRouter {
         await this.sendToChat({ chatId, kind: 'status', text: `当前 provider（${providerId}）不支持会话列表` });
         return;
       }
-      let candidates = await listUnattachedRecoverableSessions({ provider, providerId, currentSession: current });
+      // 列出所有可恢复会话（包括当前激活的），当前激活的会话用 ▶ 标记
+      let candidates = await provider.listRecoverableSessions();
       if (command.keyword) {
         const keyword = command.keyword.toLowerCase();
         candidates = candidates.filter((candidate) =>
@@ -508,9 +509,12 @@ export class MessageRouter {
         return;
       }
       this.sessionListCache.set(chatId, { providerId, ids: shown.map((candidate) => candidate.id) });
+      const activeProviderSessionId = current?.providerId === providerId ? current.providerSessionId : undefined;
       const lines = [`**可恢复会话（${providerId}）**`, `第 ${page}/${totalPages} 页`, ''];
       shown.forEach((candidate, index) => {
-        lines.push(`${index + 1}. ${this.formatSessionLine(candidate)}`);
+        const isActive = activeProviderSessionId && candidate.id === activeProviderSessionId;
+        const marker = isActive ? ' ▶' : '';
+        lines.push(`${index + 1}. ${this.formatSessionLine(candidate)}${marker}`);
       });
       if (page < totalPages) {
         const nextPageCommand = command.keyword ? `/sessions ${command.keyword} p${page + 1}` : `/sessions p${page + 1}`;

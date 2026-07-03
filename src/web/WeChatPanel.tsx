@@ -142,10 +142,10 @@ export function WeChatPanel(input: {
   }, [refresh]);
 
   useEffect(() => {
-    if (!activeUser) return;
+    if (!isPluginConnected(plugin)) return;
     if (activeTab === 'claude-native') void scanRecoverableSessions('claude-code');
     else if (activeTab === 'codex-native') void scanRecoverableSessions('codex');
-  }, [activeTab, activeUser, scanRecoverableSessions]);
+  }, [activeTab, plugin, scanRecoverableSessions]);
 
   useEffect(() => {
     return subscribeBridgeEvents((payload) => {
@@ -318,7 +318,7 @@ export function WeChatPanel(input: {
     activeTab === 'claude-native' ? session.providerId === 'claude-code' : session.providerId === 'codex'
   ));
 
-  const canCreateSession = Boolean(activeUser && isPluginConnected(plugin));
+  const canCreateSession = isPluginConnected(plugin);
 
   return (
     <section>
@@ -341,6 +341,7 @@ export function WeChatPanel(input: {
         currentSession={input.currentSession}
         lastProviderSessions={lastProviderSessions}
         canCreateSession={canCreateSession}
+        canOperate={Boolean(activeUser)}
         defaultWorkspace={settings?.defaultWorkspace}
         creatingProvider={creatingProvider}
         onCreateSession={(providerId, cwd) => void submitNewSession(providerId, cwd)}
@@ -418,6 +419,9 @@ export function WeChatPanel(input: {
             </>
           ) : (
             <>
+              {!activeUser && isPluginConnected(plugin) ? (
+                <p className="text-muted-soft small mb-2">💡 请先从微信发任意消息以激活用户身份，之后即可接入会话。</p>
+              ) : null}
               {filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复会话。</p> : (
                 <>
                   <ul className="list-unstyled mb-0">
@@ -449,8 +453,9 @@ export function WeChatPanel(input: {
                       {session.lastActivityAt ? <div className="small text-muted-soft">最后活跃 {formatTimestamp(session.lastActivityAt)}</div> : null}
                       <button
                         className="btn btn-accent btn-sm mt-2"
-                        disabled={attachingSessionId === session.id}
+                        disabled={attachingSessionId === session.id || !activeUser}
                         onClick={() => void attachRecoverableSession(session)}
+                        title={!activeUser ? '需要先从微信发消息激活用户' : undefined}
                         type="button"
                       >
                         {attachingSessionId === session.id ? '接入中...' : '接入会话'}

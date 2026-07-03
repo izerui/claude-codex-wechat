@@ -96,6 +96,7 @@ function EngineBay(input: {
   session: CurrentSessionView | null;
   lastSession: LastProviderSessionView | null;
   canCreate: boolean;
+  canOperate: boolean;
   defaultCwd: string;
   creating: boolean;
   onCreate?(cwd: string): void;
@@ -189,11 +190,14 @@ function EngineBay(input: {
               setCwdInput(path);
             }}
           />
+          {!input.canOperate ? (
+            <span className="text-muted-soft small">请先从微信发任意消息以激活用户身份</span>
+          ) : null}
           <button
             className="engine-create-btn d-inline-flex align-items-center align-self-end flex-shrink-0"
-            disabled={input.creating || !cwdInput.trim()}
+            disabled={input.creating || !cwdInput.trim() || !input.canOperate}
             onClick={submitCreate}
-            title={input.active ? '新开会话' : '新建会话'}
+            title={input.canOperate ? (input.active ? '新开会话' : '新建会话') : '需要先从微信发消息激活用户'}
             aria-label={input.active ? '新开会话' : '新建会话'}
             type="button"
           >
@@ -215,6 +219,7 @@ export function EngineBays(input: {
   currentSession: CurrentSessionView | null;
   lastProviderSessions?: Partial<Record<'claude-code' | 'codex', LastProviderSessionView>>;
   canCreateSession?: boolean;
+  canOperate?: boolean;
   defaultWorkspace?: string;
   creatingProvider?: 'claude-code' | 'codex' | null;
   onCreateSession?(providerId: 'claude-code' | 'codex', cwd: string): void;
@@ -225,6 +230,7 @@ export function EngineBays(input: {
     : null;
   const lastSessions = input.lastProviderSessions ?? {};
   const canCreate = input.canCreateSession ?? false;
+  const canOperate = input.canOperate ?? false;
   const wsFallback = input.defaultWorkspace ?? '';
 
   const claude = (
@@ -237,6 +243,7 @@ export function EngineBays(input: {
       session={activeProvider === 'claude' ? input.currentSession : null}
       lastSession={activeProvider === 'claude' ? null : lastSessions['claude-code'] ?? null}
       canCreate={canCreate}
+      canOperate={canOperate}
       defaultCwd={activeProvider === 'claude'
         ? (input.currentSession?.cwd ?? wsFallback)
         : (lastSessions['claude-code']?.cwd ?? wsFallback)}
@@ -254,6 +261,7 @@ export function EngineBays(input: {
       session={activeProvider === 'codex' ? input.currentSession : null}
       lastSession={activeProvider === 'codex' ? null : lastSessions['codex'] ?? null}
       canCreate={canCreate}
+      canOperate={canOperate}
       defaultCwd={activeProvider === 'codex'
         ? (input.currentSession?.cwd ?? wsFallback)
         : (lastSessions['codex']?.cwd ?? wsFallback)}
