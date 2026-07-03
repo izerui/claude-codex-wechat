@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
 import { encryptAesEcb, generateAesKey, encodeAesKeyBase64, encodeAesKeyHex } from './mediaCrypto';
 import type { CDNMedia } from './mediaDownloader';
 
@@ -81,7 +80,7 @@ export class WeixinMediaUploader {
     const filesize = ciphertext.length;
 
     // 4. Get upload URL with full metadata
-    const filekey = randomUUID();
+    const filekey = randomBytes(16).toString('hex');
     let uploadParam: string;
     let uploadFullUrl: string | undefined;
     try {
