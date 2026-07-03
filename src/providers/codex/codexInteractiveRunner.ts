@@ -58,15 +58,12 @@ export class CodexInteractiveRunner {
   private readonly command?: string;
   private readonly syncThreadForResume: typeof syncCodexThreadForResume;
 
-  private readonly codexHome?: string;
 
   constructor(input: {
     command?: string;
-    codexHome?: string;
     syncThreadForResume?: typeof syncCodexThreadForResume;
   } = {}) {
     this.command = input.command;
-    this.codexHome = input.codexHome;
     this.syncThreadForResume = input.syncThreadForResume ?? syncCodexThreadForResume;
   }
 

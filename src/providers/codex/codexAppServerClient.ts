@@ -24,13 +24,12 @@ export class CodexAppServerClient {
   private disposed = false;
   private buffer = '';
 
-  constructor(input: { command?: string; cwd: string; codexHome?: string }) {
+  constructor(input: { command?: string; cwd: string }) {
     const command = input.command ?? 'codex';
     this.child = spawn(command, ['app-server', '--listen', 'stdio://'], {
       cwd: input.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: useShellForCli(),
-      ...(input.codexHome ? { env: { ...process.env, CODEX_HOME: input.codexHome } } : {}),
     });
     this.child.stdout.on('data', (chunk) => this.onStdout(String(chunk)));
     this.child.stderr.on('data', () => {
