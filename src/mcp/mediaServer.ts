@@ -61,11 +61,12 @@ server.tool(
 
 server.tool(
   'send_audio',
-  '发送音频文件到当前微信对话。传入音频文件的绝对路径。',
+  '发送音频文件到当前微信对话。传入音频文件的绝对路径。音频文件以文件附件形式发送，用户可点击播放。',
   { filePath: z.string().describe('音频文件的绝对路径，如 /path/to/audio.mp3') },
   async ({ filePath }) => {
     try {
-      const msg = await sendMedia('audio', filePath);
+      const fileName = filePath.split('/').pop() || 'audio.mp3';
+      const msg = await sendMedia('file', filePath, fileName);
       return { content: [{ type: 'text', text: msg }] };
     } catch (e) {
       return { content: [{ type: 'text', text: (e as Error).message }], isError: true };
