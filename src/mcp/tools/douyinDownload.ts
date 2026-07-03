@@ -54,13 +54,15 @@ async function sendToWechat(filePath: string, kind: string): Promise<string> {
 }
 
 export function registerDouyinTools(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'download_douyin',
-    '当用户发来抖音链接、分享文案或提到要下载抖音视频时，立即调用此工具。自动下载无水印高清视频并发送到用户微信。支持：短链(v.douyin.com)、完整链接(douyin.com/video/xxx)、分享文案（自动提取链接）、纯 aweme_id。默认下载后直接发送，无需额外操作。',
     {
-      url: z.string().describe('抖音链接、分享文案或 aweme_id'),
-      outputDir: z.string().optional().describe('保存目录（可选，默认 ~/Downloads）'),
-      sendToWechat: z.boolean().optional().describe('下载后是否直接发送到当前微信对话（默认 true）'),
+      description: '当用户发来抖音链接、分享文案或提到要下载抖音视频时，立即调用此工具。自动下载无水印高清视频并发送到用户微信。支持：短链(v.douyin.com)、完整链接(douyin.com/video/xxx)、分享文案（自动提取链接）、纯 aweme_id。默认下载后直接发送，无需额外操作。',
+      inputSchema: {
+        url: z.string().describe('抖音链接、分享文案或 aweme_id'),
+        outputDir: z.string().optional().describe('保存目录（可选，默认 ~/Downloads）'),
+        sendToWechat: z.boolean().optional().describe('下载后是否直接发送到当前微信对话（默认 true）'),
+      },
     },
     async ({ url, outputDir, sendToWechat: shouldSend }) => {
       try {
