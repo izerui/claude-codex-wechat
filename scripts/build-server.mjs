@@ -35,5 +35,11 @@ await build({
   outdir: 'dist/mcp',
 });
 
+// Copy douyin-download script to dist
+import { cpSync, mkdirSync } from 'node:fs';
+mkdirSync('dist/mcp/scripts', { recursive: true });
+cpSync('src/mcp/scripts/douyin-download.mjs', 'dist/mcp/scripts/douyin-download.mjs');
+
 console.log('server build -> dist/server/cli.js');
 console.log('mcp build    -> dist/mcp/mediaServer.js');
+console.log('mcp scripts  -> dist/mcp/scripts/douyin-download.mjs');
