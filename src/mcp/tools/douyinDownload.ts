@@ -59,12 +59,14 @@ export function registerDouyinTools(server: McpServer): void {
     },
     async ({ url, outputDir, sendToWechat: shouldSend }) => {
       try {
-        const output = outputDir || `${process.env.HOME || '/tmp'}/Downloads`;
-        const { stdout } = await runScript([url, '--output', output]);
+        const args = [url];
+        if (outputDir) args.push('--output', outputDir);
+        else args.push('--output', `${process.env.HOME || '/tmp'}/Downloads`);
+        const { stdout } = await runScript(args);
 
-        // Extract file path from script output
-        const pathMatch = stdout.match(/(?:保存到|saved to|文件路径)[：:]\s*(.+\.mp4)/i)
-          || stdout.match(/(\/.+\.mp4)/);
+        // Extract file path from script output: "✅ 已保存: /path/to/file.mp4 (1.23 MB)"
+        const pathMatch = stdout.match(/(?:已保存|保存到|saved to|文件路径)[：:]\s*(.+?\.mp4)/i)
+          || stdout.match(/(\/[^\s]+\.mp4)/);
         const filePath = pathMatch?.[1]?.trim();
 
         if (!filePath || !existsSync(filePath)) {
