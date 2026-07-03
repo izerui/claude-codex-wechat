@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
@@ -55,7 +56,7 @@ export function registerSendMediaTools(server: McpServer): void {
     { filePath: z.string().describe('音频文件的绝对路径，如 /path/to/audio.mp3') },
     async ({ filePath }) => {
       try {
-        const fileName = filePath.split('/').pop() || 'audio.mp3';
+        const fileName = basename(filePath) || 'audio.mp3';
         const msg = await sendMedia('file', filePath, fileName);
         return { content: [{ type: 'text', text: msg }] };
       } catch (e) {

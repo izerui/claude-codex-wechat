@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
+import { resolve, dirname, join, basename } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -9,11 +10,15 @@ const BRIDGE_API_URL = process.env.BRIDGE_API_URL || 'http://localhost:8787';
 
 /** Locate the douyin-download script bundled with the project. */
 function findDouyinScript(): string {
-  // Try known locations
+  const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'skills', 'douyin-download', 'scripts', 'douyin-download.mjs'),
-    '/Users/liuyuhua/.agents/skills/douyin-download/scripts/douyin-download.mjs',
-    '/Users/liuyuhua/.claude/skills/douyin-download/scripts/douyin-download.mjs',
+    // Bundled with project (primary)
+    join(here, '..', 'scripts', 'douyin-download.mjs'),
+    // Built output
+    join(here, '..', '..', 'mcp', 'scripts', 'douyin-download.mjs'),
+    // User skills locations (cross-platform)
+    join(homedir(), '.agents', 'skills', 'douyin-download', 'scripts', 'douyin-download.mjs'),
+    join(homedir(), '.claude', 'skills', 'douyin-download', 'scripts', 'douyin-download.mjs'),
   ];
   for (const p of candidates) {
     const resolved = resolve(p);
@@ -33,7 +38,7 @@ function runScript(args: string[]): Promise<{ stdout: string; stderr: string }> 
 }
 
 async function sendToWechat(filePath: string, kind: string): Promise<string> {
-  const fileName = filePath.split('/').pop() || 'video.mp4';
+  const fileName = basename(filePath) || 'video.mp4';
   const response = await fetch(`${BRIDGE_API_URL}/api/channel/send-media`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -61,7 +66,7 @@ export function registerDouyinTools(server: McpServer): void {
       try {
         const args = [url];
         if (outputDir) args.push('--output', outputDir);
-        else args.push('--output', `${process.env.HOME || '/tmp'}/Downloads`);
+        else args.push('--output', join(homedir(), 'Downloads'));
         const { stdout } = await runScript(args);
 
         // Extract file path from script output: "✅ 已保存: /path/to/file.mp4 (1.23 MB)"
