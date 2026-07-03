@@ -43,7 +43,8 @@
     "better-sqlite3": "latest",
     "fastify": "latest",
     "lucide-react": "^1.22.0",
-    "nanoid": "latest"
+    "nanoid": "latest",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@fastify/middie": "^9.3.2",
