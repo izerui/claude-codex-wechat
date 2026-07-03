@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { encryptAesEcb, generateAesKey, encodeAesKeyHex } from './mediaCrypto';
+import { detectVoiceInfo, type VoiceInfo } from './voiceInfo';
 
 export const CDN_UPLOAD_BASE_URL = 'https://novac2c.cdn.weixin.qq.com/c2c';
 
@@ -8,7 +9,7 @@ export const CDN_UPLOAD_BASE_URL = 'https://novac2c.cdn.weixin.qq.com/c2c';
 export type OutboundMediaItemType = 2 | 3 | 4 | 5; // IMAGE, VOICE, FILE, VIDEO
 
 export type MediaUploadResult =
-  | { ok: true; downloadParam: string; aesKeyHex: string; rawSize: number; ciphertextSize: number }
+  | { ok: true; downloadParam: string; aesKeyHex: string; rawSize: number; ciphertextSize: number; voiceInfo?: VoiceInfo }
   | { ok: false; reason: string };
 
 export type GetUploadUrlInput = {
@@ -127,12 +128,17 @@ export class WeixinMediaUploader {
       return { ok: false, reason: 'no_encrypted_param_in_response' };
     }
 
+    // Detect voice info for audio files
+    const isAudio = options?.mediaType === 4; // MediaType.VOICE = 4
+    const voiceInfo = isAudio ? detectVoiceInfo(plaintext, filePath) : undefined;
+
     return {
       ok: true,
       downloadParam: encryptedParam,
       aesKeyHex: aeskeyHex,
       rawSize: rawsize,
       ciphertextSize: filesize,
+      ...(voiceInfo ? { voiceInfo } : {}),
     };
   }
 }

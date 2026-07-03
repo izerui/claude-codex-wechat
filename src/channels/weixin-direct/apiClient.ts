@@ -318,6 +318,8 @@ export class WeixinDirectApiClient {
     /** Ciphertext file size in bytes. */
     ciphertextSize: number;
     fileName?: string;
+    /** Voice-specific fields. */
+    voiceInfo?: { encodeType: number; playtime: number; sampleRate?: number };
   }): Promise<void> {
     const item = this.buildMediaItem(input);
     const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/sendmessage`, {
@@ -357,6 +359,7 @@ export class WeixinDirectApiClient {
     rawSize: number;
     ciphertextSize: number;
     fileName?: string;
+    voiceInfo?: { encodeType: number; playtime: number; sampleRate?: number };
   }): Record<string, unknown> {
     // aes_key in CDNMedia uses format B: base64(hex string)
     const aesKeyBase64 = Buffer.from(input.aesKeyHex).toString('base64');
@@ -369,7 +372,14 @@ export class WeixinDirectApiClient {
       case 2: // IMAGE
         return { type: 2, image_item: { media: cdnMedia, mid_size: input.ciphertextSize } };
       case 3: // VOICE
-        return { type: 3, voice_item: { media: cdnMedia } };
+        return { type: 3, voice_item: {
+          media: cdnMedia,
+          ...(input.voiceInfo ? {
+            encode_type: input.voiceInfo.encodeType,
+            playtime: input.voiceInfo.playtime,
+            ...(input.voiceInfo.sampleRate ? { sample_rate: input.voiceInfo.sampleRate } : {}),
+          } : {}),
+        } };
       case 4: // FILE
         return { type: 4, file_item: { media: cdnMedia, file_name: input.fileName ?? 'file', len: String(input.rawSize) } };
       case 5: // VIDEO

@@ -29,6 +29,7 @@ type WeixinDirectApi = {
     rawSize: number;
     ciphertextSize: number;
     fileName?: string;
+    voiceInfo?: { encodeType: number; playtime: number; sampleRate?: number };
   }): Promise<void>;
   getConfig?(input: { ilinkUserId: string; contextToken?: string }): Promise<{ typingTicket: string }>;
   sendTyping?(input: { ilinkUserId: string; typingTicket: string; status: 1 | 2 }): Promise<void>;
@@ -165,6 +166,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       rawSize: result.rawSize,
       ciphertextSize: result.ciphertextSize,
       fileName: message.fileName,
+      ...(result.voiceInfo ? { voiceInfo: result.voiceInfo } : {}),
     });
   }
 
