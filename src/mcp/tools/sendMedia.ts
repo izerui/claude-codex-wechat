@@ -24,7 +24,7 @@ async function sendMedia(kind: string, filePath: string, fileName?: string): Pro
 export function registerSendMediaTools(server: McpServer): void {
   server.tool(
     'send_image',
-    '将本地图片文件发送到用户微信。当你生成了图片、截图、图表，或用户要求发送某个图片时，主动调用此工具。',
+    '将图片发送到用户微信。用户说"把图片发给我""把截图发出来""发到我微信"时调用。也适用于你生成了图片/图表/截图后主动发送给用户。',
     { filePath: z.string().describe('图片文件的绝对路径，如 /path/to/image.png') },
     async ({ filePath }) => {
       try {
@@ -38,7 +38,7 @@ export function registerSendMediaTools(server: McpServer): void {
 
   server.tool(
     'send_video',
-    '将本地视频文件发送到用户微信。当你下载了视频或用户要求发送视频文件时调用。',
+    '将视频发送到用户微信。用户说"把视频发给我""视频发出来"时调用。下载完视频后也应主动调用此工具发送。',
     { filePath: z.string().describe('视频文件的绝对路径，如 /path/to/video.mp4') },
     async ({ filePath }) => {
       try {
@@ -52,7 +52,7 @@ export function registerSendMediaTools(server: McpServer): void {
 
   server.tool(
     'send_audio',
-    '将本地音频文件以附件形式发送到用户微信，用户可点击播放。当用户要求发送音频/音乐文件时调用。',
+    '将音频文件以附件形式发送到用户微信（用户可点击播放）。用户说"把音频发给我""音乐发出来"时调用。',
     { filePath: z.string().describe('音频文件的绝对路径，如 /path/to/audio.mp3') },
     async ({ filePath }) => {
       try {
@@ -67,7 +67,7 @@ export function registerSendMediaTools(server: McpServer): void {
 
   server.tool(
     'send_file',
-    '将本地文件发送到用户微信。当用户要求发送文档、代码文件、压缩包等任意文件时调用。支持 PDF、文档、代码等所有文件类型。',
+    '将文件发送到用户微信。用户说"把文件发给我""文档发出来""把XX传给我"时调用。支持 PDF、文档、代码、压缩包等所有类型。',
     {
       filePath: z.string().describe('文件的绝对路径，如 /path/to/document.pdf'),
       fileName: z.string().optional().describe('显示给用户的文件名（可选，默认使用原文件名）'),
