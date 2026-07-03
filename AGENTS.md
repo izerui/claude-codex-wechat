@@ -344,3 +344,7 @@ The current WeChat direct channel should still be treated as a chat-first surfac
   - Follow with a short instruction such as `回复 1 / 2 / 3 选择方案。`
 - Do not route ordinary “choose a plan/option” interactions through the permission system.
 - Reserve permission-style messages (`/approve`, `/deny`, `/abort`) for actual bridge/provider approval events only.
+
+## Worktree 规则
+
+不允许使用 worktree。所有工作直接在主工作目录进行，不要使用 `EnterWorktree` 或 `git worktree` 创建隔离工作树。
