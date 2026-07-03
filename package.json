@@ -14,8 +14,7 @@
   "files": [
     "dist",
     "README.md",
-    "config.example.json",
-    "scripts/postinstall-codex-mcp.mjs"
+    "config.example.json"
   ],
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
@@ -36,8 +35,7 @@
     "relay:start": "pnpm --dir relay-server start",
     "relay:test": "pnpm --dir relay-server test",
     "prepublishOnly": "npm run build",
-    "postpublish": "node scripts/sync-mirror.mjs",
-    "postinstall": "node scripts/postinstall-codex-mcp.mjs"
+    "postpublish": "node scripts/sync-mirror.mjs"
   },
   "dependencies": {
     "@fastify/static": "^9.1.3",

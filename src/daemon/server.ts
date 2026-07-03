@@ -1,4 +1,5 @@
 import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +40,27 @@ function readUpdateStatusBestEffort(configPath: string | undefined): { ok: boole
     return { ok: true, update: loadBridgeConfig(configPath).update };
   } catch {
     return { ok: false };
+  }
+}
+
+/**
+ * Ensure the wechat-media MCP server is registered in Codex global config.
+ * Best-effort: silently skips if codex is not installed.
+ */
+function ensureCodexMcpRegistered(mediaServerPath: string, bridgePort: string): void {
+  try {
+    // Check if codex is available
+    execSync('codex --version', { stdio: 'ignore' });
+    // Check if already registered
+    const list = execSync('codex mcp list', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+    if (list.includes('wechat-media')) return; // already registered
+    // Register
+    execSync(
+      `codex mcp add wechat-media --env "BRIDGE_API_URL=http://localhost:${bridgePort}" -- node "${mediaServerPath}"`,
+      { stdio: 'ignore' },
+    );
+  } catch {
+    // codex not installed or registration failed — skip silently
   }
 }
 
@@ -118,6 +140,9 @@ export function createDaemonServer(options: {
       },
     },
   }, null, 2) + '\n');
+  // Ensure Codex has wechat-media MCP registered globally (idempotent, best-effort).
+  ensureCodexMcpRegistered(useTs ? mcpMediaServerTs : mcpMediaServerJs, bridgePort);
+
   const providerAdapters = options.providers ?? createDefaultProviders({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,
