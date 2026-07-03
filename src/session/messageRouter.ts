@@ -83,7 +83,12 @@ export class MessageRouter {
    */
   private async sendToChat(message: ChannelOutgoingMessage): Promise<void> {
     if (this.options.outboundGate) {
-      await this.options.outboundGate.deliver(message.chatId, { kind: message.kind, text: message.text });
+      await this.options.outboundGate.deliver(message.chatId, {
+        kind: message.kind,
+        text: message.text,
+        ...(message.filePath ? { filePath: message.filePath } : {}),
+        ...(message.fileName ? { fileName: message.fileName } : {}),
+      });
     } else {
       await this.options.channel.sendMessage(message);
     }

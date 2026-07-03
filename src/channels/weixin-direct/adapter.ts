@@ -4,7 +4,9 @@ import type { ChannelAdapter, ChannelAttachment, ChannelIncomingMessage, Channel
 import { PRIMARY_WEIXIN_PLATFORM } from '../platforms';
 import type { WeixinStateStore } from './weixinStateStore';
 import type { InboundAttachmentMeta, InboundWeixinMessage } from './apiClient';
+import type { CDNMedia } from './mediaDownloader';
 import type { WeixinMediaDownloader } from './mediaDownloader';
+import type { WeixinMediaUploader } from './mediaUploader';
 import { TypingController } from './typingController';
 
 const MAX_TEXT_LENGTH = 4_000;
@@ -19,6 +21,14 @@ type WeixinDirectApi = {
     messages: InboundWeixinMessage[];
   }>;
   sendTextMessage(input: { toUserId: string; text: string; contextToken?: string }): Promise<void>;
+  sendMediaMessage?(input: {
+    toUserId: string;
+    contextToken: string;
+    itemType: 2 | 3 | 4 | 5;
+    media: CDNMedia;
+    aesKey?: string;
+    fileName?: string;
+  }): Promise<void>;
   getConfig?(input: { ilinkUserId: string; contextToken?: string }): Promise<{ typingTicket: string }>;
   sendTyping?(input: { ilinkUserId: string; typingTicket: string; status: 1 | 2 }): Promise<void>;
 };
@@ -47,6 +57,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     chunkDelayMs?: number;
     stateStore?: WeixinStateStore;
     mediaDownloader?: WeixinMediaDownloader;
+    mediaUploader?: WeixinMediaUploader;
     mediaDir?: string;
   }) {
     const { api } = options;
@@ -103,29 +114,55 @@ export class WeixinDirectAdapter implements ChannelAdapter {
   async sendMessage(message: ChannelOutgoingMessage): Promise<void> {
     const contextToken = this.contextTokens.get(message.chatId);
     if (!contextToken) {
-      // iLink reply/proactive-send requires a fresh context_token from the user's
-      // latest inbound message. Without it the gateway rejects with -3; fail loudly
-      // instead of firing a doomed request.
       throw new Error(`weixin_no_context_token:${message.chatId}`);
     }
-    // iLink hard limit: ≤10 proactive sends per token within 24h. A logical
-    // message counts as ONE against the quota, regardless of how many 4000-char
-    // chunks it splits into. The quota gate (if any) decided this send is allowed;
-    // we record exactly one here as the single source of truth.
     if (this.options.stateStore && !this.options.stateStore.canSend(message.chatId)) {
       throw new Error(`weixin_push_quota_exceeded:${message.chatId}`);
     }
-    const chunks = chunkText(message.text ?? '', MAX_TEXT_LENGTH);
-    const chunkDelayMs = this.options.chunkDelayMs ?? DEFAULT_CHUNK_DELAY_MS;
-    for (let i = 0; i < chunks.length; i += 1) {
-      if (i > 0 && chunkDelayMs > 0) await delay(chunkDelayMs);
-      await this.options.api.sendTextMessage({
-        toUserId: message.chatId,
-        text: chunks[i]!,
-        contextToken,
-      });
+
+    const mediaKinds = new Set(['image', 'video', 'audio', 'file'] as const);
+    if (mediaKinds.has(message.kind as typeof mediaKinds extends Set<infer T> ? T : never)) {
+      await this.sendMediaMessage(message, contextToken);
+    } else {
+      const chunks = chunkText(message.text ?? '', MAX_TEXT_LENGTH);
+      const chunkDelayMs = this.options.chunkDelayMs ?? DEFAULT_CHUNK_DELAY_MS;
+      for (let i = 0; i < chunks.length; i += 1) {
+        if (i > 0 && chunkDelayMs > 0) await delay(chunkDelayMs);
+        await this.options.api.sendTextMessage({
+          toUserId: message.chatId,
+          text: chunks[i]!,
+          contextToken,
+        });
+      }
     }
+
     this.options.stateStore?.recordSent(message.chatId);
+  }
+
+  private async sendMediaMessage(message: ChannelOutgoingMessage, contextToken: string): Promise<void> {
+    const uploader = this.options.mediaUploader;
+    const api = this.options.api;
+    if (!uploader || !api.sendMediaMessage) {
+      throw new Error('weixin_media_upload_unavailable');
+    }
+    if (!message.filePath) {
+      throw new Error('weixin_media_no_file_path');
+    }
+
+    const result = await uploader.upload(message.filePath);
+    if (!result.ok) {
+      throw new Error(`weixin_media_upload_failed:${result.reason}`);
+    }
+
+    const itemType = mediaKindToItemType(message.kind);
+    await api.sendMediaMessage({
+      toUserId: message.chatId,
+      contextToken,
+      itemType,
+      media: result.media,
+      aesKey: itemType === 2 ? result.aesKeyHex : undefined, // image_item uses aeskey field
+      fileName: message.fileName,
+    });
   }
 
   async setTyping(chatId: string, active: boolean): Promise<void> {
@@ -318,4 +355,15 @@ function chunkText(text: string, limit: number): string[] {
     remaining = remaining.slice(splitAt);
   }
   return chunks.length > 0 ? chunks : [''];
+}
+
+/** Map outbound message kind to iLink MessageItemType. */
+function mediaKindToItemType(kind: string): 2 | 3 | 4 | 5 {
+  switch (kind) {
+    case 'image': return 2;
+    case 'audio': return 3;
+    case 'file': return 4;
+    case 'video': return 5;
+    default: throw new Error(`weixin_unknown_media_kind:${kind}`);
+  }
 }

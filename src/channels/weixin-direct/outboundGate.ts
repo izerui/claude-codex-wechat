@@ -52,7 +52,7 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
     const buffered = this.pendingLast.get(chatId);
     if (buffered) {
       this.pendingLast.delete(chatId);
-      await this.options.send(chatId, { kind: buffered.kind, text: buffered.text + CONTINUATION_HINT });
+      await this.options.send(chatId, appendHintIfText(buffered));
       this.hintedReplies.set(chatId, Date.now());
       store.enqueueOutbound(chatId, message);
       return;
@@ -101,7 +101,7 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
       const hasMore = pending.length > 1;
       if (isLastSlot && hasMore) {
         // Draining knows exactly whether more follows, so the hint is precise.
-        await this.options.send(chatId, { kind: next.kind, text: next.text + CONTINUATION_HINT });
+        await this.options.send(chatId, appendHintIfText(next));
         this.hintedReplies.set(chatId, Date.now());
         store.shiftOutbound(chatId);
         break; // quota exhausted; remaining stay queued for the next refresh
@@ -111,4 +111,12 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
     }
     if (!store.hasPendingOutbound(chatId)) this.hintedReplies.delete(chatId);
   }
+}
+
+const MEDIA_KINDS = new Set(['image', 'video', 'audio', 'file']);
+
+/** Append continuation hint only to text-based messages; media messages pass through unchanged. */
+function appendHintIfText(item: OutboundQueueItem): OutboundQueueItem {
+  if (MEDIA_KINDS.has(item.kind)) return item;
+  return { ...item, text: item.text + CONTINUATION_HINT };
 }

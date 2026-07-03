@@ -130,7 +130,13 @@ export function createDaemonServer(options: {
     ? new WeixinOutboundGate({
         store: weixinStateStore,
         send: async (chatId, msg) => {
-          await managedWechatChannel.sendMessage({ chatId, kind: msg.kind as ChannelOutgoingMessage['kind'], text: msg.text });
+          await managedWechatChannel.sendMessage({
+            chatId,
+            kind: msg.kind as ChannelOutgoingMessage['kind'],
+            text: msg.text,
+            ...(msg.filePath ? { filePath: msg.filePath } : {}),
+            ...(msg.fileName ? { fileName: msg.fileName } : {}),
+          });
         },
       })
     : undefined;

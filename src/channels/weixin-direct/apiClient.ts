@@ -243,4 +243,102 @@ export class WeixinDirectApiClient {
       throw new Error(`weixin_send_typing_failed:${payload.ret ?? -1}:${payload.errmsg ?? 'unknown_error'}`);
     }
   }
+
+  /** Request a CDN upload URL from the iLink platform. */
+  async getUploadUrl(): Promise<{ uploadParam: string }> {
+    const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/getuploadurl`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        AuthorizationType: 'ilink_bot_token',
+        Authorization: `Bearer ${this.botToken}`,
+        'X-WECHAT-UIN': this.wechatUin,
+      },
+      body: JSON.stringify({
+        base_info: { channel_version: this.channelVersion },
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`weixin_get_upload_url_failed:${response.status}`);
+    }
+    const payload = await response.json() as {
+      ret?: number;
+      errcode?: number;
+      errmsg?: string;
+      upload_param?: string;
+    };
+    if ((payload.errcode ?? 0) !== 0 || (payload.ret ?? 0) !== 0) {
+      throw new Error(`weixin_get_upload_url_failed:${payload.errcode ?? payload.ret ?? -1}:${payload.errmsg ?? 'unknown_error'}`);
+    }
+    if (!payload.upload_param) {
+      throw new Error('weixin_get_upload_url_failed:no_upload_param');
+    }
+    return { uploadParam: payload.upload_param };
+  }
+
+  /**
+   * Send a media message (image/voice/file/video) to a user.
+   * The media must already be uploaded to CDN; pass the resulting CDNMedia reference.
+   */
+  async sendMediaMessage(input: {
+    toUserId: string;
+    contextToken: string;
+    /** MessageItemType: IMAGE=2, VOICE=3, FILE=4, VIDEO=5 */
+    itemType: 2 | 3 | 4 | 5;
+    media: CDNMedia;
+    aesKey?: string;
+    fileName?: string;
+  }): Promise<void> {
+    const item = this.buildMediaItem(input.itemType, input.media, input.aesKey, input.fileName);
+    const response = await this.fetchImpl(`${this.baseUrl}/ilink/bot/sendmessage`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        AuthorizationType: 'ilink_bot_token',
+        Authorization: `Bearer ${this.botToken}`,
+        'X-WECHAT-UIN': this.wechatUin,
+      },
+      body: JSON.stringify({
+        msg: {
+          to_user_id: input.toUserId,
+          client_id: randomUUID(),
+          message_type: 2,
+          message_state: 2,
+          item_list: [item],
+          context_token: input.contextToken,
+        },
+        base_info: { channel_version: this.channelVersion },
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`weixin_send_media_failed:${response.status}`);
+    }
+    const payload = await response.json() as { ret?: number; errcode?: number; errmsg?: string };
+    if ((payload.errcode ?? 0) !== 0 || (payload.ret ?? 0) !== 0) {
+      throw new Error(`weixin_send_media_failed:${payload.errcode ?? payload.ret ?? -1}:${payload.errmsg ?? 'unknown_error'}`);
+    }
+  }
+
+  private buildMediaItem(
+    itemType: 2 | 3 | 4 | 5,
+    media: CDNMedia,
+    aesKey?: string,
+    fileName?: string,
+  ): Record<string, unknown> {
+    const cdnMedia = {
+      encrypt_query_param: media.encrypt_query_param,
+      aes_key: media.aes_key,
+      ...(media.full_url ? { full_url: media.full_url } : {}),
+    };
+    switch (itemType) {
+      case 2: // IMAGE
+        return { type: 2, image_item: { media: cdnMedia, ...(aesKey ? { aeskey: aesKey } : {}) } };
+      case 3: // VOICE
+        return { type: 3, voice_item: { media: cdnMedia } };
+      case 4: // FILE
+        return { type: 4, file_item: { media: cdnMedia, ...(fileName ? { file_name: fileName } : {}) } };
+      case 5: // VIDEO
+        return { type: 5, video_item: { media: cdnMedia } };
+    }
+  }
 }

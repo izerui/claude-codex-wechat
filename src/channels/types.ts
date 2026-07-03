@@ -30,8 +30,12 @@ export type ChannelIncomingMessage = {
 
 export type ChannelOutgoingMessage = {
   chatId: string;
-  kind: 'text' | 'markdown' | 'status';
+  kind: 'text' | 'markdown' | 'status' | 'image' | 'video' | 'audio' | 'file';
   text: string;
+  /** Local file path for media messages (image/video/audio/file). */
+  filePath?: string;
+  /** Display file name for file-type messages. */
+  fileName?: string;
   streamId?: string;
   buttons?: Array<{
     id: string;

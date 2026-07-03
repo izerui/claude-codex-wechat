@@ -3,6 +3,7 @@ import type { ChannelAdapter, ChannelMessageHandler, ChannelOutgoingMessage, Cha
 import { WeixinDirectApiClient } from './apiClient';
 import { WeixinDirectAdapter } from './adapter';
 import { WeixinMediaDownloader } from './mediaDownloader';
+import { WeixinMediaUploader } from './mediaUploader';
 import type { WeixinStateStore } from './weixinStateStore';
 
 export class ManagedWeixinDirectAdapter implements ChannelAdapter {
@@ -94,13 +95,18 @@ function createWeixinAdapter(config: WeixinConfig | undefined, stateStore?: Weix
   if (config?.enabled !== true) return null;
   if (!config.baseUrl || !config.token) return null;
   const wechatUin = buildTransientWeixinUin();
+  const apiClient = new WeixinDirectApiClient({
+    baseUrl: config.baseUrl,
+    botToken: config.token,
+    wechatUin,
+  });
+  const mediaUploader = new WeixinMediaUploader({
+    getUploadUrl: () => apiClient.getUploadUrl(),
+  });
   return new WeixinDirectAdapter({
-    api: new WeixinDirectApiClient({
-      baseUrl: config.baseUrl,
-      botToken: config.token,
-      wechatUin,
-    }),
+    api: apiClient,
     stateStore,
+    mediaUploader,
     ...(mediaDir ? { mediaDownloader: new WeixinMediaDownloader(), mediaDir } : {}),
   });
 }

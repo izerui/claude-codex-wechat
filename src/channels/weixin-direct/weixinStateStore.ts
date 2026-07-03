@@ -23,6 +23,10 @@ export type WeixinQuota = {
 export type OutboundQueueItem = {
   kind: string;
   text: string;
+  /** Local file path for media messages. */
+  filePath?: string;
+  /** Display file name for file-type messages. */
+  fileName?: string;
 };
 
 /**

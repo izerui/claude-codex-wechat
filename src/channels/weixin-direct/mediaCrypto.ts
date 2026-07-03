@@ -1,4 +1,4 @@
-import { createDecipheriv } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
 /**
  * Decode a WeChat iLink media `aes_key` into a raw 16-byte key.
@@ -31,4 +31,28 @@ export function decryptAesEcb(ciphertext: Buffer, key: Buffer): Buffer {
   }
   const decipher = createDecipheriv('aes-128-ecb', key, null);
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+/** Encrypt data for WeChat CDN upload (AES-128-ECB, PKCS#7 padding). */
+export function encryptAesEcb(plaintext: Buffer, key: Buffer): Buffer {
+  if (key.length !== 16) {
+    throw new Error(`weixin_media_aes_key_size:${key.length}`);
+  }
+  const cipher = createCipheriv('aes-128-ecb', key, null);
+  return Buffer.concat([cipher.update(plaintext), cipher.final()]);
+}
+
+/** Generate a random 16-byte AES key for outbound media encryption. */
+export function generateAesKey(): Buffer {
+  return randomBytes(16);
+}
+
+/** Encode a raw 16-byte AES key to hex string (32 chars) for use in message items. */
+export function encodeAesKeyHex(key: Buffer): string {
+  return key.toString('hex');
+}
+
+/** Encode a raw 16-byte AES key to base64 for use in CDNMedia.aes_key. */
+export function encodeAesKeyBase64(key: Buffer): string {
+  return key.toString('base64');
 }
