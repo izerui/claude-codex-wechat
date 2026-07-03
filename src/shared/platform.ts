@@ -26,6 +26,15 @@ function executableExtensions(): string[] {
  * 行为对齐 POSIX `command -v`：扫描 PATH 各目录取第一个命中。
  * Windows 额外按 PATHEXT 尝试 .EXE/.CMD/.BAT 等后缀。
  */
+/**
+ * 判断路径是否为临时目录下的 CLI shim（如桌面应用注入的 cmux-cli-shims）。
+ * 这类 shim 不是用户安装的真实二进制，应跳过以优先使用 brew/npm 等正式安装的版本。
+ */
+function isTemporaryShim(candidate: string): boolean {
+  const tempDir = tmpdir();
+  return candidate.startsWith(tempDir);
+}
+
 export async function findExecutable(command: string): Promise<string | undefined> {
   const extensions = executableExtensions();
 
@@ -38,13 +47,22 @@ export async function findExecutable(command: string): Promise<string | undefine
   }
 
   const dirs = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
+  let fallback: string | undefined;
   for (const dir of dirs) {
     for (const ext of extensions) {
       const candidate = join(dir, command + ext);
-      if (await isExecutableFile(candidate)) return candidate;
+      if (await isExecutableFile(candidate)) {
+        // 跳过临时目录中的 shim，优先使用正式安装的版本
+        if (isTemporaryShim(candidate)) {
+          fallback ??= candidate;
+          continue;
+        }
+        return candidate;
+      }
     }
   }
-  return undefined;
+  // 如果只有临时 shim 可用，退而求其次
+  return fallback;
 }
 
 /**
