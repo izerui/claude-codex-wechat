@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-const BRIDGE_API_URL = process.env.BRIDGE_API_URL || 'http://localhost:4800';
+const BRIDGE_API_URL = process.env.BRIDGE_API_URL || 'http://localhost:8787';
 
 /**
  * MCP Server that exposes media-sending tools for WeChat.
