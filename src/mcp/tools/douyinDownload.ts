@@ -8,18 +8,24 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 const BRIDGE_API_URL = process.env.BRIDGE_API_URL || 'http://localhost:8787';
 
-/** Locate the douyin-download script bundled with the project. */
-function findDouyinScript(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    // Bundled with project (primary)
-    join(here, '..', 'scripts', 'douyin-download.mjs'),
-    // Built output
-    join(here, '..', '..', 'mcp', 'scripts', 'douyin-download.mjs'),
+export function douyinScriptCandidates(baseDir: string): string[] {
+  return [
+    // Source layout: src/mcp/tools -> src/mcp/scripts
+    join(baseDir, '..', 'scripts', 'douyin-download.mjs'),
+    // Bundled layout: dist/mcp/mediaServer.js -> dist/mcp/scripts
+    join(baseDir, 'scripts', 'douyin-download.mjs'),
+    // Older/alternate dist layout fallback
+    join(baseDir, '..', '..', 'mcp', 'scripts', 'douyin-download.mjs'),
     // User skills locations (cross-platform)
     join(homedir(), '.agents', 'skills', 'douyin-download', 'scripts', 'douyin-download.mjs'),
     join(homedir(), '.claude', 'skills', 'douyin-download', 'scripts', 'douyin-download.mjs'),
   ];
+}
+
+/** Locate the douyin-download script bundled with the project. */
+function findDouyinScript(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = douyinScriptCandidates(here);
   for (const p of candidates) {
     const resolved = resolve(p);
     if (existsSync(resolved)) return resolved;
