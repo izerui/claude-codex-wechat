@@ -1529,6 +1529,57 @@ describe('MessageRouter', () => {
       { kind: 'status', text: 'Provider error: provider_failed:news' },
     ]);
   });
+
+  it('stops the previous provider process when /new switches sessions', async () => {
+    const stopCalls: string[] = [];
+    class RecordingProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `stream_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        if (!this.sessions.has(input.bridgeSessionId)) throw new Error('claude_session_not_found');
+        yield { type: 'text_delta', text: 'ok' };
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        stopCalls.push(bridgeSessionId);
+        this.sessions.delete(bridgeSessionId);
+      }
+    }
+    const channel = new MockChannelAdapter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new RecordingProvider()],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hi' }, timestamp: 1,
+    });
+    const firstId = sessions.listSessions()[0]?.id;
+    expect(firstId).toBeTruthy();
+
+    await router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/new' }, timestamp: 2,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10)); // let fire-and-forget stopSession settle
+
+    expect(stopCalls).toContain(firstId);
+  });
 });
 
 describe('MessageRouter outbound gate', () => {

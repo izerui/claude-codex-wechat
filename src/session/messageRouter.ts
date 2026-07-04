@@ -242,6 +242,15 @@ export class MessageRouter {
     void Promise.resolve(this.providers.get(active.providerId)?.interruptSession?.(active.bridgeSessionId)).catch(() => undefined);
   }
 
+  // 切换/清除当前会话前,回收旧 provider 的持久子进程,防止孤儿堆积。
+  // stopSession 内部是同步 close/kill,不会挂起;fire-and-forget,不阻塞命令链。
+  private recycleCurrentProviderProcess(): void {
+    const current = this.conversation.getCurrent();
+    if (!current?.providerSessionId) return;
+    const provider = this.providers.get(current.providerId);
+    void Promise.resolve(provider?.stopSession(current.id)).catch(() => undefined);
+  }
+
   private async runChatGeneration(
     message: ChannelIncomingMessage,
     user: ActiveWeChatUserRecord,
@@ -455,6 +464,7 @@ export class MessageRouter {
     if (command.kind === 'new_session') {
       this.pendingChoices.delete(chatId);
       await this.preemptActiveGeneration(chatId);
+      this.recycleCurrentProviderProcess();
       const providerId = command.providerId
         ?? this.conversation.getCurrent()?.providerId
         ?? this.options.defaults?.defaultProvider
@@ -542,6 +552,7 @@ export class MessageRouter {
         return;
       }
       await this.preemptActiveGeneration(chatId);
+      this.recycleCurrentProviderProcess();
       let providerId = this.conversation.getCurrent()?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
       // 纯数字按最近一次 /sessions 列表的编号解析：用缓存翻译成真实会话 id，
       // 并沿用列表当时的 provider（列表与恢复之间 current 可能已变）。
