@@ -15,6 +15,36 @@ type StoredSession = ProviderSession & {
   turnCompletedPromise?: Promise<void>;
 };
 
+const IDLE_SENTINEL = Symbol('idle_timeout');
+
+function withIdleTimeout<T>(promise: Promise<T>, ms: number): Promise<T | typeof IDLE_SENTINEL> {
+  if (!ms || ms <= 0) return promise;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(IDLE_SENTINEL);
+      }
+    }, ms);
+    (timer as { unref?: () => void }).unref?.();
+    void promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 function readAgentMessageItemId(value: unknown): string | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const record = value as Record<string, unknown>;
@@ -57,14 +87,17 @@ export class CodexInteractiveRunner {
   private readonly sessions = new Map<string, StoredSession>();
   private readonly command?: string;
   private readonly syncThreadForResume: typeof syncCodexThreadForResume;
+  private readonly idleTimeoutMs: number;
 
 
   constructor(input: {
     command?: string;
     syncThreadForResume?: typeof syncCodexThreadForResume;
+    idleTimeoutMs?: number;
   } = {}) {
     this.command = input.command;
     this.syncThreadForResume = input.syncThreadForResume ?? syncCodexThreadForResume;
+    this.idleTimeoutMs = input.idleTimeoutMs ?? 180_000;
   }
 
   async startSession(input: {
@@ -91,7 +124,11 @@ export class CodexInteractiveRunner {
   async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
     const session = this.sessions.get(input.bridgeSessionId);
     if (!session) throw new Error(`codex_session_not_found:${input.bridgeSessionId}`);
-    const client = await this.ensureClient(session);
+    const client = await this.requireLiveClient(session);
+    if (!client) {
+      yield { type: 'error', error: 'idle_timeout', code: 'idle_timeout' };
+      return;
+    }
 
     session.pendingEvents = [];
     session.activeMessage = undefined;
@@ -102,20 +139,30 @@ export class CodexInteractiveRunner {
     });
 
     if (session.threadId) {
-      await client.request('thread/resume', {
+      const resumed = await withIdleTimeout(client.request('thread/resume', {
         threadId: session.threadId,
         cwd: session.cwd,
         persistExtendedHistory: true,
-      }).catch(() => undefined);
+      }).catch(() => undefined), this.idleTimeoutMs);
+      if (resumed === IDLE_SENTINEL) {
+        await this.handleIdleTimeout(session);
+        yield { type: 'error', error: 'idle_timeout', code: 'idle_timeout' };
+        return;
+      }
     } else {
-      const started = await client.request('thread/start', {
+      const started = await withIdleTimeout(client.request('thread/start', {
         cwd: session.cwd,
         threadSource: 'user',
         persistExtendedHistory: true,
         experimentalRawEvents: true,
         sandboxPolicy: { type: 'disabled' },
         approvalMode: 'never',
-      });
+      }), this.idleTimeoutMs);
+      if (started === IDLE_SENTINEL) {
+        await this.handleIdleTimeout(session);
+        yield { type: 'error', error: 'idle_timeout', code: 'idle_timeout' };
+        return;
+      }
       session.threadId = readThreadId(started);
       session.providerSessionId = session.threadId;
       if (!session.threadId) throw new Error('codex_app_server_missing_thread_id');
@@ -131,15 +178,27 @@ export class CodexInteractiveRunner {
       };
     }
 
-    const response = await client.request('turn/start', {
+    const response = await withIdleTimeout(client.request('turn/start', {
       threadId: session.threadId,
       cwd: session.cwd,
       input: [{ type: 'text', text: input.text }],
-    });
+    }), this.idleTimeoutMs);
+    if (response === IDLE_SENTINEL) {
+      await this.handleIdleTimeout(session);
+      while (session.pendingEvents.length > 0) yield session.pendingEvents.shift()!;
+      yield { type: 'error', error: 'idle_timeout', code: 'idle_timeout' };
+      return;
+    }
     const maybeTurnId = readTurnId(response);
     if (maybeTurnId) session.activeTurnId = maybeTurnId;
     for (;;) {
-      const event = await this.takeNextEvent(session);
+      const event = await withIdleTimeout(this.takeNextEvent(session), this.idleTimeoutMs);
+      if (event === IDLE_SENTINEL) {
+        await this.handleIdleTimeout(session);
+        while (session.pendingEvents.length > 0) yield session.pendingEvents.shift()!;
+        yield { type: 'error', error: 'idle_timeout', code: 'idle_timeout' };
+        return;
+      }
       if (!event) break;
       yield event;
     }
@@ -205,7 +264,14 @@ export class CodexInteractiveRunner {
       cwd: session.cwd,
 
     });
-    await client.initialize();
+    session.client = client;
+    try {
+      await client.initialize();
+    } catch (error) {
+      session.client = undefined;
+      await client.dispose().catch(() => undefined);
+      throw error;
+    }
     client.onNotification('item/agentMessage/delta', (params) => {
       const record = params as Record<string, unknown>;
       if (typeof record.delta !== 'string' || !record.delta) return;
@@ -235,8 +301,28 @@ export class CodexInteractiveRunner {
     client.onRequest('item/fileChange/requestApproval', async (_id, params) => {
       return { decision: 'approve' };
     });
-    session.client = client;
     return client;
+  }
+
+  private async requireLiveClient(session: StoredSession): Promise<CodexAppServerClient | null> {
+    const client = await withIdleTimeout(this.ensureClient(session), this.idleTimeoutMs);
+    if (client === IDLE_SENTINEL) {
+      await this.handleIdleTimeout(session);
+      return null;
+    }
+    return client;
+  }
+
+  private async handleIdleTimeout(session: StoredSession): Promise<void> {
+    this.flushActiveMessage(session);
+    session.turnClosed = true;
+    session.eventResolver?.();
+    session.eventResolver = undefined;
+    session.turnCompletedResolver?.();
+    session.turnCompletedResolver = undefined;
+    const client = session.client;
+    session.client = undefined;
+    await client?.dispose().catch(() => undefined);
   }
 
   private flushActiveMessage(session: StoredSession): void {

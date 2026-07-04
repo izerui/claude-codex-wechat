@@ -26,6 +26,11 @@ export function createDefaultProviders(input: {
   });
   return [
     new ClaudeCodeProvider({ runner: claudeRunner }),
-    new CodexProvider({ runner: new CodexInteractiveRunner({ command: input.codexCommand }) }),
+    new CodexProvider({
+      runner: new CodexInteractiveRunner({
+        command: input.codexCommand,
+        idleTimeoutMs: readEnvInt(process.env.BRIDGE_CODEX_IDLE_TIMEOUT_MS, 180_000),
+      }),
+    }),
   ];
 }

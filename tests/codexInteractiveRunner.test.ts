@@ -239,4 +239,48 @@ describe('CodexInteractiveRunner', () => {
       done: false,
     });
   });
+
+  it('disposes the client and emits idle_timeout when a turn stays silent', async () => {
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    const request = vi.fn(async (method: string, _params?: unknown) => {
+      if (method === 'initialize') return { serverInfo: { name: 'fake-codex-app-server', version: '0.0.0' } };
+      if (method === 'thread/start') return { threadId: 'thread-stuck' };
+      if (method === 'turn/start') return { turn: { id: 'turn-stuck' } };
+      return {};
+    });
+    const dispose = vi.fn(async () => undefined);
+
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(request);
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => {
+        notificationHandlers.delete(method);
+      };
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockImplementation(dispose);
+
+    const syncThreadForResume = vi.fn(async () => true);
+    const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume, idleTimeoutMs: 30 });
+    await runner.startSession({
+      bridgeSessionId: 'bs_stuck',
+      cwd: '/tmp/project',
+      options: { sessionName: '微信 · stuck · [claude-codex-wechat:stuck]' },
+    });
+
+    const events = [];
+    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_stuck', text: 'hello' })) events.push(event);
+
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(syncThreadForResume).not.toHaveBeenCalled();
+    expect(events).toEqual([
+      {
+        type: 'session_state',
+        state: expect.objectContaining({ providerSessionId: 'thread-stuck', cwd: '/tmp/project' }),
+      },
+      { type: 'error', error: 'idle_timeout', code: 'idle_timeout' },
+    ]);
+  });
 });
