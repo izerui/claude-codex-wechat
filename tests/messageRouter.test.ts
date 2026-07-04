@@ -1458,6 +1458,50 @@ describe('MessageRouter', () => {
     ]);
   });
 
+  it('shows a friendly message and preserves the session on idle_timeout', async () => {
+    class IdleTimeoutProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      private readonly sessions = new Map<string, ProviderSession>();
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `stream_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        if (!this.sessions.has(input.bridgeSessionId)) throw new Error('claude_session_not_found');
+        yield { type: 'error', error: 'idle_timeout', code: 'idle_timeout' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+    }
+    const channel = new MockChannelAdapter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new IdleTimeoutProvider()],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hi' }, timestamp: 1,
+    });
+
+    expect(sent.some((m) => m.text.includes('长时间无响应') && m.text.includes('保留会话'))).toBe(true);
+    expect(sent.some((m) => m.text.startsWith('Provider error:'))).toBe(false);
+    expect(sessions.listSessions()).toHaveLength(1);
+  });
+
   it('flushes buffered reply text before reporting a provider error', async () => {
     const channel = new MockChannelAdapter();
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });

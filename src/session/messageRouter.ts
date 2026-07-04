@@ -382,7 +382,9 @@ export class MessageRouter {
             await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
             bufferedText = '';
           }
-          const errorText = `Provider error: ${event.error}`;
+          const errorText = event.code === 'idle_timeout'
+            ? '⚠️ 上一轮长时间无响应(疑似工具卡死),已自动终止并保留会话。直接重发消息即可继续。'
+            : `Provider error: ${event.error}`;
           await this.sendToChat({
             chatId: message.chatId,
             kind: 'status',
