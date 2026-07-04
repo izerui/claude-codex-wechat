@@ -168,6 +168,32 @@ describe('ClaudeStreamingRunner', () => {
     ]);
   });
 
+  it('kills the process and emits idle_timeout when no events arrive', async () => {
+    const handle = new FakeHandle();
+    const runner = new ClaudeStreamingRunner({ spawner: () => handle, capabilityProbe: async () => true, idleTimeoutMs: 30 });
+    await runner.startSession({ bridgeSessionId: 'bs1', cwd: '/tmp/project', options: { providerSessionId: 'sess-1' } });
+
+    const events = await collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'hi' }));
+
+    expect(handle.closed).toBe(true);
+    expect(events).toEqual([{ type: 'error', error: 'idle_timeout', code: 'idle_timeout' }]);
+  });
+
+  it('does not idle-timeout while events keep arriving', async () => {
+    const handle = new FakeHandle();
+    const runner = new ClaudeStreamingRunner({ spawner: () => handle, capabilityProbe: async () => true, idleTimeoutMs: 60 });
+    await runner.startSession({ bridgeSessionId: 'bs1', cwd: '/tmp/project', options: { providerSessionId: 'sess-1' } });
+
+    const collected = collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'hi' }));
+    await tick();
+    handle.feedLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'x' }] } });
+    handle.feedLine({ type: 'result', session_id: 'sess-1' });
+    const events = await collected;
+
+    expect(handle.closed).toBe(false);
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
   it('writes a native control_request interrupt envelope', async () => {
     const handle = new FakeHandle();
     const runner = new ClaudeStreamingRunner({ spawner: () => handle, capabilityProbe: async () => true });

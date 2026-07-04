@@ -26,6 +26,21 @@ export type ClaudeStreamHandle = {
 
 export type ClaudeStreamSpawner = (call: { command: string; args: string[]; cwd: string }) => ClaudeStreamHandle;
 
+const IDLE_SENTINEL = Symbol('idle_timeout');
+
+function readWithIdleTimeout(
+  handle: ClaudeStreamHandle,
+  ms: number,
+): Promise<ClaudeStreamChunk | typeof IDLE_SENTINEL> {
+  if (!ms || ms <= 0) return handle.read();
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => { if (!settled) { settled = true; resolve(IDLE_SENTINEL); } }, ms);
+    (timer as { unref?: () => void }).unref?.();
+    void handle.read().then((chunk) => { if (!settled) { settled = true; clearTimeout(timer); resolve(chunk); } });
+  });
+}
+
 type StreamingSession = ClaudeRunnerSession & {
   claudeSessionId?: string;
   sessionName?: string;
@@ -41,12 +56,33 @@ export class ClaudeStreamingRunner implements ClaudeRunner {
   private readonly spawner: ClaudeStreamSpawner;
   private readonly capabilityProbe: ClaudeCapabilityProbe;
   private readonly mcpConfigPath?: string;
+  private readonly idleTimeoutMs: number;
+  private readonly maxProcessAgeMs: number;
+  private readonly maxTurns: number;
+  private readonly stderrCapBytes: number;
+  private readonly maxLineBytes: number;
 
-  constructor(input: { command?: string; spawner?: ClaudeStreamSpawner; capabilityProbe?: ClaudeCapabilityProbe; mcpConfigPath?: string } = {}) {
+  constructor(input: {
+    command?: string;
+    spawner?: ClaudeStreamSpawner;
+    capabilityProbe?: ClaudeCapabilityProbe;
+    mcpConfigPath?: string;
+    idleTimeoutMs?: number;
+    maxProcessAgeMs?: number;
+    maxTurns?: number;
+    stderrCapBytes?: number;
+    maxLineBytes?: number;
+  } = {}) {
     this.command = input.command ?? 'claude';
-    this.spawner = input.spawner ?? defaultClaudeStreamSpawner;
     this.capabilityProbe = input.capabilityProbe ?? probeAppendSystemPromptSupport;
     this.mcpConfigPath = input.mcpConfigPath;
+    this.idleTimeoutMs = input.idleTimeoutMs ?? 180_000;
+    this.maxProcessAgeMs = input.maxProcessAgeMs ?? 2 * 60 * 60 * 1000;
+    this.maxTurns = input.maxTurns ?? 50;
+    this.stderrCapBytes = input.stderrCapBytes ?? 64 * 1024;
+    this.maxLineBytes = input.maxLineBytes ?? 10 * 1024 * 1024;
+    this.spawner = input.spawner
+      ?? ((call) => defaultClaudeStreamSpawner(call, { stderrCapBytes: this.stderrCapBytes, maxLineBytes: this.maxLineBytes }));
   }
 
   async startSession(input: {
@@ -82,7 +118,13 @@ export class ClaudeStreamingRunner implements ClaudeRunner {
     handle.write(userEnvelope(input.text));
 
     while (true) {
-      const chunk = await handle.read();
+      const chunk = await readWithIdleTimeout(handle, this.idleTimeoutMs);
+      if (chunk === IDLE_SENTINEL) {
+        handle.close();
+        session.handle = undefined;
+        yield { type: 'error', error: 'idle_timeout', code: 'idle_timeout' };
+        return;
+      }
       if (chunk.type === 'exit') {
         session.handle = undefined;
         yield { type: 'error', error: chunk.stderr || `claude stream exited with ${chunk.code}` };
@@ -226,7 +268,7 @@ function parseJsonLine(line: string): unknown | null {
   }
 }
 
-function defaultClaudeStreamSpawner(call: { command: string; args: string[]; cwd: string }): ClaudeStreamHandle {
+function defaultClaudeStreamSpawner(call: { command: string; args: string[]; cwd: string }, _opts?: { stderrCapBytes?: number; maxLineBytes?: number }): ClaudeStreamHandle {
   const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: useShellForCli() });
   let stderr = '';
   let buffer = '';
