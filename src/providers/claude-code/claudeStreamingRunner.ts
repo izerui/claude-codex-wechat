@@ -28,6 +28,11 @@ export type ClaudeStreamSpawner = (call: { command: string; args: string[]; cwd:
 
 const IDLE_SENTINEL = Symbol('idle_timeout');
 
+export function capTail(text: string, capBytes: number): string {
+  if (capBytes <= 0 || text.length <= capBytes) return text;
+  return text.slice(text.length - capBytes);
+}
+
 function readWithIdleTimeout(
   handle: ClaudeStreamHandle,
   ms: number,
@@ -284,7 +289,9 @@ function parseJsonLine(line: string): unknown | null {
   }
 }
 
-function defaultClaudeStreamSpawner(call: { command: string; args: string[]; cwd: string }, _opts?: { stderrCapBytes?: number; maxLineBytes?: number }): ClaudeStreamHandle {
+function defaultClaudeStreamSpawner(call: { command: string; args: string[]; cwd: string }, opts: { stderrCapBytes?: number; maxLineBytes?: number } = {}): ClaudeStreamHandle {
+  const stderrCapBytes = opts.stderrCapBytes ?? 64 * 1024;
+  const maxLineBytes = opts.maxLineBytes ?? 10 * 1024 * 1024;
   const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: useShellForCli() });
   let stderr = '';
   let buffer = '';
@@ -308,8 +315,13 @@ function defaultClaudeStreamSpawner(call: { command: string; args: string[]; cwd
     for (const line of parts) {
       if (line.trim()) push({ type: 'line', line });
     }
+    // 单行未闭合且已超上限:丢弃防爆内存(正常 NDJSON 行不会这么大)。
+    if (buffer.length > maxLineBytes) {
+      stderr = capTail(stderr + `\n[bridge] dropped oversized line buffer (${buffer.length} bytes)\n`, stderrCapBytes);
+      buffer = '';
+    }
   });
-  child.stderr.on('data', (data) => { stderr += String(data); });
+  child.stderr.on('data', (data) => { stderr = capTail(stderr + String(data), stderrCapBytes); });
   child.on('error', (error: NodeJS.ErrnoException) => {
     push({ type: 'exit', code: error.code ?? 'ERROR', stderr: stderr || error.message });
   });

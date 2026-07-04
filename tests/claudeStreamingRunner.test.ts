@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ClaudeStreamingRunner, type ClaudeStreamChunk, type ClaudeStreamHandle } from '../src/providers/claude-code/claudeStreamingRunner';
+import { ClaudeStreamingRunner, capTail, type ClaudeStreamChunk, type ClaudeStreamHandle } from '../src/providers/claude-code/claudeStreamingRunner';
 import { BRIDGE_APPEND_SYSTEM_PROMPT } from '../src/providers/claude-code/bridgeSystemPrompt';
 import type { ClaudeRunnerEvent } from '../src/providers/claude-code/claudeRunner';
 
@@ -235,5 +235,11 @@ describe('ClaudeStreamingRunner', () => {
     const interruptWrite = handle.writes.find((w) => w.includes('control_request'));
     expect(interruptWrite).toBeTruthy();
     expect(interruptWrite).toContain('"subtype":"interrupt"');
+  });
+
+  it('capTail keeps only the last N chars and is a no-op under the cap', () => {
+    expect(capTail('abcdef', 3)).toBe('def');
+    expect(capTail('ab', 3)).toBe('ab');
+    expect(capTail('abcdef', 0)).toBe('abcdef');
   });
 });
