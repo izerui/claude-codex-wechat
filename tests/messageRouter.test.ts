@@ -1580,6 +1580,129 @@ describe('MessageRouter', () => {
 
     expect(stopCalls).toContain(firstId);
   });
+
+  it('stops the previous provider process on /new even before a native session id exists', async () => {
+    const stopCalls: string[] = [];
+    class RecordingProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `stream_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+      async *sendMessage(): AsyncIterable<ProviderEvent> {
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        stopCalls.push(bridgeSessionId);
+      }
+    }
+    const conversation = new CurrentConversationStore(
+      createRuntimeUserStore('message-router-new-preinit-stop-').configPath,
+      { defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' },
+    );
+    const current = conversation.create({
+      chatId: 'chat-a',
+      ownerUserId: authorizedUser.id,
+      providerId: 'claude-code',
+      cwd: '/tmp/project',
+      resumeTitle: 'pre-init session',
+    });
+    expect(current.providerSessionId).toBeUndefined();
+
+    const channel = new MockChannelAdapter();
+    const router = new MessageRouter({
+      channel,
+      providers: [new RecordingProvider()],
+      conversation,
+      resolveUser: () => authorizedUser,
+    });
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/new' }, timestamp: 1,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(stopCalls).toContain(current.id);
+  });
+
+  it('does not stop the active provider process when /resume target is invalid', async () => {
+    const stopCalls: string[] = [];
+    class RecoverableProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `stream_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+      async *sendMessage(): AsyncIterable<ProviderEvent> {
+        yield { type: 'message_done' };
+      }
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        stopCalls.push(bridgeSessionId);
+      }
+      async listRecoverableSessions() {
+        return [
+          { id: 'sess_ok', providerId: this.id, resumeTitle: '可恢复会话', cwd: '/tmp/recoverable', lastActivityAt: 1 },
+        ];
+      }
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: input.candidateId,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+    }
+    const conversation = new CurrentConversationStore(
+      createRuntimeUserStore('message-router-resume-invalid-keeps-current-').configPath,
+      { defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' },
+    );
+    const current = conversation.setCurrent({
+      id: 'bs_active',
+      chatId: 'chat-a',
+      ownerUserId: authorizedUser.id,
+      providerId: 'claude-code',
+      providerSessionId: 'active_session',
+      recoverySource: 'runtime',
+      resumeTitle: 'active session',
+      cwd: '/tmp/project',
+      status: 'idle',
+      createdAt: 1,
+      lastActivityAt: 1,
+    });
+    const channel = new MockChannelAdapter();
+    const router = new MessageRouter({
+      channel,
+      providers: [new RecoverableProvider()],
+      conversation,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/resume missing_session' }, timestamp: 1,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(stopCalls).toEqual([]);
+    expect(conversation.getCurrent()).toEqual(current);
+    expect(sent.some((message) => message.text.includes('找不到会话'))).toBe(true);
+  });
 });
 
 describe('MessageRouter outbound gate', () => {

@@ -244,11 +244,10 @@ export class MessageRouter {
 
   // 切换/清除当前会话前,回收旧 provider 的持久子进程,防止孤儿堆积。
   // stopSession 内部是同步 close/kill,不会挂起;fire-and-forget,不阻塞命令链。
-  private recycleCurrentProviderProcess(): void {
-    const current = this.conversation.getCurrent();
-    if (!current?.providerSessionId) return;
-    const provider = this.providers.get(current.providerId);
-    void Promise.resolve(provider?.stopSession(current.id)).catch(() => undefined);
+  private recycleProviderProcess(session: CurrentConversationBinding | null | undefined): void {
+    if (!session) return;
+    const provider = this.providers.get(session.providerId);
+    void Promise.resolve(provider?.stopSession(session.id)).catch(() => undefined);
   }
 
   private async runChatGeneration(
@@ -463,14 +462,15 @@ export class MessageRouter {
 
     if (command.kind === 'new_session') {
       this.pendingChoices.delete(chatId);
+      const previousSession = this.conversation.getCurrent();
       await this.preemptActiveGeneration(chatId);
-      this.recycleCurrentProviderProcess();
+      this.recycleProviderProcess(previousSession);
       const providerId = command.providerId
-        ?? this.conversation.getCurrent()?.providerId
+        ?? previousSession?.providerId
         ?? this.options.defaults?.defaultProvider
         ?? 'claude-code';
       const cwd = command.cwd
-        ?? this.conversation.getCurrent()?.cwd
+        ?? previousSession?.cwd
         ?? this.options.defaults?.defaultWorkspace
         ?? defaultWorkspaceDir();
       const session = this.conversation.create({
@@ -551,9 +551,9 @@ export class MessageRouter {
         await this.sendToChat({ chatId, kind: 'status', text: '用法：/resume <编号>' });
         return;
       }
+      const previousSession = this.conversation.getCurrent();
       await this.preemptActiveGeneration(chatId);
-      this.recycleCurrentProviderProcess();
-      let providerId = this.conversation.getCurrent()?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
+      let providerId = previousSession?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
       // 纯数字按最近一次 /sessions 列表的编号解析：用缓存翻译成真实会话 id，
       // 并沿用列表当时的 provider（列表与恢复之间 current 可能已变）。
       let resolvedId = ref;
@@ -571,7 +571,7 @@ export class MessageRouter {
         resolvedId = target;
         providerId = cached.providerId;
       }
-      const previousCwd = this.conversation.getCurrent()?.cwd;
+      const previousCwd = previousSession?.cwd;
       const provider = this.providers.get(providerId);
       if (!provider?.attachSession || !provider.listRecoverableSessions) {
         await this.sendToChat({ chatId, kind: 'status', text: `当前 provider（${providerId}）不支持会话恢复` });
@@ -582,6 +582,7 @@ export class MessageRouter {
         await this.sendToChat({ chatId, kind: 'status', text: `找不到会话 ${ref}` });
         return;
       }
+      this.recycleProviderProcess(previousSession);
       const cwdUnresolved = !candidate.cwd;
       const attached = await attachProviderSessionToBridge({
         conversationStore: this.conversation,
