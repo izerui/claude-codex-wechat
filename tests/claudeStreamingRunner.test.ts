@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ClaudeStreamingRunner, capTail, type ClaudeStreamChunk, type ClaudeStreamHandle } from '../src/providers/claude-code/claudeStreamingRunner';
 import { BRIDGE_APPEND_SYSTEM_PROMPT } from '../src/providers/claude-code/bridgeSystemPrompt';
 import type { ClaudeRunnerEvent } from '../src/providers/claude-code/claudeRunner';
+import { readEnvInt } from '../src/providers/defaultProviders';
 
 class FakeHandle implements ClaudeStreamHandle {
   readonly writes: string[] = [];
@@ -241,5 +242,13 @@ describe('ClaudeStreamingRunner', () => {
     expect(capTail('abcdef', 3)).toBe('def');
     expect(capTail('ab', 3)).toBe('ab');
     expect(capTail('abcdef', 0)).toBe('abcdef');
+  });
+
+  it('readEnvInt parses valid ints and falls back otherwise', () => {
+    expect(readEnvInt('999', 10)).toBe(999);
+    expect(readEnvInt(undefined, 10)).toBe(10);
+    expect(readEnvInt('', 10)).toBe(10);
+    expect(readEnvInt('abc', 10)).toBe(10);
+    expect(readEnvInt('-5', 10)).toBe(10);
   });
 });
