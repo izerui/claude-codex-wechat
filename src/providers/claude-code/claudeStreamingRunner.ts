@@ -48,6 +48,8 @@ type StreamingSession = ClaudeRunnerSession & {
   resumeId?: string;
   pendingFollowUps: number;
   supportsAppendSystemPrompt?: boolean;
+  spawnedAt?: number;
+  turnCount: number;
 };
 
 export class ClaudeStreamingRunner implements ClaudeRunner {
@@ -102,6 +104,7 @@ export class ClaudeStreamingRunner implements ClaudeRunner {
       status: 'idle',
       resumeId,
       pendingFollowUps: 0,
+      turnCount: 0,
     };
     this.sessions.set(input.bridgeSessionId, session);
     return session;
@@ -177,6 +180,7 @@ export class ClaudeStreamingRunner implements ClaudeRunner {
           session.claudeSessionId = sessionId;
           session.resumeId = sessionId;
         }
+        session.turnCount += 1;
         yield { type: 'message_done' };
         // Each `result` ends one turn. If follow-ups were queued mid-turn, keep
         // consuming so the same generation streams those queued turns too.
@@ -215,10 +219,22 @@ export class ClaudeStreamingRunner implements ClaudeRunner {
   }
 
   private ensureHandle(session: StreamingSession): ClaudeStreamHandle {
-    if (session.handle) return session.handle;
+    if (session.handle && !this.shouldRetire(session)) return session.handle;
+    if (session.handle) {
+      session.handle.close();
+      session.handle = undefined;
+    }
     const args = buildStreamingArgs(session, this.mcpConfigPath);
     session.handle = this.spawner({ command: this.command, args, cwd: session.cwd });
+    session.spawnedAt = Date.now();
+    session.turnCount = 0;
     return session.handle;
+  }
+
+  private shouldRetire(session: StreamingSession): boolean {
+    if (this.maxTurns > 0 && session.turnCount >= this.maxTurns) return true;
+    if (this.maxProcessAgeMs > 0 && session.spawnedAt && Date.now() - session.spawnedAt >= this.maxProcessAgeMs) return true;
+    return false;
   }
 }
 

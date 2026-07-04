@@ -194,6 +194,33 @@ describe('ClaudeStreamingRunner', () => {
     expect(events.some((e) => e.type === 'error')).toBe(false);
   });
 
+  it('retires the process after maxTurns and respawns with --resume', async () => {
+    const calls: Array<{ command: string; args: string[]; cwd: string }> = [];
+    const handles: FakeHandle[] = [];
+    const runner = new ClaudeStreamingRunner({
+      spawner: (call) => { calls.push(call); const h = new FakeHandle(); handles.push(h); return h; },
+      capabilityProbe: async () => true,
+      maxTurns: 1,
+    });
+    await runner.startSession({ bridgeSessionId: 'bs1', cwd: '/tmp/project', options: { providerSessionId: 'sess-1' } });
+
+    const first = collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'one' }));
+    await tick();
+    handles[0].feedLine({ type: 'result', session_id: 'sess-1' });
+    await first;
+
+    const second = collect(runner.sendMessage({ bridgeSessionId: 'bs1', text: 'two' }));
+    await tick();
+    handles[1].feedLine({ type: 'result', session_id: 'sess-1' });
+    await second;
+
+    expect(calls).toHaveLength(2);
+    expect(handles[0].closed).toBe(true);
+    const resumeIdx = calls[1].args.indexOf('--resume');
+    expect(resumeIdx).toBeGreaterThanOrEqual(0);
+    expect(calls[1].args[resumeIdx + 1]).toBe('sess-1');
+  });
+
   it('writes a native control_request interrupt envelope', async () => {
     const handle = new FakeHandle();
     const runner = new ClaudeStreamingRunner({ spawner: () => handle, capabilityProbe: async () => true });
