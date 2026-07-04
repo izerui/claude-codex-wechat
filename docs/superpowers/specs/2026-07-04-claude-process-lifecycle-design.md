@@ -66,7 +66,7 @@ return
 > **TODO(后续可选)**:RSS 内存阈值。第一版不做——每轮 spawn `ps -o rss=` 有开销且跨平台复杂;age + turns 已能防膨胀。
 
 #### ③ 切会话回收旧进程(慢性,命令触发)
-`messageRouter` 在 `/new`、`/use`、`/resume`、`/stop` **替换/清除 current session 之前**,对旧 claude `bridgeSessionId` 发:
+`messageRouter` 在 `/new`、`/resume` **替换 current session 之前**,对旧 claude `bridgeSessionId` 发(注:实测代码中无独立 `/use` 命令,`/stop` 映射为中断而非切会话,故回收仅接在这两处):
 
 ```ts
 void provider.stopSession(oldBridgeSessionId).catch(() => undefined);  // fire-and-forget,不 await
