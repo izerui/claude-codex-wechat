@@ -16,7 +16,7 @@ export type ProviderEvent =
   | { type: 'tool_event'; title: string; summary?: string }
   | { type: 'choice_prompt'; labels: string[]; multiSelect: boolean }
   | { type: 'session_state'; state: ProviderSession }
-  | { type: 'error'; error: string };
+  | { type: 'error'; error: string; code?: string };
 
 export type ProviderSessionCandidate = {
   id: string;
