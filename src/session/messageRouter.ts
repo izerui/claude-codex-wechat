@@ -505,6 +505,46 @@ export class MessageRouter {
       return;
     }
 
+    if (command.kind === 'reload_session') {
+      this.pendingChoices.delete(chatId);
+      const current = this.conversation.getCurrent();
+      if (!current) {
+        await this.sendToChat({ chatId, kind: 'status', text: 'No active session' });
+        return;
+      }
+      if (!current.providerSessionId) {
+        await this.sendToChat({ chatId, kind: 'status', text: '当前会话还没有原生 provider 会话可重载' });
+        return;
+      }
+      const provider = this.providers.get(current.providerId);
+      if (!provider?.attachSession) {
+        await this.sendToChat({ chatId, kind: 'status', text: `当前 provider（${current.providerId}）不支持会话重载` });
+        return;
+      }
+
+      await this.preemptActiveGeneration(chatId);
+      this.recycleProviderProcess(current);
+      const reattached = await provider.attachSession({
+        candidateId: current.providerSessionId,
+        bridgeSessionId: current.id,
+        cwd: current.cwd,
+      });
+      const version = await provider.getNativeVersion?.({
+        providerSessionId: reattached.providerSessionId ?? current.providerSessionId,
+        cwd: current.cwd,
+      }).catch(() => null);
+      this.conversation.update({
+        providerSessionId: reattached.providerSessionId ?? current.providerSessionId,
+        status: reattached.status,
+        lastSeenNativeFingerprint: version?.fingerprint,
+        lastReloadedAt: Date.now(),
+        staleReason: undefined,
+        lastActivityAt: Date.now(),
+      }, current.id);
+      await this.sendToChat({ chatId, kind: 'status', text: '已重新加载当前会话，可继续对话。' });
+      return;
+    }
+
     if (command.kind === 'new_session') {
       this.pendingChoices.delete(chatId);
       const previousSession = this.conversation.getCurrent();

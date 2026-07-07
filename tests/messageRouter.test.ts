@@ -337,6 +337,112 @@ describe('MessageRouter', () => {
     expect(sent).toContainEqual({ kind: 'text', text: '收到：继续' });
   });
 
+  it('reloads the current session by re-attaching the same native provider session', async () => {
+    class ReloadableProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      readonly attached: string[] = [];
+
+      async startSession(input: { bridgeSessionId: string; cwd: string; options?: Record<string, unknown> }): Promise<ProviderSession> {
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: typeof input.options?.providerSessionId === 'string'
+            ? input.options.providerSessionId
+            : 'claude-reload-1',
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        this.attached.push(input.candidateId);
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: input.candidateId,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+
+      async getNativeVersion() {
+        return { fingerprint: 'claude:claude-reload-1:300:30', observedAt: Date.now() };
+      }
+
+      async *sendMessage(): AsyncIterable<ProviderEvent> {}
+
+      async stopSession(): Promise<void> {}
+    }
+
+    const provider = new ReloadableProvider();
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const conversation = new CurrentConversationStore(createRuntimeUserStore('message-router-reload-').configPath, {
+      defaultCwd: '/tmp/project',
+      defaultProviderId: 'claude-code',
+    });
+    const session = conversation.create({
+      chatId: 'chat-a',
+      ownerUserId: authorizedUser.id,
+      providerId: 'claude-code',
+      cwd: '/tmp/project',
+      resumeTitle: 'reload session',
+    });
+    conversation.update({
+      providerSessionId: 'claude-reload-1',
+      status: 'idle',
+      lastSeenNativeFingerprint: 'claude:claude-reload-1:100:10',
+      staleReason: 'native_advanced_elsewhere',
+    }, session.id);
+    const router = new MessageRouter({
+      channel,
+      providers: [provider],
+      conversation,
+      resolveUser: () => authorizedUser,
+    });
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/reload' },
+      timestamp: 1,
+    });
+
+    expect(provider.attached).toEqual(['claude-reload-1']);
+    expect(conversation.getCurrent()?.providerSessionId).toBe('claude-reload-1');
+    expect(conversation.getCurrent()?.lastSeenNativeFingerprint).toBe('claude:claude-reload-1:300:30');
+    expect(conversation.getCurrent()?.staleReason).toBeUndefined();
+    expect(typeof conversation.getCurrent()?.lastReloadedAt).toBe('number');
+    expect(sent.at(-1)).toEqual({ kind: 'status', text: '已重新加载当前会话，可继续对话。' });
+  });
+
+  it('returns a status message when /reload has no active session', async () => {
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new FakeProviderAdapter('claude-code')],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/reload' },
+      timestamp: 1,
+    });
+
+    expect(sent.at(-1)).toEqual({ kind: 'status', text: 'No active session' });
+  });
+
   it('refreshes typing as provider events arrive and clears it when the turn ends', async () => {
     class StreamingProvider implements NativeProviderAdapter {
       readonly id = 'claude-code' as const;
