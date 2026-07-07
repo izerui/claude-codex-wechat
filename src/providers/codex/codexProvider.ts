@@ -1,5 +1,5 @@
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../types';
-import { listRecoverableCodexSessions } from './nativeSessions';
+import { getCodexNativeVersion, listRecoverableCodexSessions } from './nativeSessions';
 
 type CodexRunner = {
   startSession(input: {
@@ -56,6 +56,13 @@ export class CodexProvider implements NativeProviderAdapter {
 
   async listRecoverableSessions() {
     return await listRecoverableCodexSessions();
+  }
+
+  async getNativeVersion(input: { providerSessionId: string; cwd: string }) {
+    return await getCodexNativeVersion({
+      sessionId: input.providerSessionId,
+      cwd: input.cwd,
+    });
   }
 
   async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {

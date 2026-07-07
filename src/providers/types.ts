@@ -33,6 +33,11 @@ export type ProviderSessionCandidate = {
   };
 };
 
+export type NativeVersionStamp = {
+  fingerprint: string;
+  observedAt: number;
+};
+
 export interface NativeProviderAdapter {
   id: ProviderId;
   startSession(input: {
@@ -50,6 +55,10 @@ export interface NativeProviderAdapter {
     attachments?: Array<{ localPath: string; mimeType?: string }>;
   }): AsyncIterable<ProviderEvent>;
   stopSession(bridgeSessionId: string): Promise<void>;
+  getNativeVersion?(input: {
+    providerSessionId: string;
+    cwd: string;
+  }): Promise<NativeVersionStamp | null>;
   listRecoverableSessions?(): Promise<ProviderSessionCandidate[]>;
   attachSession?(input: {
     candidateId: string;

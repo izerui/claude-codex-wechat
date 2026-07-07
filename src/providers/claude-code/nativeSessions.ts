@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import type { ProviderSessionCandidate } from '../types';
+import type { NativeVersionStamp, ProviderSessionCandidate } from '../types';
 import { parseSessionBridgeName } from '../../session/sessionBridgeTag';
 
 function resolveClaudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
@@ -162,6 +162,21 @@ export async function getClaudeRecoverableSessionById(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<ProviderSessionCandidate | null> {
   return (await listRecoverableClaudeSessions(env)).find((candidate) => candidate.id === sessionId) ?? null;
+}
+
+export async function getClaudeNativeVersion(input: {
+  sessionId: string;
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+}): Promise<NativeVersionStamp | null> {
+  const sessionPath = await findRecoverableClaudeSessionPath(input.sessionId, input.env ?? process.env);
+  if (!sessionPath) return null;
+  const metadata = await stat(sessionPath).catch(() => null);
+  if (!metadata?.isFile()) return null;
+  return {
+    fingerprint: `claude:${input.sessionId}:${Math.trunc(metadata.mtimeMs)}:${metadata.size}`,
+    observedAt: Date.now(),
+  };
 }
 
 async function readClaudeSessionMetadata(filePath: string): Promise<{ aiTitle?: string; lastPrompt?: string; sessionName?: string; cwd?: string }> {

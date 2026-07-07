@@ -1,6 +1,6 @@
 import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../types';
 import type { ClaudeRunner } from './claudeRunner';
-import { listRecoverableClaudeSessions } from './nativeSessions';
+import { getClaudeNativeVersion, listRecoverableClaudeSessions } from './nativeSessions';
 
 export class ClaudeCodeProvider implements NativeProviderAdapter {
   readonly id = 'claude-code';
@@ -49,6 +49,13 @@ export class ClaudeCodeProvider implements NativeProviderAdapter {
 
   async listRecoverableSessions() {
     return await listRecoverableClaudeSessions();
+  }
+
+  async getNativeVersion(input: { providerSessionId: string; cwd: string }) {
+    return await getClaudeNativeVersion({
+      sessionId: input.providerSessionId,
+      cwd: input.cwd,
+    });
   }
 
   async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {

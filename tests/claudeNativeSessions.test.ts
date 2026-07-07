@@ -2,7 +2,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ensureClaudeSessionBridgeMetadata } from '../src/providers/claude-code/nativeSessions';
+import { ensureClaudeSessionBridgeMetadata, getClaudeNativeVersion } from '../src/providers/claude-code/nativeSessions';
 
 const tempDirs: string[] = [];
 
@@ -192,5 +192,37 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
     expect(content).toContain('"entrypoint":"cli"');
     expect(content).toContain('"type":"permission-mode"');
     expect(content).not.toContain('"entrypoint":"sdk-cli"');
+  });
+
+  it('returns a Claude native fingerprint from the recoverable session file', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'claude-native-sessions-'));
+    tempDirs.push(home);
+    const projectDir = join(home, '.claude', 'projects', '-tmp-project');
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(projectDir, { recursive: true }));
+    const sessionId = 'fingerprint-session-1';
+    const sessionPath = join(projectDir, `${sessionId}.jsonl`);
+    await writeFile(sessionPath, JSON.stringify({ type: 'user', cwd: '/tmp/project' }), 'utf8');
+
+    const stamp = await getClaudeNativeVersion({
+      sessionId,
+      cwd: '/tmp/project',
+      env: { HOME: home },
+    });
+
+    expect(stamp?.fingerprint).toMatch(/^claude:fingerprint-session-1:\d+:\d+$/);
+    expect(typeof stamp?.observedAt).toBe('number');
+  });
+
+  it('returns null for Claude native fingerprint when the session file is missing', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'claude-native-sessions-'));
+    tempDirs.push(home);
+
+    const stamp = await getClaudeNativeVersion({
+      sessionId: 'missing-session',
+      cwd: '/tmp/project',
+      env: { HOME: home },
+    });
+
+    expect(stamp).toBeNull();
   });
 });

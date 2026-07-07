@@ -3,7 +3,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import type { ProviderSessionCandidate } from '../types';
+import type { NativeVersionStamp, ProviderSessionCandidate } from '../types';
 
 function resolveCodexSessionsRoot(env: NodeJS.ProcessEnv = process.env): string {
   return join(env.CODEX_HOME || join(env.HOME || homedir(), '.codex'), 'sessions');
@@ -88,6 +88,21 @@ export async function findRecoverableCodexSessionPath(
   }
 
   return await walk(root, 0);
+}
+
+export async function getCodexNativeVersion(input: {
+  sessionId: string;
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+}): Promise<NativeVersionStamp | null> {
+  const sessionPath = await findRecoverableCodexSessionPath(input.sessionId, input.env ?? process.env);
+  if (!sessionPath) return null;
+  const metadata = await stat(sessionPath).catch(() => null);
+  if (!metadata?.isFile()) return null;
+  return {
+    fingerprint: `codex:${input.sessionId}:${Math.trunc(metadata.mtimeMs)}:${metadata.size}`,
+    observedAt: Date.now(),
+  };
 }
 
 async function readCodexSessionIndex(env: NodeJS.ProcessEnv): Promise<Map<string, { threadName?: string; updatedAtMs?: number }>> {

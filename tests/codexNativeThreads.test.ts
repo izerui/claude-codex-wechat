@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { getCodexNativeVersion } from '../src/providers/codex/nativeSessions';
 import { syncCodexThreadForResume } from '../src/providers/codex/nativeThreads';
 
 describe('syncCodexThreadForResume', () => {
@@ -143,6 +144,62 @@ describe('syncCodexThreadForResume', () => {
       const rollout = readFileSync(rolloutPath, 'utf8');
       expect(rollout).toContain('"originator":"codex-tui"');
       expect(rollout).toContain('"source":"cli"');
+    } finally {
+      process.env.HOME = previousHome;
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
+  it('returns a Codex native fingerprint from the rollout file', async () => {
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    const home = mkdtempSync(join(tmpdir(), 'bridge-codex-thread-home-'));
+    const codexHome = join(home, '.codex');
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+
+    try {
+      mkdirSync(join(codexHome, 'sessions', '2026', '07', '07'), { recursive: true });
+      const rolloutPath = join(
+        codexHome,
+        'sessions',
+        '2026',
+        '07',
+        '07',
+        'rollout-2026-07-07T10-00-00-codex-session-1.jsonl',
+      );
+      writeFileSync(rolloutPath, JSON.stringify({ cwd: '/tmp/codex-project' }), 'utf8');
+
+      const stamp = await getCodexNativeVersion({
+        sessionId: 'codex-session-1',
+        cwd: '/tmp/codex-project',
+        env: { HOME: home, CODEX_HOME: codexHome },
+      });
+
+      expect(stamp?.fingerprint).toMatch(/^codex:codex-session-1:\d+:\d+$/);
+      expect(typeof stamp?.observedAt).toBe('number');
+    } finally {
+      process.env.HOME = previousHome;
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
+  it('returns null for Codex native fingerprint when the rollout file is missing', async () => {
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    const home = mkdtempSync(join(tmpdir(), 'bridge-codex-thread-home-'));
+    const codexHome = join(home, '.codex');
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+
+    try {
+      const stamp = await getCodexNativeVersion({
+        sessionId: 'missing-session',
+        cwd: '/tmp/codex-project',
+        env: { HOME: home, CODEX_HOME: codexHome },
+      });
+
+      expect(stamp).toBeNull();
     } finally {
       process.env.HOME = previousHome;
       process.env.CODEX_HOME = previousCodexHome;

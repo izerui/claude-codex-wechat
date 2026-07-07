@@ -29,6 +29,10 @@ export class FakeProviderAdapter implements NativeProviderAdapter {
     this.sessions.delete(bridgeSessionId);
   }
 
+  async getNativeVersion() {
+    return null;
+  }
+
   async listRecoverableSessions() {
     return [{
       id: `${this.id}_recoverable_1`,
