@@ -76,6 +76,8 @@ describe('parseBridgeCommand', () => {
     const help = buildBridgeCommandHelpMarkdown();
     expect(help).toContain('`/stop`');
     expect(help).toContain('中断当前正在生成的回复（会话保留）');
+    expect(help).toContain('`/reload`');
+    expect(help).toContain('当前会话已被另一端继续后，重载原生会话状态再继续');
     expect(help).not.toContain('`/cancel`');
     expect(help).not.toContain('`/sessions mine`');
     expect(help).toContain('`/sessions p2`');

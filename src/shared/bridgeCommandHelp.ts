@@ -22,6 +22,7 @@ export const BRIDGE_COMMAND_HELP_GROUPS: BridgeCommandHelpGroup[] = [
       { command: '/new <目录>', desc: '在指定目录按当前 provider 新建会话' },
       { command: '/new claude:<目录>', desc: '新建指定 provider + 指定目录会话' },
       { command: '/stop', desc: '中断当前正在生成的回复（会话保留）' },
+      { command: '/reload', desc: '当前会话已被另一端继续后，重载原生会话状态再继续' },
     ],
   },
   {
