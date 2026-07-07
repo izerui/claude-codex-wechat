@@ -250,6 +250,44 @@ export class MessageRouter {
     void Promise.resolve(provider?.stopSession(session.id)).catch(() => undefined);
   }
 
+  private async ensureSessionFresh(
+    session: CurrentConversationBinding,
+    provider: NativeProviderAdapter,
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    if (!session.providerSessionId || !provider.getNativeVersion) return { ok: true };
+    const version = await provider.getNativeVersion({
+      providerSessionId: session.providerSessionId,
+      cwd: session.cwd,
+    });
+    if (!version || !session.lastSeenNativeFingerprint) return { ok: true };
+    if (version.fingerprint === session.lastSeenNativeFingerprint) return { ok: true };
+    this.conversation.update({
+      staleReason: 'native_advanced_elsewhere',
+      lastActivityAt: Date.now(),
+    }, session.id);
+    return {
+      ok: false,
+      message: '该会话已在另一端继续，当前桥接状态已过期。请先 /reload 后再继续。',
+    };
+  }
+
+  private async refreshNativeFingerprint(
+    session: CurrentConversationBinding,
+    provider: NativeProviderAdapter,
+  ): Promise<void> {
+    if (!session.providerSessionId || !provider.getNativeVersion) return;
+    const version = await provider.getNativeVersion({
+      providerSessionId: session.providerSessionId,
+      cwd: session.cwd,
+    }).catch(() => null);
+    if (!version) return;
+    this.conversation.update({
+      lastSeenNativeFingerprint: version.fingerprint,
+      staleReason: undefined,
+      lastActivityAt: Date.now(),
+    }, session.id);
+  }
+
   private async runChatGeneration(
     message: ChannelIncomingMessage,
     user: ActiveWeChatUserRecord,
@@ -319,6 +357,12 @@ export class MessageRouter {
         });
       }
       await this.persistBridgeMetadata(updated);
+    }
+
+    const freshness = await this.ensureSessionFresh(this.conversation.getCurrent() ?? session, provider);
+    if (!freshness.ok) {
+      await this.sendToChat({ chatId: message.chatId, kind: 'status', text: freshness.message });
+      return;
     }
 
     const genId = ++this.generationSeq;
@@ -412,6 +456,7 @@ export class MessageRouter {
       if (isLive()) {
         const finalBinding = this.conversation.getCurrent();
         if (finalBinding?.id === session.id && finalBinding.providerSessionId) {
+          await this.refreshNativeFingerprint(finalBinding, provider).catch(() => undefined);
           await this.persistBridgeMetadata(finalBinding).catch(() => undefined);
         }
       }
