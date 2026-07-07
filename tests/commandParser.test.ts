@@ -56,6 +56,10 @@ describe('parseBridgeCommand', () => {
     expect(parseBridgeCommand('/resume')).toEqual({ kind: 'resume_session', ref: '' });
   });
 
+  it('parses /reload as a bridge-owned reload command', () => {
+    expect(parseBridgeCommand('/reload')).toEqual({ kind: 'reload_session' });
+  });
+
   it('treats removed /archive commands as plain chat', () => {
     expect(parseBridgeCommand('/archive')).toEqual({ kind: 'chat', text: '/archive' });
     expect(parseBridgeCommand('/archive 2')).toEqual({ kind: 'chat', text: '/archive 2' });

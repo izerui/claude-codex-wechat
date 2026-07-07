@@ -15,6 +15,9 @@ export type CurrentConversationBinding = {
   resumeTitle?: string;
   cwd: string;
   status: ProviderSessionStatus;
+  lastSeenNativeFingerprint?: string;
+  lastReloadedAt?: number;
+  staleReason?: 'native_advanced_elsewhere';
   createdAt: number;
   lastActivityAt: number;
 };
@@ -76,7 +79,11 @@ export class CurrentConversationStore {
   }
 
   update(
-    patch: Partial<Pick<CurrentConversationBinding, 'chatId' | 'providerId' | 'providerSessionId' | 'resumeTitle' | 'cwd' | 'status' | 'lastActivityAt' | 'recoverySource'>>,
+    patch: Partial<Pick<
+      CurrentConversationBinding,
+      'chatId' | 'providerId' | 'providerSessionId' | 'resumeTitle' | 'cwd' | 'status' |
+      'lastActivityAt' | 'recoverySource' | 'lastSeenNativeFingerprint' | 'lastReloadedAt' | 'staleReason'
+    >>,
     expectId?: string,
   ): CurrentConversationBinding | null {
     const existing = this.getCurrent();

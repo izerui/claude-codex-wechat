@@ -6,6 +6,7 @@ export type BridgeCommand =
   | { kind: 'new_session'; providerId: ProviderId | null; cwd: string | null }
   | { kind: 'list_sessions'; scope: 'all'; keyword: string | null; page: number }
   | { kind: 'resume_session'; ref: string }
+  | { kind: 'reload_session' }
   | { kind: 'cancel_generation' }
   | { kind: 'chat'; text: string };
 
@@ -45,6 +46,10 @@ export function parseBridgeCommand(input: string): BridgeCommand {
 
   if (command === '/resume') {
     return { kind: 'resume_session', ref: first ?? '' };
+  }
+
+  if (command === '/reload') {
+    return { kind: 'reload_session' };
   }
 
   if (command === '/new') {
