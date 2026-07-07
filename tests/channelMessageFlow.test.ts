@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { createDaemonServer } from '../src/daemon/server';
+import * as claudeNativeSessions from '../src/providers/claude-code/nativeSessions';
 import { ClaudeCodeProvider } from '../src/providers/claude-code/claudeProvider';
 import { FakeClaudeRunner } from '../src/providers/claude-code/fakeClaudeRunner';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
@@ -858,5 +859,69 @@ describe('channel message flow', () => {
     });
 
     await app.close();
+  });
+
+  it('does not misclassify bridge-written Claude metadata as external session progress', async () => {
+    let metadataRevision = 0;
+    const metadataSpy = vi.spyOn(claudeNativeSessions, 'ensureClaudeSessionBridgeMetadata').mockImplementation(async () => {
+      metadataRevision += 1;
+      return true;
+    });
+
+    try {
+      class FingerprintClaudeProvider extends ClaudeCodeProvider {
+        async getNativeVersion() {
+          return {
+            fingerprint: `claude:claude-fingerprint-selfwrite-1:${metadataRevision}`,
+            observedAt: Date.now(),
+          };
+        }
+      }
+
+      const channel = new MockChannelAdapter();
+      const sent: string[] = [];
+      channel.onSent((message) => sent.push(message.text));
+      const provider = new FingerprintClaudeProvider({ runner: new FakeClaudeRunner() });
+      const originalStartSession = provider.startSession.bind(provider);
+      vi.spyOn(provider, 'startSession').mockImplementation(async (input) => ({
+        ...(await originalStartSession(input)),
+        providerSessionId: 'claude-fingerprint-selfwrite-1',
+      }));
+
+      const { app } = createDaemonServer({
+        channel,
+        providers: [provider],
+        bridgeDefaults: {
+          defaultProvider: 'claude-code',
+          defaultWorkspace: '/tmp/project',
+        },
+      });
+
+      await channel.emitIncoming({
+        id: 'm1',
+        platform: PRIMARY_WEIXIN_PLATFORM,
+        chatId: 'chat-fingerprint-selfwrite',
+        user: { id: 'wx_user_fingerprint', displayName: 'Fingerprint User' },
+        content: { type: 'text', text: '第一轮' },
+        timestamp: 1,
+      });
+
+      await channel.emitIncoming({
+        id: 'm2',
+        platform: PRIMARY_WEIXIN_PLATFORM,
+        chatId: 'chat-fingerprint-selfwrite',
+        user: { id: 'wx_user_fingerprint', displayName: 'Fingerprint User' },
+        content: { type: 'text', text: '第二轮' },
+        timestamp: 2,
+      });
+
+      expect(sent).toContain('Claude 收到：第一轮');
+      expect(sent).toContain('Claude 收到：第二轮');
+      expect(sent).not.toContain('该会话已在另一端继续，当前桥接状态已过期。请先 /reload 后再继续。');
+
+      await app.close();
+    } finally {
+      metadataSpy.mockRestore();
+    }
   });
 });

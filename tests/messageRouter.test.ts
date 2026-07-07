@@ -337,6 +337,74 @@ describe('MessageRouter', () => {
     expect(sent).toContainEqual({ kind: 'text', text: '收到：继续' });
   });
 
+  it('allows send when provider fingerprint lookup throws', async () => {
+    class ThrowingFingerprintProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      readonly sent: string[] = [];
+
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: 'claude-throw-1',
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+
+      async getNativeVersion(): Promise<never> {
+        throw new Error('fingerprint_lookup_failed');
+      }
+
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        this.sent.push(input.text);
+        yield { type: 'text_delta', text: `收到：${input.text}` };
+        yield { type: 'message_done' };
+      }
+
+      async stopSession(): Promise<void> {}
+    }
+
+    const provider = new ThrowingFingerprintProvider();
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const conversation = new CurrentConversationStore(createRuntimeUserStore('message-router-throwing-fingerprint-').configPath, {
+      defaultCwd: '/tmp/project',
+      defaultProviderId: 'claude-code',
+    });
+    const session = conversation.create({
+      chatId: 'chat-a',
+      ownerUserId: authorizedUser.id,
+      providerId: 'claude-code',
+      cwd: '/tmp/project',
+      resumeTitle: 'throwing session',
+    });
+    conversation.update({
+      providerSessionId: 'claude-throw-1',
+      status: 'idle',
+      lastSeenNativeFingerprint: 'claude:claude-throw-1:100:10',
+    }, session.id);
+    const router = new MessageRouter({
+      channel,
+      providers: [provider],
+      conversation,
+      resolveUser: () => authorizedUser,
+    });
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '继续' },
+      timestamp: 1,
+    });
+
+    expect(provider.sent).toEqual(['继续']);
+    expect(sent).toContainEqual({ kind: 'text', text: '收到：继续' });
+  });
+
   it('reloads the current session by re-attaching the same native provider session', async () => {
     class ReloadableProvider implements NativeProviderAdapter {
       readonly id = 'claude-code' as const;

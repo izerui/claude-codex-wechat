@@ -258,7 +258,7 @@ export class MessageRouter {
     const version = await provider.getNativeVersion({
       providerSessionId: session.providerSessionId,
       cwd: session.cwd,
-    });
+    }).catch(() => null);
     if (!version || !session.lastSeenNativeFingerprint) return { ok: true };
     if (version.fingerprint === session.lastSeenNativeFingerprint) return { ok: true };
     this.conversation.update({
@@ -456,8 +456,11 @@ export class MessageRouter {
       if (isLive()) {
         const finalBinding = this.conversation.getCurrent();
         if (finalBinding?.id === session.id && finalBinding.providerSessionId) {
-          await this.refreshNativeFingerprint(finalBinding, provider).catch(() => undefined);
           await this.persistBridgeMetadata(finalBinding).catch(() => undefined);
+          const refreshedBinding = this.conversation.getCurrent();
+          if (refreshedBinding?.id === session.id && refreshedBinding.providerSessionId) {
+            await this.refreshNativeFingerprint(refreshedBinding, provider).catch(() => undefined);
+          }
         }
       }
     } finally {
