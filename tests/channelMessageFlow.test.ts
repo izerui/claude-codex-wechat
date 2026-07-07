@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -228,6 +228,138 @@ describe('channel message flow', () => {
       cwd: process.cwd(),
     });
     expect(sent).toEqual([{ kind: 'text', text: '收到：hello after restart' }]);
+
+    await app.close();
+  });
+
+  it('requires /reload after the native session advances elsewhere and then resumes normally', async () => {
+    class FingerprintFlowProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      private readonly sessions = new Map<string, ProviderSession>();
+
+      constructor(
+        private readonly sessionId: string,
+        private readonly cwd: string,
+        private readonly nativePath: string,
+      ) {}
+
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: this.sessionId,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        if (!this.sessions.has(input.bridgeSessionId)) throw new Error('fingerprint_flow_session_not_found');
+        yield { type: 'text_delta', text: `收到：${input.text}` };
+        yield { type: 'message_done' };
+      }
+
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: input.candidateId,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+
+      async getNativeVersion(): Promise<{ fingerprint: string; observedAt: number }> {
+        const metadata = statSync(this.nativePath);
+        return {
+          fingerprint: `claude:${this.sessionId}:${Math.trunc(metadata.mtimeMs)}:${metadata.size}`,
+          observedAt: Date.now(),
+        };
+      }
+    }
+
+    const store = createRuntimeUserStore('bridge-message-flow-reload-');
+    seedRuntimeUserStore(store, {
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      platformUserId: 'wx_user_1',
+      role: 'user',
+    });
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const tempRoot = mkdtempSync(join(tmpdir(), 'bridge-reload-flow-'));
+    const nativePath = join(tempRoot, 'claude-session-1.jsonl');
+    writeFileSync(nativePath, JSON.stringify({ type: 'user', cwd: '/tmp/project', text: 'baseline' }) + '\n', 'utf8');
+
+    const { app } = createDaemonServer({
+      channel,
+      providers: [new FingerprintFlowProvider('claude-session-1', '/tmp/project', nativePath)],
+      activeUserStore: store.activeUserStore,
+      configPath: store.configPath,
+      bridgeDefaults: {
+        defaultProvider: 'claude-code',
+        defaultWorkspace: '/tmp/project',
+      },
+    });
+
+    await channel.emitIncoming({
+      id: 'm1',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-reload-flow',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '第一次继续' },
+      timestamp: 1,
+    });
+
+    const beforeExternal = sent.map((message) => message.text);
+    expect(beforeExternal).toContain('收到：第一次继续');
+
+    writeFileSync(
+      nativePath,
+      readFileSync(nativePath, 'utf8') + `${JSON.stringify({ type: 'assistant', text: 'external progress' })}\n`,
+      'utf8',
+    );
+
+    await channel.emitIncoming({
+      id: 'm2',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-reload-flow',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '第二次继续' },
+      timestamp: 2,
+    });
+
+    expect(sent.map((message) => message.text)).toContain('该会话已在另一端继续，当前桥接状态已过期。请先 /reload 后再继续。');
+
+    await channel.emitIncoming({
+      id: 'm3',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-reload-flow',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/reload' },
+      timestamp: 3,
+    });
+
+    expect(sent.map((message) => message.text)).toContain('已重新加载当前会话，可继续对话。');
+
+    await channel.emitIncoming({
+      id: 'm4',
+      platform: PRIMARY_WEIXIN_PLATFORM,
+      chatId: 'chat-reload-flow',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'reload 后继续' },
+      timestamp: 4,
+    });
+
+    expect(sent.map((message) => message.text)).toContain('收到：reload 后继续');
 
     await app.close();
   });
