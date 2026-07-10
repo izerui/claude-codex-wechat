@@ -63,13 +63,14 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
   // 并发写竞态。defaultWorkspace 写入的是有效值（用户未配时即启动时的 process.cwd()）——这会把
   // 默认工作目录在首启时固定下来、之后保持稳定；如需变更走 /api/settings。ensureRelayAuthTokenSync 幂等。
   const relayAuthToken = ensureRelayAuthTokenSync({ configPath });
+  const relayServerUrl = bridgeDefaults.tunnel.relay?.serverUrl ?? 'wss://wechat.style520.com/agent';
   await persistBridgeDefaultsToConfigFile({
     configPath,
     defaultProvider: bridgeDefaults.defaultProvider,
     defaultWorkspace: bridgeDefaults.defaultWorkspace,
     tunnel: {
       relay: {
-        serverUrl: bridgeDefaults.tunnel.relay?.serverUrl ?? 'wss://wechat.style520.com/agent',
+        serverUrl: relayServerUrl,
         authToken: relayAuthToken,
       },
     },
@@ -82,13 +83,12 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
   await app.listen({ host, port });
   const address = app.server.address();
   const actualPort = typeof address === 'object' && address ? address.port : port;
-  // relay 连接是后台可选能力，不能成为 daemon 启动主流程的同步依赖：
-  //  - 门控：仅当 config 里已有 relay 配置（serverUrl + authToken）时才连接。fresh install /
-  //    无配置时不拨号、不阻塞。relay 配置由上面的 persistBridgeDefaultsToConfigFile 可靠落盘、
-  //    不再丢失——这才是"隧道没注册上"的真正修复（原来是 config 丢了 relay 配置）。
+  // relay 每次启动都后台连接：判断用【本次已确保生成的】relayAuthToken + 有效 serverUrl，
+  // 而不是启动顶部加载的原始 config——否则首启（token 本次才生成）会因原始 config 无 token 而跳过，
+  // 导致 config 写全了却没连上、要等下次重启才连。用确保后的值 → 新旧 token 首启都连。
   //  - 非阻塞：不 await，启动立即继续；离线 / DNS 异常 / 门户页拦截时也不会卡住 startDaemon()，
   //    连接与重试交给 provider 内部的 scheduleReconnect 在后台完成。
-  if (config.tunnel?.relay?.serverUrl && config.tunnel?.relay?.authToken) {
+  if (relayServerUrl && relayAuthToken) {
     void resolvedTunnelProvider?.start().catch((error) => {
       console.warn('[relay] 隧道后台启动失败，将自动重连：', error instanceof Error ? error.message : String(error));
     });

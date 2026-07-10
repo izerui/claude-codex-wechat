@@ -56,11 +56,11 @@ describe('relay daemon bootstrap', () => {
     await daemon.app.close();
   });
 
-  it('无 relay 配置（config 无 authToken）时不连接隧道，不阻塞启动', async () => {
+  it('config 无 authToken（首启）也连接 relay——token 会被确保生成，新旧 token 都连', async () => {
     const configDir = mkdtempSync(`${tmpdir()}/bridge-relay-bootstrap-notoken-`);
     const configPath = join(configDir, 'config.json');
-    // config 里没有 tunnel/authToken：relay 连接是后台可选能力，无配置时不拨号、不阻塞启动。
-    // （relay 配置由持久化可靠落盘，配好后下次启动 config 就有 token，门控自然通过。）
+    // config 里没有 tunnel/authToken：token 由 ensureRelayAuthTokenSync 在本次启动生成，
+    // 门控用【本次确保后的】token 判断，因此首启也应连接 relay（不能等下次重启）。
     writeFileSync(configPath, JSON.stringify({
       bridge: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
     }, null, 2));
@@ -85,7 +85,7 @@ describe('relay daemon bootstrap', () => {
       tunnelProvider: relayProvider,
     });
 
-    expect(relayProvider.start).not.toHaveBeenCalled();
+    expect(relayProvider.start).toHaveBeenCalledTimes(1);
     await daemon.app.close();
   });
 
