@@ -788,6 +788,125 @@ describe('channel admin routes', () => {
     await app.close();
   });
 
+  it('adopts an idle Claude background-agent session before attaching it into the bridge', async () => {
+    const previousHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), 'bridge-claude-bg-attach-'));
+    process.env.HOME = home;
+    try {
+      const projectDir = join(home, '.claude', 'projects', '-tmp-project');
+      const sessionsDir = join(home, '.claude', 'sessions');
+      mkdirSync(projectDir, { recursive: true });
+      mkdirSync(sessionsDir, { recursive: true });
+      writeFileSync(join(projectDir, 'claude-bg-session.jsonl'), JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'bg session' }] },
+      }), 'utf8');
+      writeFileSync(join(home, '.claude', 'history.jsonl'), JSON.stringify({
+        sessionId: 'claude-bg-session',
+        display: 'background session',
+        project: '/tmp/project',
+        timestamp: 1234,
+      }), 'utf8');
+      writeFileSync(join(sessionsDir, '999.json'), JSON.stringify({
+        sessionId: 'claude-bg-session',
+        cwd: '/tmp/project',
+        kind: 'bg',
+        status: 'idle',
+      }), 'utf8');
+
+      const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
+      const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
+      activeUserStore.setActiveUser({
+        platform: 'weixin',
+        platformUserId: 'wx_user_1',
+        role: 'user',
+      });
+
+      const attach = await app.inject({
+        method: 'POST',
+        url: '/api/channel/sessions/attach',
+        payload: {
+          providerId: 'claude-code',
+          providerSessionId: 'claude-bg-session',
+          platformUserId: 'wx_user_1',
+          chatId: 'chat-attached',
+        },
+      });
+
+      expect(attach.statusCode).toBe(200);
+      expect(attach.json()).toMatchObject({
+        ok: true,
+        session: {
+          providerId: 'claude-code',
+          providerSessionId: 'claude-bg-session',
+        },
+      });
+      expect(existsSync(join(sessionsDir, '999.json'))).toBe(false);
+
+      await app.close();
+    } finally {
+      process.env.HOME = previousHome;
+    }
+  });
+
+  it('rejects attaching a Claude background-agent session while it is still running', async () => {
+    const previousHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), 'bridge-claude-bg-busy-attach-'));
+    process.env.HOME = home;
+    try {
+      const projectDir = join(home, '.claude', 'projects', '-tmp-project');
+      const sessionsDir = join(home, '.claude', 'sessions');
+      mkdirSync(projectDir, { recursive: true });
+      mkdirSync(sessionsDir, { recursive: true });
+      writeFileSync(join(projectDir, 'claude-bg-busy.jsonl'), JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'bg busy session' }] },
+      }), 'utf8');
+      writeFileSync(join(home, '.claude', 'history.jsonl'), JSON.stringify({
+        sessionId: 'claude-bg-busy',
+        display: 'background busy session',
+        project: '/tmp/project',
+        timestamp: 1234,
+      }), 'utf8');
+      writeFileSync(join(sessionsDir, '1000.json'), JSON.stringify({
+        sessionId: 'claude-bg-busy',
+        cwd: '/tmp/project',
+        kind: 'bg',
+        status: 'busy',
+      }), 'utf8');
+
+      const provider = new ClaudeCodeProvider({ runner: new FakeClaudeRunner() });
+      const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
+      activeUserStore.setActiveUser({
+        platform: 'weixin',
+        platformUserId: 'wx_user_1',
+        role: 'user',
+      });
+
+      const attach = await app.inject({
+        method: 'POST',
+        url: '/api/channel/sessions/attach',
+        payload: {
+          providerId: 'claude-code',
+          providerSessionId: 'claude-bg-busy',
+          platformUserId: 'wx_user_1',
+          chatId: 'chat-attached',
+        },
+      });
+
+      expect(attach.statusCode).toBe(409);
+      expect(attach.json()).toEqual({
+        ok: false,
+        error: 'claude_background_session_still_running',
+      });
+      expect(existsSync(join(sessionsDir, '1000.json'))).toBe(true);
+
+      await app.close();
+    } finally {
+      process.env.HOME = previousHome;
+    }
+  });
+
   it('does not expose recoverable Claude native resume repair before attaching', async () => {
     const previousHome = process.env.HOME;
     const home = mkdtempSync(join(tmpdir(), 'bridge-claude-home-'));

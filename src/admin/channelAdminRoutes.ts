@@ -12,7 +12,7 @@ import type { ActiveWeChatUserStore } from '../storage/userStore';
 import { PUSH_QUOTA_LIMIT, PUSH_WINDOW_MS, type WeixinStateStore } from '../channels/weixin-direct/weixinStateStore';
 import type { CurrentConversationStore } from '../session/currentConversationStore';
 import type { NativeProviderAdapter } from '../providers/types';
-import { ensureClaudeSessionBridgeMetadata, findRecoverableClaudeSessionPath, getClaudeRecoverableSessionById, hasClaudeHistoryDisplay, hasClaudeSessionBridgeMetadata, listRecoverableClaudeSessions } from '../providers/claude-code/nativeSessions';
+import { ensureClaudeSessionBridgeMetadata, findRecoverableClaudeSessionPath, getClaudeRecoverableSessionById, hasClaudeHistoryDisplay, hasClaudeSessionBridgeMetadata, listRecoverableClaudeSessions, prepareClaudeSessionForResume } from '../providers/claude-code/nativeSessions';
 import { findRecoverableCodexSessionPath } from '../providers/codex/nativeSessions';
 import { attachProviderSessionToBridge, listUnattachedRecoverableSessions, selectBestRecoverableSession } from '../session/providerAutoAttach';
 
@@ -213,6 +213,12 @@ export function registerChannelAdminRoutes(input: {
     }
     if (!input.conversation) {
       return reply.code(500).send({ ok: false, error: 'current_conversation_store_unavailable' });
+    }
+    if (request.body.providerId === 'claude-code') {
+      const prepared = await prepareClaudeSessionForResume({ sessionId: request.body.providerSessionId });
+      if (!prepared.ok) {
+        return reply.code(409).send({ ok: false, error: 'claude_background_session_still_running' });
+      }
     }
     const recoverableCandidate = provider.listRecoverableSessions
       ? (await provider.listRecoverableSessions()).find((candidate) => candidate.id === request.body.providerSessionId)

@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type { NativeVersionStamp, ProviderSessionCandidate } from '../types';
@@ -6,6 +6,31 @@ import { parseSessionBridgeName } from '../../session/sessionBridgeTag';
 
 function resolveClaudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(env.HOME || homedir(), '.claude');
+}
+
+export async function isClaudeBackgroundSession(
+  sessionId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<boolean> {
+  const index = await readClaudeRuntimeSessionIndex(env);
+  return index.get(sessionId.trim())?.kind === 'bg';
+}
+
+export async function prepareClaudeSessionForResume(input: {
+  sessionId: string;
+  env?: NodeJS.ProcessEnv;
+}): Promise<{ ok: true; adoptedBackground: boolean } | { ok: false; reason: 'background_session_running' }> {
+  const env = input.env ?? process.env;
+  const index = await readClaudeRuntimeSessionIndex(env);
+  const record = index.get(input.sessionId.trim());
+  if (!record || record.kind !== 'bg') return { ok: true, adoptedBackground: false };
+  if (record.status && record.status !== 'idle') {
+    return { ok: false, reason: 'background_session_running' };
+  }
+  if (record.path) {
+    await unlink(record.path).catch(() => undefined);
+  }
+  return { ok: true, adoptedBackground: true };
 }
 
 export async function listRecoverableClaudeSessions(env: NodeJS.ProcessEnv = process.env): Promise<ProviderSessionCandidate[]> {
@@ -215,6 +240,36 @@ async function readClaudeSessionMetadata(filePath: string): Promise<{ aiTitle?: 
     }
   }
   return { aiTitle, lastPrompt, sessionName, cwd };
+}
+
+async function readClaudeRuntimeSessionIndex(env: NodeJS.ProcessEnv): Promise<Map<string, {
+  kind?: string;
+  status?: string;
+  path?: string;
+}>> {
+  const sessionsDir = join(resolveClaudeConfigDir(env), 'sessions');
+  const index = new Map<string, { kind?: string; status?: string; path?: string }>();
+  try {
+    const entries = await readdir(sessionsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || entry.isSymbolicLink() || !String(entry.name).endsWith('.json')) continue;
+      const path = join(sessionsDir, String(entry.name));
+      try {
+        const raw = await readFile(path, 'utf8');
+        const record = JSON.parse(raw) as Record<string, unknown>;
+        const sessionId = typeof record.sessionId === 'string' ? record.sessionId.trim() : '';
+        if (!sessionId) continue;
+        const kind = typeof record.kind === 'string' ? record.kind.trim() : undefined;
+        const status = typeof record.status === 'string' ? record.status.trim() : undefined;
+        index.set(sessionId, { kind, status, path });
+      } catch {
+        // Ignore malformed runtime session metadata files and keep scanning.
+      }
+    }
+  } catch {
+    return index;
+  }
+  return index;
 }
 
 async function readClaudeHistoryIndex(env: NodeJS.ProcessEnv): Promise<Map<string, {

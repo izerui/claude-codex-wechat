@@ -212,4 +212,45 @@ describe('recoverable provider session ordering', () => {
     expect(sessions.map((session) => session.id)).toEqual(['claude-newer', 'claude-older']);
     expect((sessions[0]?.lastActivityAt ?? 0)).toBeGreaterThan(sessions[1]?.lastActivityAt ?? 0);
   });
+
+  it('keeps idle Claude background-agent sessions in the recoverable list', async () => {
+    const home = trackTempDir('claude-recoverable-filter-bg-');
+    const projectDir = join(home, '.claude', 'projects', '-tmp-project');
+    const sessionsDir = join(home, '.claude', 'sessions');
+    mkdirSync(projectDir, { recursive: true });
+    mkdirSync(sessionsDir, { recursive: true });
+
+    writeJsonl(join(projectDir, 'claude-fg.jsonl'), [
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'fg' }] } },
+    ]);
+    writeJsonl(join(projectDir, 'claude-bg.jsonl'), [
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'bg' }] } },
+    ]);
+
+    writeJsonl(join(home, '.claude', 'history.jsonl'), [
+      {
+        sessionId: 'claude-fg',
+        display: 'foreground session',
+        project: '/tmp/project',
+        timestamp: 2000,
+      },
+      {
+        sessionId: 'claude-bg',
+        display: 'background session',
+        project: '/tmp/project',
+        timestamp: 3000,
+      },
+    ]);
+
+    writeFileSync(join(sessionsDir, '100.json'), JSON.stringify({
+      sessionId: 'claude-bg',
+      cwd: '/tmp/project',
+      kind: 'bg',
+      status: 'idle',
+    }), 'utf8');
+
+    const sessions = await listRecoverableClaudeSessions({ HOME: home });
+
+    expect(sessions.map((session) => session.id)).toEqual(['claude-bg', 'claude-fg']);
+  });
 });
