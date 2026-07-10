@@ -51,7 +51,7 @@ export function createDaemonServer(options: {
   bridgeDefaults?: {
     defaultProvider: 'claude-code' | 'codex';
     defaultWorkspace: string;
-    tunnel?: { enabled: boolean; relay?: { serverUrl?: string; authToken?: string } };
+    tunnel?: { relay?: { serverUrl?: string; authToken?: string } };
   };
   providerCommands?: BridgeConfig['providers'];
   configPath?: string;

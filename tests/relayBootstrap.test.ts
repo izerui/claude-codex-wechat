@@ -18,8 +18,6 @@ describe('relay daemon bootstrap', () => {
         defaultWorkspace: '/tmp/project',
       },
       tunnel: {
-        provider: 'relay',
-        enabled: true,
         relay: {
           serverUrl: 'wss://relay.style520.com/agent',
           authToken: 'clrt_1234567890abcdef12345678',
@@ -129,8 +127,6 @@ describe('relay daemon bootstrap', () => {
         defaultWorkspace: '/tmp/project',
       },
       tunnel: {
-        provider: 'relay',
-        enabled: true,
         relay: {
           serverUrl: 'wss://relay.style520.com/agent',
           authToken: 'clrt_1234567890abcdef12345678',
@@ -169,14 +165,13 @@ describe('relay daemon bootstrap', () => {
     const save = await settingsServer.app.inject({
       method: 'POST',
       url: '/api/settings',
-      payload: {
-        defaultProvider: 'claude-code',
-        defaultWorkspace: '/tmp/project',
-        tunnel: {
-          enabled: true,
-          relay: {
-            serverUrl: 'wss://relay.style520.com/agent',
-            authToken: 'clrt_1234567890abcdef12345678',
+        payload: {
+          defaultProvider: 'claude-code',
+          defaultWorkspace: '/tmp/project',
+          tunnel: {
+            relay: {
+              serverUrl: 'wss://relay.style520.com/agent',
+              authToken: 'clrt_1234567890abcdef12345678',
           },
         },
       },

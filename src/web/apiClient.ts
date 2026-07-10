@@ -152,7 +152,6 @@ export type BridgeSettingsView = {
   defaultProvider: 'claude-code' | 'codex';
   defaultWorkspace: string;
   tunnel: {
-    enabled: boolean;
     relay?: {
       serverUrl?: string;
       authToken?: string;

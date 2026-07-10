@@ -5,7 +5,6 @@ describe('relay tunnel config wiring', () => {
   it('normalizes relay tunnel settings from config', () => {
     const config = normalizeBridgeConfigForTest({
       tunnel: {
-        enabled: true,
         relay: {
           serverUrl: 'wss://relay.style520.com/agent',
           authToken: 'clrt_1234567890abcdef12345678',
@@ -21,7 +20,7 @@ describe('relay tunnel config wiring', () => {
     });
   });
 
-  it('defaults relay tunnel to enabled with the default relay server URL when values are missing', () => {
+  it('defaults relay tunnel to the default relay server URL when values are missing', () => {
     const config = normalizeBridgeConfigForTest({});
     expect(config.tunnel).toEqual({
       relay: {

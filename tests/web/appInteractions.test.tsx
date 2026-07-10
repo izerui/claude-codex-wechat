@@ -133,7 +133,6 @@ function createFetchStub() {
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
           tunnel: {
-            provider: 'relay',
             relay: {
               serverUrl: 'wss://relay.style520.com/agent',
               authToken: 'clrt_1234567890abcdef12345678',
@@ -513,8 +512,6 @@ describe('App admin interactions', () => {
             defaultProvider: 'claude-code',
             defaultWorkspace: '/tmp/project',
             tunnel: {
-              provider: 'relay',
-              enabled: false,
               relay: {
                 serverUrl: 'wss://relay.style520.com/agent',
                 authToken: 'clrt_1234567890abcdef12345678',
@@ -1178,7 +1175,12 @@ describe('App admin interactions', () => {
           settings: {
             defaultProvider: 'claude-code',
             defaultWorkspace: '/tmp/project',
-            tunnel: { enabled: false },
+            tunnel: {
+              relay: {
+                serverUrl: 'wss://wechat.style520.com/agent',
+                authToken: 'clrt_1234567890abcdef12345678',
+              },
+            },
           },
           runtimeConfig: { enabled: true, baseUrl: 'https://ilinkai.weixin.qq.com', token: 'wx-bot-token', accountId: 'wx-account-1' },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -1188,7 +1190,10 @@ describe('App admin interactions', () => {
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
           tunnel: {
-            enabled: false,
+            relay: {
+              serverUrl: 'wss://wechat.style520.com/agent',
+              authToken: 'clrt_1234567890abcdef12345678',
+            },
           },
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -1233,18 +1238,21 @@ describe('App admin interactions', () => {
     const repairableFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/api/channel/providers/claude-code/recoverable-sessions') && (!init?.method || init.method === 'GET')) {
-        return new Response(JSON.stringify([
-          {
-            id: 'claude-session-1',
-            providerId: 'claude-code',
-            title: 'claude-session-1.jsonl',
-            resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test]',
-            providerResumeTitleSynced: false,
-            providerResumeRepairable: true,
-            preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
-            providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
-          },
-        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({
+          items: [
+            {
+              id: 'claude-session-1',
+              providerId: 'claude-code',
+              title: 'claude-session-1.jsonl',
+              resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test]',
+              providerResumeTitleSynced: false,
+              providerResumeRepairable: true,
+              preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
+              providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
+            },
+          ],
+          nextCursor: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       return await fetchImpl(input, init);
     });
@@ -1265,18 +1273,21 @@ describe('App admin interactions', () => {
     const repairableFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.includes('/api/channel/providers/claude-code/recoverable-sessions') && (!init?.method || init.method === 'GET')) {
-        return new Response(JSON.stringify([
-          {
-            id: 'claude-session-1',
-            providerId: 'claude-code',
-            title: 'claude-session-1.jsonl',
-            resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test]',
-            providerResumeTitleSynced: false,
-            providerResumeRepairable: true,
-            preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
-            providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
-          },
-        ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({
+          items: [
+            {
+              id: 'claude-session-1',
+              providerId: 'claude-code',
+              title: 'claude-session-1.jsonl',
+              resumeTitle: '微信 · wx_user_1 · [claude-codex-wechat:test]',
+              providerResumeTitleSynced: false,
+              providerResumeRepairable: true,
+              preferredResumeCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
+              providerResumeByTitleCommand: 'claude -r 微信 · wx_user_1 · [claude-codex-wechat:test]',
+            },
+          ],
+          nextCursor: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       return await fetchImpl(input, init);
     });

@@ -16,11 +16,8 @@
     }
   },
   "tunnel": {
-    "provider": "relay",
-    "enabled": false,
     "relay": {
-      "serverUrl": "wss://wechat.style520.com/agent",
-      "authToken": "replace-with-relay-auth-token"
+      "serverUrl": "wss://wechat.style520.com/agent"
     }
   }
 }

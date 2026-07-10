@@ -46,7 +46,6 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
     defaultProvider: config.bridge?.defaultProvider ?? 'claude-code',
     defaultWorkspace: config.bridge?.defaultWorkspace ?? process.cwd(),
     tunnel: {
-      enabled: true,
       ...(config.tunnel?.relay ? { relay: config.tunnel.relay } : {}),
     },
   };

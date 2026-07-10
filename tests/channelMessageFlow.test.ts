@@ -90,7 +90,6 @@ describe('channel message flow', () => {
         defaultProvider: 'claude-code',
         defaultWorkspace: process.cwd(),
         tunnel: {
-          enabled: true,
           relay: {
             serverUrl: 'wss://relay.style520.com/agent',
             authToken: 'clrt_1234567890abcdef12345678',

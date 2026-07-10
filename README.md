@@ -88,13 +88,13 @@ claude-codex-wechat doctor
 }
 ```
 
-如需接入自建的公网中转服务（relay-server），在同一份配置里加上：
+默认配置只保留 relay 地址；`authToken` 会在首次启动时自动生成并写回 `config.json`。
+
+如需改为接入自建的公网中转服务（relay-server），在同一份配置里覆盖 relay 地址，并把 `authToken` 换成该 relay 接受的真实 token：
 
 ```json
 {
   "tunnel": {
-    "provider": "relay",
-    "enabled": true,
     "relay": {
       "serverUrl": "wss://your-relay-host/agent",
       "authToken": "replace-with-relay-auth-token"

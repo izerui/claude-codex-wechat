@@ -21,8 +21,6 @@ describe('relay runtime integration', () => {
         defaultWorkspace: '/tmp/project',
       },
       tunnel: {
-        provider: 'relay',
-        enabled: true,
         relay: {
           serverUrl: `ws://127.0.0.1:${relay.port}/agent`,
           authToken: 'clrt_1234567890abcdef12345678',
@@ -91,11 +89,10 @@ describe('relay runtime integration', () => {
           defaultProvider: 'claude-code',
           defaultWorkspace: '/tmp/project',
           tunnel: {
-          enabled: true,
-          relay: {
-            serverUrl: `ws://127.0.0.1:${relay.port}/agent`,
-            authToken: 'clrt_1234567890abcdef12345678',
-          },
+            relay: {
+              serverUrl: `ws://127.0.0.1:${relay.port}/agent`,
+              authToken: 'clrt_1234567890abcdef12345678',
+            },
           },
         }),
       });
