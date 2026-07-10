@@ -35,7 +35,13 @@ function isTemporaryShim(candidate: string): boolean {
   return candidate.startsWith(tempDir);
 }
 
-export async function findExecutable(command: string): Promise<string | undefined> {
+/**
+ * 跨平台从指定 PATH 查找可执行文件，返回首个匹配的绝对路径，找不到返回 undefined。
+ * `pathEnv` 为必传，调用方须显式决定「在哪份 PATH 里找」——避免隐式落到 daemon 的
+ * process.env.PATH（非终端启动时往往残缺）而找不到 provider。查找 provider 时应传
+ * `resolveTerminalSearchPath()`。
+ */
+export async function findExecutable(command: string, pathEnv: string | undefined): Promise<string | undefined> {
   const extensions = executableExtensions();
 
   // 已带路径分隔符时按字面路径解析，不再走 PATH 扫描。
@@ -46,7 +52,7 @@ export async function findExecutable(command: string): Promise<string | undefine
     return undefined;
   }
 
-  const dirs = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
+  const dirs = (pathEnv ?? '').split(delimiter).filter(Boolean);
   let fallback: string | undefined;
   for (const dir of dirs) {
     for (const ext of extensions) {

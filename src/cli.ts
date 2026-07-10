@@ -16,6 +16,7 @@ import {
   uninstallService,
 } from './daemon/service';
 import { findExecutable } from './shared/platform';
+import { resolveTerminalSearchPath } from './shared/loginShellEnv';
 import { readClientVersion } from './shared/version';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -125,9 +126,10 @@ async function cmdDoctor(): Promise<void> {
   console.log('claude-codex-wechat doctor\n');
   report('配置文件', existsSync(configPath) ? configPath : `缺失 (${configPath})，首次 start 时自动创建`);
   report('前端产物', existsSync(webRoot) ? webRoot : `缺失 (${webRoot})`);
-  const claude = await findExecutable('claude');
+  const searchPath = resolveTerminalSearchPath();
+  const claude = await findExecutable('claude', searchPath);
   report('claude 可执行', claude ?? '未找到，需先安装并登录 Claude Code');
-  const codex = await findExecutable('codex');
+  const codex = await findExecutable('codex', searchPath);
   report('codex 可执行', codex ?? '未找到（仅使用 Claude 时可忽略）');
   if (existsSync(configPath)) {
     const config = loadBridgeConfig(configPath);

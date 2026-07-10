@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { expandTilde } from '../../shared/expandTilde';
 import { terminateChild, useShellForCli } from '../../shared/platform';
+import { resolveLoginShellEnv } from '../../shared/loginShellEnv';
 import { extractAssistantBlocks } from './assistantContent';
 import { BRIDGE_APPEND_SYSTEM_PROMPT } from './bridgeSystemPrompt';
 import { probeAppendSystemPromptSupport, type ClaudeCapabilityProbe } from './claudeCapabilities';
@@ -292,7 +293,7 @@ function parseJsonLine(line: string): unknown | null {
 function defaultClaudeStreamSpawner(call: { command: string; args: string[]; cwd: string }, opts: { stderrCapBytes?: number; maxLineBytes?: number } = {}): ClaudeStreamHandle {
   const stderrCapBytes = opts.stderrCapBytes ?? 64 * 1024;
   const maxLineBytes = opts.maxLineBytes ?? 10 * 1024 * 1024;
-  const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: useShellForCli() });
+  const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: useShellForCli(), env: resolveLoginShellEnv() ?? process.env });
   let stderr = '';
   let buffer = '';
   const queue: ClaudeStreamChunk[] = [];

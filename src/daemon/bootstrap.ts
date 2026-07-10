@@ -5,6 +5,7 @@ import { defaultConfigPath, loadBridgeConfig } from './config';
 import { persistProviderCommandsToConfigFile } from './configPersistence';
 import { createUpdateChecker } from './updateChecker';
 import { findExecutable } from '../shared/platform';
+import { resolveTerminalSearchPath } from '../shared/loginShellEnv';
 import { readClientVersion } from '../shared/version';
 import { cleanupStaleTempFiles } from '../shared/atomicFile';
 import type { TunnelProvider } from '../runtime/tunnelProvider';
@@ -92,8 +93,10 @@ export function listLanIpv4Addresses(): string[] {
 export async function resolveProviderCommands(
   providers: ReturnType<typeof loadBridgeConfig>['providers'] | undefined,
 ): Promise<ReturnType<typeof loadBridgeConfig>['providers']> {
-  const claudeCommand = providers?.claude?.command ?? await findExecutable('claude');
-  const codexCommand = providers?.codex?.command ?? await findExecutable('codex');
+  // 检测 claude/codex 时用「终端 PATH」——保证和用户在终端里查找一致。
+  const searchPath = resolveTerminalSearchPath();
+  const claudeCommand = providers?.claude?.command ?? await findExecutable('claude', searchPath);
+  const codexCommand = providers?.codex?.command ?? await findExecutable('codex', searchPath);
   if (!claudeCommand && !codexCommand) return undefined;
   return {
     ...(claudeCommand ? { claude: { command: claudeCommand } } : {}),

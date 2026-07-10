@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { expandTilde } from '../../shared/expandTilde';
 import { terminateChild, useShellForCli } from '../../shared/platform';
+import { resolveLoginShellEnv } from '../../shared/loginShellEnv';
 import { extractAssistantBlocks } from './assistantContent';
 import { BRIDGE_APPEND_SYSTEM_PROMPT } from './bridgeSystemPrompt';
 import { probeAppendSystemPromptSupport, type ClaudeCapabilityProbe } from './claudeCapabilities';
@@ -196,7 +197,7 @@ function wrapProcessRunner(processRunner: ClaudeProcessRunner): ClaudeLineStream
 }
 
 async function* defaultClaudeLineStreamer(call: ClaudeProcessCall): AsyncIterable<ClaudeStreamChunk> {
-  const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: useShellForCli() });
+  const child = spawn(call.command, call.args, { cwd: expandTilde(call.cwd) ?? call.cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: useShellForCli(), env: resolveLoginShellEnv() ?? process.env });
   child.stdin.end(call.input);
 
   const onAbort = () => {
