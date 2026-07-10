@@ -38,10 +38,6 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
-      # Trusted Publishing 需要 npm >= 11.5.1，Node 22 自带的 npm 版本偏旧，这里升级。
-      - name: Upgrade npm (for trusted publishing)
-        run: npm install -g npm@latest
-
       - name: Publish if version is new
         run: |
           NAME="$(node -p "require('./package.json').name")"
@@ -52,5 +48,11 @@ jobs:
           fi
           echo "· 发布 $NAME@$VERSION"
           # 无需 NODE_AUTH_TOKEN：OIDC 会在配置了 Trusted Publisher 后自动完成鉴权，
-          # 并自动附带 provenance 来源证明。npm publish 会先跑 prepublishOnly 构建 dist。
-          npm publish
+          # 并自动附带 provenance 来源证明。publish 会先跑 prepublishOnly 构建 dist。
+          #
+          # 用 npx 跑一份全新的 npm@latest 来发布，而不是 `npm i -g npm@latest` 自我升级：
+          #   1) Trusted Publishing 需要 npm >= 11.5.1，Node 22 自带的 npm 偏旧；
+          #   2) 旧 npm 自我升级常留下残缺目录（缺 sigstore 等 bundled 依赖），
+          #      导致生成 provenance 时报 `Cannot find module 'sigstore'`。
+          #   npx 会完整安装依赖，规避自我替换的残缺问题。
+          npx -y npm@latest publish
