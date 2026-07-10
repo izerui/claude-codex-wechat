@@ -97,6 +97,14 @@ let cache: NodeJS.ProcessEnv | null | undefined;
 export function resolveLoginShellEnv(): NodeJS.ProcessEnv | null {
   if (cache !== undefined) return cache;
   cache = captureLoginShellEnv();
+  if (cache === null && process.platform !== 'win32') {
+    // 复刻失败（rc 超时/异常等）→ 退回 daemon 自身 process.env。若 daemon 非从交互终端
+    // 启动，可能因此找不到 codex/claude 或读到过期凭证——打一行告警，避免修复静默失效难以排查。
+    console.warn(
+      '[claude-codex-wechat] 终端环境复刻失败，已退回 process.env（PATH/凭证可能与终端不一致）。'
+      + '若 provider 报「找不到」或「令牌已过期」，请从交互终端重启 daemon。',
+    );
+  }
   return cache;
 }
 
