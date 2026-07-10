@@ -236,6 +236,15 @@ The repository already contains opt-in real CLI tests. Keep these principles in 
 
 These rules are easy to break and must be preserved when changing WeChat bridge, provider, or recovery code.
 
+### Session takeover scope
+
+For this product, session takeover is defined as **single-owner, serial handoff**, not concurrent co-control.
+
+- The target behavior is: a human uses the native Claude/Codex CLI session, stops there, then WeChat takes over the **same** native session; later WeChat stops and the human resumes the **same** native session again.
+- Treat this as **one active controller at a time**. Do not expand requirements to simultaneous terminal + WeChat control, lock-free cross-surface co-editing, or other concurrent takeover semantics unless the user explicitly asks for that.
+- When evaluating bugs or regressions in takeover flows, optimize first for **same-session continuity under serial handoff**. Do not reject or redesign the flow merely because concurrent takeover is hard or unsupported.
+- For Claude background-agent/native special session kinds, the bridge should preserve this same serial-handoff goal: if the native CLI can hand the session back once it is no longer actively running elsewhere, WeChat should be able to take over that same session too.
+
 **Session continuity is the whole point: WeChat-driven turns MUST land in the same native session transcript a human resumes from the CLI — never a fork, never a different file.** This is a non-negotiable invariant; violating it breaks two-way sync between WeChat and the local Claude/Codex CLI, which is the core purpose of this bridge. Concretely, every bridge turn for a session must:
 
 1. **Continue the native session via its real resume mechanism, not a new one.** Claude turns go through `claude -p --resume <id>` (Codex via its equivalent resume). Do NOT pass `--fork-session` and do NOT let the provider mint a new session id mid-conversation. `claude -p --resume <id>` appends to the same `<id>.jsonl` by default (confirmed via `claude --help`: `--fork-session` is the only thing that changes the id, and it is opt-in). The id you resume with must be the same id a human sees in the CLI resume picker.

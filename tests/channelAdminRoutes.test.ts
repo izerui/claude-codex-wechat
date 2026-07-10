@@ -704,7 +704,11 @@ describe('channel admin routes', () => {
       }),
     ]);
     expect(sent).toEqual([
-      { chatId: 'chat-attached', kind: 'status', text: '已接入 Claude 会话。' },
+      {
+        chatId: 'chat-attached',
+        kind: 'status',
+        text: `### 已接入 Claude 会话\n- \`sessionId\`: \`claude-code_recoverable_1\`\n- \`cwd\`: \`${process.cwd()}\``,
+      },
     ]);
 
     await app.close();
