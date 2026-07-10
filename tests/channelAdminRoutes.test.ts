@@ -651,7 +651,10 @@ describe('channel admin routes', () => {
 
   it('lists recoverable native provider sessions and attaches one into the bridge', async () => {
     const provider = new FakeProviderAdapter('claude-code');
-    const { app, activeUserStore } = createDaemonServer({ providers: [provider] });
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ chatId: string; kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ chatId: message.chatId, kind: message.kind, text: message.text }));
+    const { app, activeUserStore } = createDaemonServer({ providers: [provider], channel });
     activeUserStore.setActiveUser({
       platform: 'weixin',
       platformUserId: 'wx_user_1',
@@ -699,6 +702,9 @@ describe('channel admin routes', () => {
         chatId: 'chat-attached',
         providerSessionId: 'claude-code_recoverable_1',
       }),
+    ]);
+    expect(sent).toEqual([
+      { chatId: 'chat-attached', kind: 'status', text: '已接入 Claude 会话。' },
     ]);
 
     await app.close();
@@ -749,6 +755,50 @@ describe('channel admin routes', () => {
       ],
       nextCursor: null,
     });
+
+    await app.close();
+  });
+
+  it('still attaches the session even if the weixin attach notification fails', async () => {
+    const channel = new MockChannelAdapter();
+    channel.onSent(() => {
+      throw new Error('weixin_send_message_failed:-3:unknown_error');
+    });
+    const provider = new FakeProviderAdapter('claude-code');
+    const { app, activeUserStore } = createDaemonServer({ providers: [provider], channel });
+    activeUserStore.setActiveUser({
+      platform: 'weixin',
+      platformUserId: 'wx_user_1',
+      role: 'user',
+    });
+
+    const attach = await app.inject({
+      method: 'POST',
+      url: '/api/channel/sessions/attach',
+      payload: {
+        providerId: 'claude-code',
+        providerSessionId: 'claude-code_recoverable_1',
+        platformUserId: 'wx_user_1',
+        chatId: 'chat-attached',
+      },
+    });
+
+    expect(attach.statusCode).toBe(200);
+    expect(attach.json()).toMatchObject({
+      ok: true,
+      session: {
+        chatId: 'chat-attached',
+        providerSessionId: 'claude-code_recoverable_1',
+      },
+    });
+
+    const sessions = await app.inject({ method: 'GET', url: '/api/channel/sessions' });
+    expect(sessions.json()).toEqual([
+      expect.objectContaining({
+        chatId: 'chat-attached',
+        providerSessionId: 'claude-code_recoverable_1',
+      }),
+    ]);
 
     await app.close();
   });

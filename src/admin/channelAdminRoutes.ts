@@ -236,6 +236,16 @@ export function registerChannelAdminRoutes(input: {
       resumeTitle: recoverableCandidate?.resumeTitle,
     });
     input.events?.emit({ type: 'channel.current-session-changed' });
+    const providerLabel = attached.providerId === 'codex' ? 'Codex' : 'Claude';
+    try {
+      await input.channel?.sendMessage({
+        chatId: request.body.chatId ?? user.platformUserId,
+        kind: 'status',
+        text: `已接入 ${providerLabel} 会话。`,
+      });
+    } catch (err) {
+      input.app.log.warn({ err }, 'sessions_attach_notify_failed');
+    }
     return {
       ok: true,
       session: {
