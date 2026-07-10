@@ -38,17 +38,26 @@ describe('relay runtime integration', () => {
     });
 
     try {
-      const response = await fetch(`http://127.0.0.1:${daemon.port}/api/tunnel/status`);
-      const payload = await response.json() as { running?: boolean; publicUrl?: string };
+      // relay 在 boot 时是【非阻塞】后台连接：startDaemon 返回时可能还没注册完成，
+      // 因此轮询 /api/tunnel/status 直到 running（本地 relay 通常 <1s 完成）。
+      let payload: { running?: boolean; publicUrl?: string } = {};
+      let status = 0;
+      for (let i = 0; i < 60; i++) {
+        const response = await fetch(`http://127.0.0.1:${daemon.port}/api/tunnel/status`);
+        status = response.status;
+        payload = await response.json() as { running?: boolean; publicUrl?: string };
+        if (payload.running) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
 
-      expect(response.status).toBe(200);
+      expect(status).toBe(200);
       expect(payload.running).toBe(true);
       expect(payload.publicUrl).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${relay.port}/[a-z0-9]{10,12}$`));
     } finally {
       await daemon.app.close();
       await relay.close();
     }
-  });
+  }, 20000);
 
   it('accepts relay settings over the admin API and then starts relay through the tunnel control API', async () => {
     // @ts-expect-error relay-server standalone package is plain ESM JS for now.
