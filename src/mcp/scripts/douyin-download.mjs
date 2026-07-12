@@ -21,6 +21,43 @@ const MOBILE_UA =
 const DESKTOP_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+// ─── 带重试/超时的 fetch ─────────────────────────────────────────────────────
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * fetch 包一层重试与超时，抵御瞬时网络抖动（"fetch failed" 之类的底层网络错误）。
+ * 仅对网络层错误和 5xx/429 重试；4xx（除 429）视为确定性失败，不重试。
+ */
+async function fetchWithRetry(url, options = {}, { retries = 3, timeoutMs = 20_000 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timer);
+      // 5xx / 429 属于可恢复的服务端抖动，重试；其余（含 4xx）直接返回交由调用方判断
+      if ((resp.status >= 500 || resp.status === 429) && attempt < retries) {
+        lastErr = new Error(`HTTP ${resp.status}`);
+        await sleep(attempt * 800);
+        continue;
+      }
+      return resp;
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err;
+      const reason = err?.name === "AbortError" ? `请求超时（>${timeoutMs}ms）` : (err?.message || String(err));
+      if (attempt < retries) {
+        await sleep(attempt * 800);
+        continue;
+      }
+      throw new Error(`网络请求失败（已重试${retries}次）：${reason}`);
+    }
+  }
+  throw lastErr ?? new Error("网络请求失败");
+}
+
 // ─── 解析逻辑 ────────────────────────────────────────────────────────────────
 
 /** 从任意文本里提取第一个抖音 URL */
@@ -45,7 +82,7 @@ async function resolveAwemeId(input) {
     throw new Error(`无法识别的输入（既不是抖音链接，也不是 aweme_id）：${trimmed}`);
   }
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithRetry(url, {
     method: "GET",
     headers: { "User-Agent": MOBILE_UA },
     redirect: "follow",
@@ -58,7 +95,7 @@ async function resolveAwemeId(input) {
 /** 从抖音分享页提取 video_id */
 async function resolveVideoId(awemeId) {
   const shareUrl = `https://www.iesdouyin.com/share/video/${awemeId}/`;
-  const resp = await fetch(shareUrl, { headers: { "User-Agent": MOBILE_UA } });
+  const resp = await fetchWithRetry(shareUrl, { headers: { "User-Agent": MOBILE_UA } });
   if (!resp.ok) throw new Error(`分享页请求失败：HTTP ${resp.status}（aweme_id=${awemeId}）`);
   const html = await resp.text();
   const m =
@@ -95,10 +132,10 @@ async function download(input, outputDir) {
   const playUrl = buildPlayUrlNoWatermark(videoId);
   console.log("正在下载无水印视频...");
 
-  const resp = await fetch(playUrl, {
+  const resp = await fetchWithRetry(playUrl, {
     headers: { "User-Agent": DESKTOP_UA, Referer: "https://www.douyin.com/" },
     redirect: "follow",
-  });
+  }, { timeoutMs: 60_000 });
 
   if (!resp.ok) {
     throw new Error(`下载失败: HTTP ${resp.status}`);
