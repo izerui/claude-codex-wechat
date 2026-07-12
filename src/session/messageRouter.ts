@@ -532,14 +532,14 @@ export class MessageRouter {
         bridgeSessionId: current.id,
         cwd: current.cwd,
       });
-      const version = await provider.getNativeVersion?.({
-        providerSessionId: reattached.providerSessionId ?? current.providerSessionId,
-        cwd: current.cwd,
-      }).catch(() => null);
+      // 不在此处抢跑取指纹:attachSession 的 resume 子进程写会话文件是异步的,
+      // 此刻取到的是写盘前的旧 mtime/size,存下后下一条消息又会误判 stale(死循环)。
+      // 改为清空基线,让下一条消息经 ensureSessionFresh 的空指纹放行,并在那一轮
+      // 生成结束后由 refreshNativeFingerprint 在文件写稳后重建正确基线。
       this.conversation.update({
         providerSessionId: reattached.providerSessionId ?? current.providerSessionId,
         status: reattached.status,
-        lastSeenNativeFingerprint: version?.fingerprint,
+        lastSeenNativeFingerprint: undefined,
         lastReloadedAt: Date.now(),
         staleReason: undefined,
         lastActivityAt: Date.now(),

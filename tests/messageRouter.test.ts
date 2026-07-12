@@ -481,7 +481,9 @@ describe('MessageRouter', () => {
 
     expect(provider.attached).toEqual(['claude-reload-1']);
     expect(conversation.getCurrent()?.providerSessionId).toBe('claude-reload-1');
-    expect(conversation.getCurrent()?.lastSeenNativeFingerprint).toBe('claude:claude-reload-1:300:30');
+    // reload 清空基线,不抢跑取指纹(此刻 resume 子进程还没写盘,取到的是旧值,
+    // 会导致下一条消息又误判 stale)。基线由下一轮生成结束后 refresh 重建。
+    expect(conversation.getCurrent()?.lastSeenNativeFingerprint).toBeUndefined();
     expect(conversation.getCurrent()?.staleReason).toBeUndefined();
     expect(typeof conversation.getCurrent()?.lastReloadedAt).toBe('number');
     expect(sent.at(-1)).toEqual({ kind: 'status', text: '已重新加载当前会话，可继续对话。' });
