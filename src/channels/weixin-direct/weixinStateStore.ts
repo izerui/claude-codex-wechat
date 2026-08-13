@@ -27,6 +27,11 @@ export type OutboundQueueItem = {
   filePath?: string;
   /** Display file name for file-type messages. */
   fileName?: string;
+  /**
+   * 入队时刻。超出推送窗口的消息在 drain 时丢弃，避免几天前的回复突然冒出来。
+   * 老版本入队的消息没有该字段，一律按"无法判断"处理并照常发送。
+   */
+  enqueuedAt?: number;
 };
 
 /**

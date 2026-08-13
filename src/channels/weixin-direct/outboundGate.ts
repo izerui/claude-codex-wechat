@@ -1,5 +1,5 @@
 import type { OutboundDeliveryGate } from '../../session/outboundGate';
-import type { OutboundQueueItem, WeixinStateStore } from './weixinStateStore';
+import { PUSH_WINDOW_MS, type OutboundQueueItem, type WeixinStateStore } from './weixinStateStore';
 
 /** Appended to the last message a token's quota can carry, to guide the user to refresh. */
 export const CONTINUATION_HINT = '\n\n（消息较多未发完，请回复任意消息继续接收）';
@@ -54,17 +54,17 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
       this.pendingLast.delete(chatId);
       await this.options.send(chatId, appendHintIfText(buffered));
       this.hintedReplies.set(chatId, Date.now());
-      store.enqueueOutbound(chatId, message);
+      store.enqueueOutbound(chatId, stamp(message));
       return;
     }
     // Already backed up → keep everything ordered behind the queue.
     if (store.hasPendingOutbound(chatId)) {
-      store.enqueueOutbound(chatId, message);
+      store.enqueueOutbound(chatId, stamp(message));
       return;
     }
     const quota = store.getQuota(chatId);
     if (quota.expired || quota.remaining <= 0) {
-      store.enqueueOutbound(chatId, message);
+      store.enqueueOutbound(chatId, stamp(message));
       return;
     }
     if (quota.remaining === 1) {
@@ -90,6 +90,16 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
     await this.options.send(chatId, buffered);
   }
 
+  /**
+   * 丢弃该会话全部待发消息（含缓冲在最后一格配额上的那条）。
+   * 会话被替换时调用，避免旧会话的回复稍后串进新会话。
+   */
+  async discardPending(chatId: string): Promise<void> {
+    this.pendingLast.delete(chatId);
+    this.hintedReplies.delete(chatId);
+    this.options.store.clearOutbound(chatId);
+  }
+
   async drain(chatId: string): Promise<void> {
     const { store } = this.options;
     while (store.hasPendingOutbound(chatId)) {
@@ -97,6 +107,12 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
       if (quota.expired || quota.remaining <= 0) break; // out of quota; leave the rest queued
       const pending = store.peekOutbound(chatId);
       const next = pending[0]!;
+      // 超出推送窗口的排队消息直接丢弃：内容早已过时，发出去只会让用户困惑，
+      // 还白白占用有限的配额。没有时间戳的（老版本入队）无法判断，照常发送。
+      if (isStale(next)) {
+        store.shiftOutbound(chatId);
+        continue;
+      }
       const isLastSlot = quota.remaining === 1;
       const hasMore = pending.length > 1;
       if (isLastSlot && hasMore) {
@@ -119,4 +135,18 @@ const MEDIA_KINDS = new Set(['image', 'video', 'audio', 'file']);
 function appendHintIfText(item: OutboundQueueItem): OutboundQueueItem {
   if (MEDIA_KINDS.has(item.kind)) return item;
   return { ...item, text: item.text + CONTINUATION_HINT };
+}
+
+/**
+ * 排队消息是否已过时。判据是微信推送窗口（24h）：超窗的内容早已失去时效。
+ * 没有 enqueuedAt 的是老版本入队的，无从判断，一律当作有效——升级不该丢消息。
+ */
+function isStale(item: OutboundQueueItem, now = Date.now()): boolean {
+  if (typeof item.enqueuedAt !== 'number') return false;
+  return now - item.enqueuedAt >= PUSH_WINDOW_MS;
+}
+
+/** 入队时打上时间戳，供 drain 判断是否已超出推送窗口。已有时间戳的保持不变。 */
+function stamp(item: OutboundQueueItem): OutboundQueueItem {
+  return item.enqueuedAt === undefined ? { ...item, enqueuedAt: Date.now() } : item;
 }

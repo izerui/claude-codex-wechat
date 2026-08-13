@@ -2247,4 +2247,92 @@ describe('MessageRouter outbound gate', () => {
     expect(delivered.map((d) => d.text)).toContain('收到：run tests');
     expect(directlySent).toEqual([]);
   });
+
+  it('discards queued messages from the old session when /new switches sessions', async () => {
+    // 旧会话排队未发的回复不该串进新会话——/new 就是明确的“翻篇”信号。
+    const channel = new MockChannelAdapter();
+    const cleared: string[] = [];
+    const outboundGate: OutboundDeliveryGate = {
+      hasPending: () => false,
+      deliver: async (chatId, message) => {
+        await channel.sendMessage({ chatId, kind: message.kind as 'text', text: message.text });
+      },
+      drain: async () => undefined,
+      discardPending: async (chatId: string) => { cleared.push(chatId); },
+    };
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new FakeProviderAdapter('claude-code')],
+      sessions,
+      resolveUser: () => authorizedUser,
+      outboundGate,
+      defaults: { defaultProvider: 'claude-code', defaultWorkspace: '/tmp/project' },
+    });
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-new',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '/new' },
+      timestamp: 1,
+    });
+
+    expect(cleared).toEqual(['chat-new']);
+  });
+
+  it('tells the user when a turn produced neither text nor error', async () => {
+    // provider 正常跑完但一个事件都没吐（如 codex 非流式回合内容丢失）。
+    // 用户不该干等——必须收到明确提示。
+    class SilentProviderAdapter implements NativeProviderAdapter {
+      readonly id = 'codex' as const;
+      private readonly sessions = new Map<string, ProviderSession>();
+
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        const session: ProviderSession = {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: `codex_silent_${input.bridgeSessionId}`,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+        this.sessions.set(input.bridgeSessionId, session);
+        return session;
+      }
+
+      async *sendMessage(): AsyncIterable<ProviderEvent> {
+        // 什么都不产出，直接结束。
+      }
+
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.sessions.delete(bridgeSessionId);
+      }
+    }
+
+    const channel = new MockChannelAdapter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new SilentProviderAdapter()],
+      sessions,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'codex', defaultWorkspace: '/tmp/project' },
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-silent',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hello' },
+      timestamp: 1,
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.kind).toBe('status');
+    expect(sent[0]!.text).toContain('没有返回任何内容');
+  });
 });

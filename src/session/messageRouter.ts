@@ -379,6 +379,9 @@ export class MessageRouter {
     const isLive = () => this.activeGenerations.get(message.chatId)?.genId === genId
       && (this.latestMutatingSeq.get(message.chatId) ?? 0) <= seq;
     let bufferedText = '';
+    // 本轮是否向用户产出过任何东西（正文或错误）。全程静默是异常，收尾时要告知用户，
+    // 否则 provider 侧任何"内容丢失"类缺陷都会表现为微信永远等不到回复、且毫无线索。
+    let deliveredSomething = false;
     // Typing is event-driven: refreshed as provider events arrive (throttled to
     // typingKeepaliveMs), never on a timer. A silent or wedged provider stops
     // emitting → we stop refreshing → WeChat's ~60s TTL clears the indicator on
@@ -411,6 +414,7 @@ export class MessageRouter {
         if (event.type === 'message_done' && bufferedText.trim()) {
           await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
           bufferedText = '';
+          deliveredSomething = true;
         }
         if (event.type === 'choice_prompt' && event.labels.length > 0) {
           this.pendingChoices.set(message.chatId, { sessionId: session.id, labels: event.labels, multiSelect: event.multiSelect });
@@ -442,11 +446,22 @@ export class MessageRouter {
             kind: 'status',
             text: errorText,
           });
+          deliveredSomething = true;
         }
       }
       if (isLive() && bufferedText.trim()) {
         await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
         bufferedText = '';
+        deliveredSomething = true;
+      }
+      // 兜底：一轮跑完却什么都没发给用户，说明 provider 的内容在中途丢了。
+      // 与其让用户对着空白干等，不如明确告知一声。
+      if (isLive() && !deliveredSomething) {
+        await this.sendToChat({
+          chatId: message.chatId,
+          kind: 'status',
+          text: '⚠️ 本轮没有返回任何内容（provider 已结束但未产出回复）。可重发消息重试。',
+        });
       }
       // The session .jsonl is only fully on disk once the turn ends. Re-persist
       // now so normalizeClaudeSessionFileForResume can rewrite the just-flushed
@@ -567,6 +582,8 @@ export class MessageRouter {
         providerId,
         cwd,
       });
+      // 换会话即翻篇：旧会话没发出去的排队回复不该串进新会话。
+      await Promise.resolve(this.options.outboundGate?.discardPending?.(chatId)).catch(() => undefined);
       await this.sendToChat({
         chatId,
         kind: 'status',

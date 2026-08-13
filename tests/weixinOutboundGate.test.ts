@@ -61,7 +61,7 @@ describe('WeixinOutboundGate.deliver', () => {
     await gate.deliver('u', { kind: 'text', text: '第11条' });
     // A follow-up proves more is coming → hint rides the 10th, 11th queues.
     expect(sent).toEqual([{ chatId: 'u', kind: 'text', text: `第10条${CONTINUATION_HINT}` }]);
-    expect(store.peekOutbound('u')).toEqual([{ kind: 'text', text: '第11条' }]);
+    expect(store.peekOutbound('u')).toEqual([expect.objectContaining({ kind: 'text', text: '第11条' })]);
     expect(gate.shouldInterceptReply('u')).toBe(true);
     expect(gate.shouldInterceptReply('u')).toBe(false);
   });
@@ -72,7 +72,7 @@ describe('WeixinOutboundGate.deliver', () => {
     for (let i = 0; i < 10; i += 1) store.recordSent('u'); // remaining = 0
     await gate.deliver('u', { kind: 'text', text: 'overflow' });
     expect(sent).toEqual([]);
-    expect(store.peekOutbound('u')).toEqual([{ kind: 'text', text: 'overflow' }]);
+    expect(store.peekOutbound('u')).toEqual([expect.objectContaining({ kind: 'text', text: 'overflow' })]);
   });
 
   it('queues everything once a backlog exists (ordering)', async () => {
@@ -82,8 +82,8 @@ describe('WeixinOutboundGate.deliver', () => {
     await gate.deliver('u', { kind: 'text', text: 'later' });
     expect(sent).toEqual([]);
     expect(store.peekOutbound('u')).toEqual([
-      { kind: 'text', text: 'earlier' },
-      { kind: 'text', text: 'later' },
+      expect.objectContaining({ kind: 'text', text: 'earlier' }),
+      expect.objectContaining({ kind: 'text', text: 'later' }),
     ]);
   });
 });
@@ -100,8 +100,8 @@ describe('WeixinOutboundGate.drain', () => {
     expect(sent.slice(0, 9).map((m) => m.text)).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9']);
     expect(sent[9]!.text).toBe(`m10${CONTINUATION_HINT}`);
     expect(store.peekOutbound('u')).toEqual([
-      { kind: 'text', text: 'm11' },
-      { kind: 'text', text: 'm12' },
+      expect.objectContaining({ kind: 'text', text: 'm11' }),
+      expect.objectContaining({ kind: 'text', text: 'm12' }),
     ]);
     expect(gate.shouldInterceptReply('u')).toBe(true);
   });
@@ -146,5 +146,48 @@ describe('WeixinOutboundGate.drain', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('WeixinOutboundGate.discardPending', () => {
+  it('clears the queue and the buffered final message', async () => {
+    const { store, sent, gate } = setup();
+    store.setContextToken('u', 'ctx');
+    for (let i = 0; i < 9; i += 1) store.recordSent('u'); // remaining = 1
+    await gate.deliver('u', { kind: 'text', text: '缓冲在最后一格' });
+    store.enqueueOutbound('u', { kind: 'text', text: '排队中' });
+
+    await gate.discardPending('u');
+    await gate.finalize('u'); // 缓冲那条也该被丢掉，不能在这里冒出来
+    await gate.drain('u');
+
+    expect(sent).toEqual([]);
+    expect(store.hasPendingOutbound('u')).toBe(false);
+  });
+});
+
+describe('WeixinOutboundGate.drain 的过期丢弃', () => {
+  it('drops queued messages older than the push window instead of sending them', async () => {
+    const { store, sent, gate } = setup();
+    store.setContextToken('u', 'ctx');
+    // 26 小时前排队的陈旧消息：早已超出微信 24h 推送窗口，发出去只会让用户困惑。
+    store.enqueueOutbound('u', { kind: 'text', text: '两天前的旧回复', enqueuedAt: Date.now() - 26 * 60 * 60 * 1000 });
+    store.enqueueOutbound('u', { kind: 'text', text: '刚排队的新回复', enqueuedAt: Date.now() });
+
+    await gate.drain('u');
+
+    expect(sent.map((s) => s.text)).toEqual(['刚排队的新回复']);
+    expect(store.hasPendingOutbound('u')).toBe(false);
+  });
+
+  it('keeps sending queue items that have no timestamp (queued by an older version)', async () => {
+    const { store, sent, gate } = setup();
+    store.setContextToken('u', 'ctx');
+    // 老版本入队的消息没有 enqueuedAt，无法判断新旧——不能一律丢掉，否则升级即丢消息。
+    store.enqueueOutbound('u', { kind: 'text', text: '无时间戳的旧格式' });
+
+    await gate.drain('u');
+
+    expect(sent.map((s) => s.text)).toEqual(['无时间戳的旧格式']);
   });
 });

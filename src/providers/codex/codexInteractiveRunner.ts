@@ -10,6 +10,8 @@ type StoredSession = ProviderSession & {
   activeTurnId?: string;
   sessionName?: string;
   turnClosed: boolean;
+  /** 本轮是否已经吐出过助手文本。用于判断 turn/completed 是否需要兜底补发。 */
+  emittedTextThisTurn?: boolean;
   eventResolver?: () => void;
   turnCompletedResolver?: () => void;
   turnCompletedPromise?: Promise<void>;
@@ -81,6 +83,23 @@ function readTurnId(value: unknown): string | undefined {
   }
   if (typeof record.turnId === 'string' && record.turnId) return record.turnId;
   return undefined;
+}
+
+// 从 turn/completed 的 turn.items 里取出助手消息全文（非流式回合的唯一来源）。
+function readTurnAgentMessages(value: unknown): string[] {
+  if (!value || typeof value !== 'object') return [];
+  const turn = (value as Record<string, unknown>).turn;
+  if (!turn || typeof turn !== 'object') return [];
+  const items = (turn as Record<string, unknown>).items;
+  if (!Array.isArray(items)) return [];
+  const texts: string[] = [];
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const record = item as Record<string, unknown>;
+    if (record.type !== 'agentMessage') continue;
+    if (typeof record.text === 'string' && record.text.trim()) texts.push(record.text);
+  }
+  return texts;
 }
 
 // turn/completed 正常时携带 error: null，失败时携带 app-server 的错误对象。
@@ -156,6 +175,7 @@ export class CodexInteractiveRunner {
     session.activeMessage = undefined;
     session.activeTurnId = undefined;
     session.turnClosed = false;
+    session.emittedTextThisTurn = false;
     session.turnCompletedPromise = new Promise<void>((resolve) => {
       session.turnCompletedResolver = resolve;
     });
@@ -311,6 +331,7 @@ export class CodexInteractiveRunner {
     });
     client.onNotification('turn/completed', (params) => {
       this.flushActiveMessage(session);
+      this.recoverTurnMessages(session, params);
       const turnError = readTurnError(params);
       if (turnError) this.enqueueEvent(session, { type: 'error', error: turnError });
       session.turnClosed = true;
@@ -354,6 +375,19 @@ export class CodexInteractiveRunner {
     this.enqueueEvent(session, { type: 'text_delta', text: session.activeMessage.text });
     this.enqueueEvent(session, { type: 'message_done' });
     session.activeMessage = undefined;
+    session.emittedTextThisTurn = true;
+  }
+
+  // 瞬时（非流式）回合里 app-server 可能完全不发 item/agentMessage/delta，
+  // 助手文本只出现在 turn/completed 的 items 中。此时若不兜底，回复会静默丢失。
+  // 只在本轮一条文本都没发出时才补发——宁可少发，也不要重复刷屏、白耗微信配额。
+  private recoverTurnMessages(session: StoredSession, params: unknown): void {
+    if (session.emittedTextThisTurn) return;
+    for (const text of readTurnAgentMessages(params)) {
+      this.enqueueEvent(session, { type: 'text_delta', text });
+      this.enqueueEvent(session, { type: 'message_done' });
+      session.emittedTextThisTurn = true;
+    }
   }
 
   private enqueueEvent(session: StoredSession, event: ProviderEvent): void {

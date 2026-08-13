@@ -23,4 +23,9 @@ export interface OutboundDeliveryGate {
   finalize?(chatId: string): Promise<void>;
   /** Replay queued messages after a token refresh (until quota runs out again). */
   drain(chatId: string): Promise<void>;
+  /**
+   * 丢弃该会话所有待发消息。会话被替换（如 /new）时调用：旧会话排队未发的回复
+   * 若继续留着，会在用户下次发消息时串进新会话，造成困惑。
+   */
+  discardPending?(chatId: string): Promise<void>;
 }

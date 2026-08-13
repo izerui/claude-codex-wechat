@@ -284,6 +284,94 @@ describe('CodexInteractiveRunner', () => {
     ]);
   });
 
+  it('recovers the reply from turn/completed items when no delta was streamed', async () => {
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    const request = vi.fn(async (method: string) => {
+      if (method === 'initialize') return { serverInfo: { name: 'fake-codex-app-server', version: '0.0.0' } };
+      if (method === 'thread/start') return { threadId: 'thread-nodelta' };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          // 瞬时（非流式）回合：app-server 不发 item/agentMessage/delta，
+          // 完整文本只出现在 turn/completed 的 items 里。
+          notificationHandlers.get('turn/completed')?.({
+            threadId: 'thread-nodelta',
+            turn: {
+              id: 'turn-nodelta',
+              status: 'completed',
+              error: null,
+              items: [
+                { type: 'agentMessage', id: 'msg-1', text: '已选择第 1 个视频。' },
+              ],
+            },
+          });
+        });
+        return { turn: { id: 'turn-nodelta' } };
+      }
+      return {};
+    });
+
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(request);
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => { notificationHandlers.delete(method); };
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+    const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume: vi.fn(async () => true) });
+    await runner.startSession({ bridgeSessionId: 'bs_nodelta', cwd: '/tmp/project', options: {} });
+
+    const events = [];
+    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_nodelta', text: 'hi' })) events.push(event);
+
+    expect(events).toContainEqual({ type: 'text_delta', text: '已选择第 1 个视频。' });
+  });
+
+  it('does not duplicate a streamed reply that also appears in turn/completed items', async () => {
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    const request = vi.fn(async (method: string) => {
+      if (method === 'initialize') return { serverInfo: { name: 'fake-codex-app-server', version: '0.0.0' } };
+      if (method === 'thread/start') return { threadId: 'thread-dup' };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: '流式内容' });
+          notificationHandlers.get('turn/completed')?.({
+            threadId: 'thread-dup',
+            turn: {
+              id: 'turn-dup',
+              status: 'completed',
+              error: null,
+              items: [{ type: 'agentMessage', id: 'msg-1', text: '流式内容' }],
+            },
+          });
+        });
+        return { turn: { id: 'turn-dup' } };
+      }
+      return {};
+    });
+
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(request);
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => { notificationHandlers.delete(method); };
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+    const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume: vi.fn(async () => true) });
+    await runner.startSession({ bridgeSessionId: 'bs_dup', cwd: '/tmp/project', options: {} });
+
+    const events = [];
+    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_dup', text: 'hi' })) events.push(event);
+
+    const texts = events.filter((event) => event.type === 'text_delta');
+    expect(texts).toHaveLength(1);
+  });
+
   it('surfaces the provider error carried by turn/completed', async () => {
     const notificationHandlers = new Map<string, (params: unknown) => void>();
     const request = vi.fn(async (method: string) => {
