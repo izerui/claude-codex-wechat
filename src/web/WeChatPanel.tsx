@@ -78,6 +78,7 @@ export function WeChatPanel(input: {
   const [attachingSessionId, setAttachingSessionId] = useState<string | null>(null);
   const [creatingProvider, setCreatingProvider] = useState<'claude-code' | 'codex' | null>(null);
   const [loadingMoreRecoverable, setLoadingMoreRecoverable] = useState(false);
+  const [scanningRecoverable, setScanningRecoverable] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const refresh = useCallback(async () => {
@@ -102,12 +103,17 @@ export function WeChatPanel(input: {
   }, []);
 
   const scanRecoverableSessions = useCallback(async (providerId: 'claude-code' | 'codex') => {
+    // 扫描原生会话要秒级时间，期间必须显式显示加载中，
+    // 否则空列表会被误读成「暂无可恢复会话」。
+    setScanningRecoverable(true);
     try {
       const page = await fetchRecoverableProviderSessions(providerId, { limit: RECOVERABLE_SESSIONS_PAGE_SIZE });
       setRecoverableSessions(page.items);
       setRecoverableNextCursor(page.nextCursor);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScanningRecoverable(false);
     }
   }, []);
 
@@ -422,7 +428,7 @@ export function WeChatPanel(input: {
               {!activeUser && isPluginConnected(plugin) ? (
                 <p className="text-muted-soft small mb-2">💡 请先从微信发任意消息以激活用户身份，之后即可接入会话。</p>
               ) : null}
-              {filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复会话。</p> : (
+              {scanningRecoverable ? <p className="mb-0 text-muted-soft">加载中...</p> : filteredRecoverableSessions.length === 0 ? <p className="mb-0">暂无可恢复会话。</p> : (
                 <>
                   <ul className="list-unstyled mb-0">
                     {filteredRecoverableSessions.map((session) => (
