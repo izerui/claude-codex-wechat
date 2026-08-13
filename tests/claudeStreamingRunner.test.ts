@@ -251,4 +251,41 @@ describe('ClaudeStreamingRunner', () => {
     expect(readEnvInt('abc', 10)).toBe(10);
     expect(readEnvInt('-5', 10)).toBe(10);
   });
+
+  it('surfaces an errored result as an error event', async () => {
+    const handle = new FakeHandle();
+    const runner = new ClaudeStreamingRunner({ spawner: () => handle, capabilityProbe: async () => true });
+    await runner.startSession({ bridgeSessionId: 'bs_err', cwd: '/tmp/project', options: { providerSessionId: 'sess-err' } });
+
+    const collected = collect(runner.sendMessage({ bridgeSessionId: 'bs_err', text: 'hi' }));
+    await tick();
+    // 真实形状取自 claude CLI：错误不走 type:"error"，而是 result + is_error。
+    handle.feedLine({
+      type: 'result',
+      subtype: 'error_max_turns',
+      is_error: true,
+      session_id: 'sess-err',
+      errors: ['Reached maximum number of turns (1)'],
+    });
+    const events = await collected;
+
+    expect(events).toContainEqual({
+      type: 'error',
+      error: 'Reached maximum number of turns (1)',
+    });
+  });
+
+  it('does not emit an error event for a successful result', async () => {
+    const handle = new FakeHandle();
+    const runner = new ClaudeStreamingRunner({ spawner: () => handle, capabilityProbe: async () => true });
+    await runner.startSession({ bridgeSessionId: 'bs_ok', cwd: '/tmp/project', options: { providerSessionId: 'sess-ok' } });
+
+    const collected = collect(runner.sendMessage({ bridgeSessionId: 'bs_ok', text: 'hi' }));
+    await tick();
+    handle.feedLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } });
+    handle.feedLine({ type: 'result', subtype: 'success', is_error: false, session_id: 'sess-ok', result: 'hello' });
+    const events = await collected;
+
+    expect(events.some((event) => event.type === 'error')).toBe(false);
+  });
 });

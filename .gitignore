@@ -13,3 +13,4 @@ CLAUDE.md
 relay-server/relay-auth-tokens.txt
 relay-server/*.tgz
 undefined/
+.idea/

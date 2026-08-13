@@ -283,4 +283,88 @@ describe('CodexInteractiveRunner', () => {
       { type: 'error', error: 'idle_timeout', code: 'idle_timeout' },
     ]);
   });
+
+  it('surfaces the provider error carried by turn/completed', async () => {
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    const request = vi.fn(async (method: string) => {
+      if (method === 'initialize') return { serverInfo: { name: 'fake-codex-app-server', version: '0.0.0' } };
+      if (method === 'thread/start') return { threadId: 'thread-failing' };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          notificationHandlers.get('turn/completed')?.({
+            threadId: 'thread-failing',
+            turn: {
+              id: 'turn-failing',
+              items: [],
+              status: 'failed',
+              error: { message: '{"error":{"message":"include is not supported"}}' },
+            },
+          });
+        });
+        return { turn: { id: 'turn-failing' } };
+      }
+      return {};
+    });
+
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(request);
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => {
+        notificationHandlers.delete(method);
+      };
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+    const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume: vi.fn(async () => true) });
+    await runner.startSession({ bridgeSessionId: 'bs_err', cwd: '/tmp/project', options: {} });
+
+    const events = [];
+    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_err', text: '11' })) events.push(event);
+
+    expect(events).toContainEqual({
+      type: 'error',
+      error: '{"error":{"message":"include is not supported"}}',
+    });
+  });
+
+  it('does not emit an error event when turn/completed carries no error', async () => {
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    const request = vi.fn(async (method: string) => {
+      if (method === 'initialize') return { serverInfo: { name: 'fake-codex-app-server', version: '0.0.0' } };
+      if (method === 'thread/start') return { threadId: 'thread-ok' };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          notificationHandlers.get('turn/completed')?.({
+            threadId: 'thread-ok',
+            turn: { id: 'turn-ok', items: [], status: 'completed', error: null },
+          });
+        });
+        return { turn: { id: 'turn-ok' } };
+      }
+      return {};
+    });
+
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(request);
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => {
+        notificationHandlers.delete(method);
+      };
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+    const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume: vi.fn(async () => true) });
+    await runner.startSession({ bridgeSessionId: 'bs_ok', cwd: '/tmp/project', options: {} });
+
+    const events = [];
+    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_ok', text: 'hi' })) events.push(event);
+
+    expect(events.some((event) => event.type === 'error')).toBe(false);
+  });
 });

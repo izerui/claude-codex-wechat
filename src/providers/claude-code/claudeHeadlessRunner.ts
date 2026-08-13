@@ -5,6 +5,7 @@ import { resolveLoginShellEnv } from '../../shared/loginShellEnv';
 import { extractAssistantBlocks } from './assistantContent';
 import { BRIDGE_APPEND_SYSTEM_PROMPT } from './bridgeSystemPrompt';
 import { probeAppendSystemPromptSupport, type ClaudeCapabilityProbe } from './claudeCapabilities';
+import { extractResultError } from './claudeStreamingRunner';
 import type { ClaudeRunner, ClaudeRunnerEvent, ClaudeRunnerSession } from './claudeRunner';
 
 export type ClaudeProcessCall = {
@@ -159,6 +160,8 @@ function parseClaudeLine(input: { bridgeSessionId: string; cwd: string; line: st
       });
     }
     events.push({ type: 'message_done' });
+    const resultError = extractResultError(record);
+    if (resultError) events.push({ type: 'error', error: resultError });
   }
 
   if (record.type === 'error') {

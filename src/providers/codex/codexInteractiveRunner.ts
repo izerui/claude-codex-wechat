@@ -83,6 +83,28 @@ function readTurnId(value: unknown): string | undefined {
   return undefined;
 }
 
+// turn/completed 正常时携带 error: null，失败时携带 app-server 的错误对象。
+// 形状不稳定（字符串 / { message } / 其它），一律原样保留，避免丢失排查信息。
+function readTurnError(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const turn = record.turn && typeof record.turn === 'object'
+    ? (record.turn as Record<string, unknown>)
+    : undefined;
+  const raw = turn?.error ?? record.error;
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'string') return raw || undefined;
+  if (typeof raw === 'object') {
+    const message = (raw as Record<string, unknown>).message;
+    if (typeof message === 'string' && message) return message;
+  }
+  try {
+    return JSON.stringify(raw);
+  } catch {
+    return String(raw);
+  }
+}
+
 export class CodexInteractiveRunner {
   private readonly sessions = new Map<string, StoredSession>();
   private readonly command?: string;
@@ -287,8 +309,10 @@ export class CodexInteractiveRunner {
       const turnId = readTurnId(params);
       if (turnId) session.activeTurnId = turnId;
     });
-    client.onNotification('turn/completed', () => {
+    client.onNotification('turn/completed', (params) => {
       this.flushActiveMessage(session);
+      const turnError = readTurnError(params);
+      if (turnError) this.enqueueEvent(session, { type: 'error', error: turnError });
       session.turnClosed = true;
       session.eventResolver?.();
       session.eventResolver = undefined;

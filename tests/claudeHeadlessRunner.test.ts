@@ -185,4 +185,32 @@ describe('ClaudeHeadlessRunner', () => {
 
     expect(events).toEqual([{ type: 'error', error: 'not logged in' }]);
   });
+
+  it('surfaces an errored result as an error event', async () => {
+    const runner = new ClaudeHeadlessRunner({
+      capabilityProbe: async () => true,
+      processRunner: async () => ({
+        code: 0,
+        stdout: `${JSON.stringify({
+          type: 'result',
+          subtype: 'error_max_turns',
+          is_error: true,
+          session_id: 'sess-err',
+          errors: ['Reached maximum number of turns (1)'],
+        })}\n`,
+        stderr: '',
+      }),
+    });
+    await runner.startSession({ bridgeSessionId: 'bs_1', cwd: '/tmp/project' });
+
+    const events = [];
+    for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_1', text: 'hello' })) {
+      events.push(event);
+    }
+
+    expect(events).toContainEqual({
+      type: 'error',
+      error: 'Reached maximum number of turns (1)',
+    });
+  });
 });

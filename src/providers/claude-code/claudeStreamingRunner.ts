@@ -188,6 +188,8 @@ export class ClaudeStreamingRunner implements ClaudeRunner {
         }
         session.turnCount += 1;
         yield { type: 'message_done' };
+        const resultError = extractResultError(record);
+        if (resultError) yield { type: 'error', error: resultError };
         // Each `result` ends one turn. If follow-ups were queued mid-turn, keep
         // consuming so the same generation streams those queued turns too.
         if (session.pendingFollowUps > 0) {
@@ -271,6 +273,20 @@ function buildStreamingArgs(session: StreamingSession, mcpConfigPath?: string): 
 
 function userEnvelope(text: string): string {
   return `${JSON.stringify({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null })}\n`;
+}
+
+// Claude CLI 不用 type:"error" 表达失败，而是 result + is_error:true
+// （如 subtype:"error_max_turns"）。原样保留错误文本，避免丢失排查信息。
+export function extractResultError(record: Record<string, unknown>): string | undefined {
+  if (record.is_error !== true) return undefined;
+  const errors = record.errors;
+  if (Array.isArray(errors)) {
+    const joined = errors.filter((item) => typeof item === 'string' && item).join('; ');
+    if (joined) return joined;
+  }
+  if (typeof record.result === 'string' && record.result) return record.result;
+  if (typeof record.subtype === 'string' && record.subtype) return record.subtype;
+  return JSON.stringify(record);
 }
 
 function extractError(record: Record<string, unknown>): string {
