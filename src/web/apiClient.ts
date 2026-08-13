@@ -263,7 +263,11 @@ export async function fetchActiveUser(): Promise<ActiveWeChatUserView | null> {
 }
 
 export async function fetchAuthorizedUsers(): Promise<AuthorizedUserView[]> {
-  const active = await fetchActiveUser();
+  // 取 /api/channel/state 而非 /active-user：它同时带回后端的真实 settings。
+  // 这两个默认值曾在前端写死（'claude-code' 与 '/tmp/project'），既盖掉了用户的
+  // 实际配置，'/tmp/project' 在 Windows 上还是个不存在的路径。
+  const state = await fetchChannelState();
+  const active = state.activeUser;
   if (!active) return [];
   return [{
     id: active.id,
@@ -271,8 +275,8 @@ export async function fetchAuthorizedUsers(): Promise<AuthorizedUserView[]> {
     platformUserId: active.platformUserId,
     displayName: active.displayName,
     role: active.role,
-    defaultProvider: 'claude-code',
-    defaultCwd: '/tmp/project',
+    defaultProvider: state.settings.defaultProvider,
+    defaultCwd: state.settings.defaultWorkspace,
     createdAt: active.createdAt,
     lastActiveAt: active.updatedAt,
   }];

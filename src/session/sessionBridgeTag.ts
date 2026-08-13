@@ -5,7 +5,6 @@ export type SessionBridgeTag = {
   summary?: string;
 };
 
-const PREFIX = 'claude-codex-wechat' as const;
 
 export function buildSessionBridgeName(input: SessionBridgeTag): string | undefined {
   const summary = input.summary?.trim();

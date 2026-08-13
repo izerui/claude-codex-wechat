@@ -1,6 +1,7 @@
 import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
+import { buildMcpServerCommand } from './mcpConfig.js';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
@@ -22,10 +23,10 @@ import { CurrentConversationStore } from '../session/currentConversationStore';
 import { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 import { RuntimeUserStore } from '../storage/runtimeUserStore';
 import type { ActiveWeChatUserStore } from '../storage/userStore';
-import { defaultConfigPath, loadBridgeConfig, type WeixinConfig, type BridgeConfig } from './config';
+import { loadBridgeConfig, type WeixinConfig, type BridgeConfig } from './config';
 import { BridgeEventHub } from './events';
 import { listLanIpv4Addresses } from './bootstrap';
-import type { TunnelProvider, TunnelStatusView } from '../runtime/tunnelProvider';
+import type { TunnelProvider } from '../runtime/tunnelProvider';
 import { RelayTunnelRouter } from '../runtime/relayTunnelRouter';
 import { ensureRelayAuthTokenSync } from './configPersistence';
 import { readClientVersion } from '../shared/version';
@@ -106,9 +107,11 @@ export function createDaemonServer(options: {
   // In prod (built): serverDir is dist/server, mediaServer is dist/mcp/mediaServer.js
   const mcpMediaServerTs = join(serverDir, '..', 'mcp', 'mediaServer.ts');
   const mcpMediaServerJs = join(serverDir, '..', 'mcp', 'mediaServer.js');
-  const useTs = existsSync(mcpMediaServerTs) && !existsSync(mcpMediaServerJs);
-  const mcpCommand = useTs ? 'tsx' : 'node';
-  const mcpArgs = [useTs ? mcpMediaServerTs : mcpMediaServerJs];
+  const { command: mcpCommand, args: mcpArgs } = buildMcpServerCommand({
+    tsEntry: mcpMediaServerTs,
+    jsEntry: mcpMediaServerJs,
+    exists: existsSync,
+  });
   writeFileSync(mcpConfigPath, JSON.stringify({
     mcpServers: {
       'wechat-media': {

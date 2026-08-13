@@ -1,5 +1,4 @@
-import Fastify from 'fastify';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createDaemonServer } from '../src/daemon/server';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
 import { WeixinDirectAdapter } from '../src/channels/weixin-direct/adapter';

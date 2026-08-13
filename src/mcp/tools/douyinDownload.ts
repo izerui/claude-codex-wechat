@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { sendMediaToWeChat } from '../../media/sendClient.js';
 import { locateDouyinScript } from '../../media/scriptLocator.js';
+import { nodeExecutable } from '../../shared/platform.js';
 
 /** Locate the douyin-download script bundled with the project. */
 function findDouyinScript(): string {
@@ -19,7 +20,7 @@ function findDouyinScript(): string {
 function runScript(args: string[]): Promise<{ stdout: string; stderr: string }> {
   const script = findDouyinScript();
   return new Promise((resolve, reject) => {
-    execFile('node', [script, ...args], { timeout: 120_000 }, (err, stdout, stderr) => {
+    execFile(nodeExecutable(), [script, ...args], { timeout: 120_000 }, (err, stdout, stderr) => {
       if (err) reject(new Error(stderr || err.message));
       else resolve({ stdout, stderr });
     });

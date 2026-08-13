@@ -6,7 +6,7 @@ import type { OutboundDeliveryGate } from './outboundGate';
 import { buildBridgeCommandHelpMarkdown } from '../shared/bridgeCommandHelp';
 import { defaultWorkspaceDir, statePath } from '../shared/platform';
 import { CurrentConversationStore, type CurrentConversationBinding } from './currentConversationStore';
-import { attachProviderSessionToBridge, listUnattachedRecoverableSessions } from './providerAutoAttach';
+import { attachProviderSessionToBridge } from './providerAutoAttach';
 import type { SessionManager } from './sessionManager';
 import type { BridgeEventHub } from '../daemon/events';
 import { buildSessionBridgeName } from './sessionBridgeTag';

@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { createDaemonServer } from '../src/daemon/server';
 import { FakeClaudeRunner } from '../src/providers/claude-code/fakeClaudeRunner';
@@ -545,7 +545,6 @@ describe('channel admin routes', () => {
         platformUserId: 'wx_user_1',
         role: 'user',
       });
-      const repairableTitle = '微信 · wx_user_1 · [claude-codex-wechat:batch-attached-1]';
       const syncedTitle = '微信 · wx_user_1 · [claude-codex-wechat:batch-attached-2]';
 
       const projectDir = join(process.env.HOME, '.claude', 'projects', '-tmp-project');

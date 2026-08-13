@@ -12,7 +12,7 @@ import type { ActiveWeChatUserStore } from '../storage/userStore';
 import { PUSH_QUOTA_LIMIT, PUSH_WINDOW_MS, type WeixinStateStore } from '../channels/weixin-direct/weixinStateStore';
 import type { CurrentConversationStore } from '../session/currentConversationStore';
 import type { NativeProviderAdapter } from '../providers/types';
-import { ensureClaudeSessionBridgeMetadata, findRecoverableClaudeSessionPath, getClaudeRecoverableSessionById, hasClaudeHistoryDisplay, hasClaudeSessionBridgeMetadata, listRecoverableClaudeSessions, prepareClaudeSessionForResume } from '../providers/claude-code/nativeSessions';
+import { findRecoverableClaudeSessionPath, hasClaudeHistoryDisplay, hasClaudeSessionBridgeMetadata, prepareClaudeSessionForResume } from '../providers/claude-code/nativeSessions';
 import { findRecoverableCodexSessionPath } from '../providers/codex/nativeSessions';
 import { attachProviderSessionToBridge, listUnattachedRecoverableSessions, selectBestRecoverableSession } from '../session/providerAutoAttach';
 

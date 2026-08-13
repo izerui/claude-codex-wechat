@@ -114,3 +114,14 @@ export function useShellForCli(): boolean {
 export function statePath(filename: string): string {
   return join(tmpdir(), filename);
 }
+
+/**
+ * 派生子进程执行 .mjs/.js 脚本时使用的 node 可执行文件。
+ *
+ * 不要写裸 'node'：Windows 上依赖 PATH + PATHEXT 解析，且 nvm / volta / fnm 之类的
+ * 版本管理器会让 PATH 里的 node 与当前进程不是同一个版本。process.execPath 是当前
+ * 解释器的绝对路径，跨平台且保证版本一致。
+ */
+export function nodeExecutable(): string {
+  return process.execPath;
+}
