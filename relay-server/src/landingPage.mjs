@@ -140,7 +140,6 @@ export function renderLandingPage() {
         <button class="copy-button" type="button">复制</button>
         <pre>npm install -g claude-codex-wechat --registry=https://registry.npmmirror.com/</pre>
       </div>
-      <p class="muted">已装过、要更新到新版本：运行 <code class="inline">claude-codex-wechat upgrade</code> 即可自动更新并重启。<br />若提示未知命令（旧版本还没有该命令），就重新执行上面的安装命令，再运行 <code class="inline">claude-codex-wechat restart</code>。</p>
     </section>
 
     <section class="step">
@@ -169,6 +168,21 @@ export function renderLandingPage() {
         <li>它跑在你自己的电脑上，用的就是你本机的 Claude / Codex 和项目文件。</li>
         <li>随时离开、稍后再发消息，都能接着上次的会话继续，不用重新开始。</li>
       </ul>
+    </section>
+
+    <section class="step">
+      <h2><span class="step-index">↑</span>更新</h2>
+      <p>已经装过了、想升级到最新版，运行这一条即可（自动拉取新版并重启服务）：</p>
+      <div class="code-block">
+        <button class="copy-button" type="button">复制</button>
+        <pre>claude-codex-wechat upgrade</pre>
+      </div>
+      <p class="muted">若提示「未知命令」，说明当前装的还是没有该命令的旧版本，改用下面两条：</p>
+      <div class="code-block">
+        <button class="copy-button" type="button">复制</button>
+        <pre>npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/
+claude-codex-wechat restart</pre>
+      </div>
     </section>
 
     <p class="footer">遇到问题？先跑 <code class="inline">claude-codex-wechat doctor</code> 自检。</p>
