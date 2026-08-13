@@ -1,6 +1,6 @@
 {
   "name": "@liuyuhua/relay-server",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": false,
   "description": "Standalone relay server for claude-codex-wechat reverse tunnel access.",
   "license": "MIT",
