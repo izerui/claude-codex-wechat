@@ -1,24 +1,10 @@
 import { basename } from 'node:path';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { sendMediaToWeChat, type SendMediaKind } from '../../media/sendClient.js';
 
-const BRIDGE_API_URL = process.env.BRIDGE_API_URL || 'http://localhost:8787';
-
-async function sendMedia(kind: string, filePath: string, fileName?: string): Promise<string> {
-  const response = await fetch(`${BRIDGE_API_URL}/api/channel/send-media`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ kind, filePath, fileName }),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`发送失败 (HTTP ${response.status}): ${text}`);
-  }
-  const result = await response.json() as { ok: boolean; error?: string };
-  if (!result.ok) {
-    throw new Error(`发送失败: ${result.error ?? '未知错误'}`);
-  }
-  return '发送成功';
+async function sendMedia(kind: SendMediaKind, filePath: string, fileName?: string): Promise<string> {
+  return await sendMediaToWeChat({ kind, filePath, fileName });
 }
 
 export function registerSendMediaTools(server: McpServer): void {

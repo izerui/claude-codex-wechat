@@ -1,6 +1,6 @@
 import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { registerChannelAdminRoutes } from '../admin/channelAdminRoutes';
@@ -330,6 +330,15 @@ export function createDaemonServer(options: {
     const validKinds = ['image', 'video', 'audio', 'file'];
     if (!kind || !validKinds.includes(kind)) {
       return reply.code(400).send({ ok: false, error: `kind must be one of: ${validKinds.join(', ')}` });
+    }
+    // 必须在这里拦下不存在的文件：模型（尤其是没有 MCP 工具、只能自己拼命令的 Codex）
+    // 会凭空构造路径来调用本端点，若放行则它拿到成功响应后会告诉用户「已发送」，
+    // 而用户微信什么都收不到——失败被伪装成成功，比直接报错难排查得多。
+    if (!isAbsolute(filePath)) {
+      return reply.code(400).send({ ok: false, error: `filePath must be an absolute path: ${filePath}` });
+    }
+    if (!existsSync(filePath)) {
+      return reply.code(400).send({ ok: false, error: `file not found: ${filePath}` });
     }
     if (!channel) {
       return reply.code(503).send({ ok: false, error: 'channel not available' });

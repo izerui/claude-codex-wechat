@@ -1,36 +1,19 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { resolve, dirname, join, basename } from 'node:path';
+import { dirname, join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-const BRIDGE_API_URL = process.env.BRIDGE_API_URL || 'http://localhost:8787';
-
-export function douyinScriptCandidates(baseDir: string): string[] {
-  return [
-    // Source layout: src/mcp/tools -> src/mcp/scripts
-    join(baseDir, '..', 'scripts', 'douyin-download.mjs'),
-    // Bundled layout: dist/mcp/mediaServer.js -> dist/mcp/scripts
-    join(baseDir, 'scripts', 'douyin-download.mjs'),
-    // Older/alternate dist layout fallback
-    join(baseDir, '..', '..', 'mcp', 'scripts', 'douyin-download.mjs'),
-    // User skills locations (cross-platform)
-    join(homedir(), '.agents', 'skills', 'douyin-download', 'scripts', 'douyin-download.mjs'),
-    join(homedir(), '.claude', 'skills', 'douyin-download', 'scripts', 'douyin-download.mjs'),
-  ];
-}
+import { sendMediaToWeChat } from '../../media/sendClient.js';
+import { locateDouyinScript } from '../../media/scriptLocator.js';
 
 /** Locate the douyin-download script bundled with the project. */
 function findDouyinScript(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = douyinScriptCandidates(here);
-  for (const p of candidates) {
-    const resolved = resolve(p);
-    if (existsSync(resolved)) return resolved;
-  }
-  throw new Error('douyin-download 脚本未找到');
+  const found = locateDouyinScript({ baseDir: here });
+  if (!found) throw new Error('douyin-download 脚本未找到');
+  return found;
 }
 
 function runScript(args: string[]): Promise<{ stdout: string; stderr: string }> {
@@ -43,20 +26,9 @@ function runScript(args: string[]): Promise<{ stdout: string; stderr: string }> 
   });
 }
 
-async function sendToWechat(filePath: string, kind: string): Promise<string> {
-  const fileName = basename(filePath) || 'video.mp4';
-  const response = await fetch(`${BRIDGE_API_URL}/api/channel/send-media`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ kind, filePath, fileName }),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`发送失败 (HTTP ${response.status}): ${text}`);
-  }
-  const result = await response.json() as { ok: boolean; error?: string };
-  if (!result.ok) throw new Error(`发送失败: ${result.error ?? '未知错误'}`);
-  return '发送成功';
+async function sendToWechat(filePath: string, kind: 'video'): Promise<string> {
+  // 下载来的文件名带 aweme_id，显式下发，避免微信端显示成无意义的临时名。
+  return await sendMediaToWeChat({ kind, filePath, fileName: basename(filePath) || 'video.mp4' });
 }
 
 export function registerDouyinTools(server: McpServer): void {

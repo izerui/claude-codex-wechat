@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { douyinScriptCandidates } from '../src/mcp/tools/douyinDownload';
+import { douyinScriptCandidates } from '../src/media/scriptLocator';
 
 describe('douyinScriptCandidates', () => {
   it('includes the source-layout script path for tsx/dev runs', () => {
