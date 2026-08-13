@@ -212,7 +212,9 @@ describe('daemon WeChat runtime channel', () => {
         ],
         get_updates_buf: 'buf_1',
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValue(new Response(JSON.stringify({
+      // 每次调用都新建 Response：body 只能读一次，复用同一个实例会让
+      // 第二次轮询抛 "Body has already been read"。
+      .mockImplementation(async () => new Response(JSON.stringify({
         ret: 0,
         errcode: 0,
         msgs: [],
@@ -265,7 +267,9 @@ describe('daemon WeChat runtime channel', () => {
         ],
         get_updates_buf: 'buf_1',
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValue(new Response(JSON.stringify({
+      // 每次调用都新建 Response：body 只能读一次，复用同一个实例会让
+      // 第二次轮询抛 "Body has already been read"。
+      .mockImplementation(async () => new Response(JSON.stringify({
         ret: 0,
         errcode: 0,
         msgs: [],
@@ -316,7 +320,9 @@ describe('daemon WeChat runtime channel', () => {
         ],
         get_updates_buf: 'buf_1',
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
-      .mockResolvedValue(new Response(JSON.stringify({
+      // 每次调用都新建 Response：body 只能读一次，复用同一个实例会让
+      // 第二次轮询抛 "Body has already been read"。
+      .mockImplementation(async () => new Response(JSON.stringify({
         ret: 0,
         errcode: 0,
         msgs: [],

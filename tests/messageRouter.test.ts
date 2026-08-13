@@ -2248,6 +2248,49 @@ describe('MessageRouter outbound gate', () => {
     expect(directlySent).toEqual([]);
   });
 
+  it('reports a thrown provider failure to the user instead of failing silently', async () => {
+    // codex 启动失败走的是 throw 而不是 yield error（二进制缺失/未登录/spawn 失败）。
+    // 没有顶层兜底时异常直接冒泡出路由，用户永远等不到任何回应。
+    class ThrowingProviderAdapter implements NativeProviderAdapter {
+      readonly id = 'codex' as const;
+
+      async startSession(): Promise<ProviderSession> {
+        throw new Error('spawn codex ENOENT');
+      }
+
+      async *sendMessage(): AsyncIterable<ProviderEvent> {
+        // unreachable
+      }
+
+      async stopSession(): Promise<void> {}
+    }
+
+    const channel = new MockChannelAdapter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'codex' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new ThrowingProviderAdapter()],
+      sessions,
+      resolveUser: () => authorizedUser,
+      defaults: { defaultProvider: 'codex', defaultWorkspace: '/tmp/project' },
+    });
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-throw',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: 'hello' },
+      timestamp: 1,
+    });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.kind).toBe('status');
+    expect(sent[0]!.text).toContain('spawn codex ENOENT');
+  });
+
   it('discards queued messages from the old session when /new switches sessions', async () => {
     // 旧会话排队未发的回复不该串进新会话——/new 就是明确的“翻篇”信号。
     const channel = new MockChannelAdapter();

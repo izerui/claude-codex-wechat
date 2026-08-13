@@ -28,4 +28,9 @@ export interface OutboundDeliveryGate {
    * 若继续留着，会在用户下次发消息时串进新会话，造成困惑。
    */
   discardPending?(chatId: string): Promise<void>;
+  /**
+   * 取出「配额耗尽导致回复被排队」的一次性提示，没有则返回 null。
+   * 路由在一轮收尾时调用：否则配额归零后消息被静默入队，用户既收不到回复也不知原因。
+   */
+  takeQuotaExhaustedNotice?(chatId: string): string | null;
 }

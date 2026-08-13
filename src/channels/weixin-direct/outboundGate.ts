@@ -22,6 +22,8 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
   private readonly hintedReplies = new Map<string, number>();
   /** The message held back on the final quota slot, pending proof of a follow-up. */
   private readonly pendingLast = new Map<string, OutboundQueueItem>();
+  /** 配额归零导致消息入队、且尚未告知用户的会话。 */
+  private readonly quotaExhaustedNotified = new Set<string>();
   private static readonly HINT_REPLY_TTL_MS = 2 * 60 * 60 * 1000;
 
   constructor(private readonly options: {
@@ -64,6 +66,12 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
     }
     const quota = store.getQuota(chatId);
     if (quota.expired || quota.remaining <= 0) {
+      // 配额已归零：消息只能入队等下次刷新。续发提示只挂在「剩最后一格」那条上，
+      // 归零后反而毫无提示——用户既收不到回复也不知道原因。这里标记一次，
+      // 由调用方在本轮收尾时告知用户（只提示一次，避免每条都刷屏）。
+      if (!this.quotaExhaustedNotified.has(chatId)) {
+        this.quotaExhaustedNotified.add(chatId);
+      }
       store.enqueueOutbound(chatId, stamp(message));
       return;
     }
@@ -91,12 +99,22 @@ export class WeixinOutboundGate implements OutboundDeliveryGate {
   }
 
   /**
+   * 取出「配额耗尽导致回复被排队」的一次性提示文案，没有则返回 null。
+   * 取走即清除，保证同一次耗尽只提示一次，不会每条排队消息都刷屏。
+   */
+  takeQuotaExhaustedNotice(chatId: string): string | null {
+    if (!this.quotaExhaustedNotified.delete(chatId)) return null;
+    return '⚠️ 本轮回复已超出微信 24 小时推送额度，剩余内容已暂存。回复任意消息即可继续接收。';
+  }
+
+  /**
    * 丢弃该会话全部待发消息（含缓冲在最后一格配额上的那条）。
    * 会话被替换时调用，避免旧会话的回复稍后串进新会话。
    */
   async discardPending(chatId: string): Promise<void> {
     this.pendingLast.delete(chatId);
     this.hintedReplies.delete(chatId);
+    this.quotaExhaustedNotified.delete(chatId);
     this.options.store.clearOutbound(chatId);
   }
 

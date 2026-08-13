@@ -25,12 +25,37 @@ export type StartDaemonOptions = {
   enableUpdateCheck?: boolean;
 };
 
+let crashLoggingInstalled = false;
+
+/**
+ * 未捕获异常 / 未处理 rejection 的兜底日志。
+ *
+ * 在此之前这两类故障不会留下任何痕迹：进程直接退出，长轮询停止，用户发的消息
+ * 全部石沉大海，事后翻日志也看不出崩在哪。这里至少把堆栈写进 stderr 日志
+ * （`claude-codex-wechat logs` 可见），让「服务突然不响应」变成可排查的事件。
+ *
+ * 只记录不吞掉：uncaughtException 后进程状态已不可信，仍按默认语义退出，
+ * 交给 launchd/systemd 拉起，避免带着半损坏状态continue 服务。
+ */
+function installCrashLogging(): void {
+  if (crashLoggingInstalled) return;
+  crashLoggingInstalled = true;
+  process.on('unhandledRejection', (reason) => {
+    console.error('[bridge] unhandled rejection:', reason);
+  });
+  process.on('uncaughtException', (error) => {
+    console.error('[bridge] uncaught exception, exiting:', error);
+    process.exit(1);
+  });
+}
+
 export async function startDaemon(options: StartDaemonOptions): Promise<{
   app: FastifyInstance;
   port: number;
   host: string;
   configPath: string;
 }> {
+  installCrashLogging();
   const port = options.port ?? Number(process.env.BRIDGE_PORT ?? 8787);
   const host = options.host ?? '0.0.0.0';
   const configPath = options.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath();

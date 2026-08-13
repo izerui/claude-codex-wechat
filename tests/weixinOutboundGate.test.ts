@@ -149,6 +149,22 @@ describe('WeixinOutboundGate.drain', () => {
   });
 });
 
+describe('WeixinOutboundGate 配额耗尽提示', () => {
+  it('tells the user once when quota is already exhausted and replies start queueing', async () => {
+    const { store, sent, gate } = setup();
+    store.setContextToken('u', 'ctx');
+    for (let i = 0; i < 10; i += 1) store.recordSent('u'); // remaining = 0
+    // 配额归零时消息被静默入队：用户既收不到回复、也不知道为什么。
+    // 续发提示只挂在 remaining===1 那条上，归零后反而毫无提示。
+    await gate.deliver('u', { kind: 'text', text: 'overflow' });
+    expect(gate.takeQuotaExhaustedNotice('u')).toContain('回复任意消息');
+    // 只提示一次，不要每条都刷。
+    await gate.deliver('u', { kind: 'text', text: 'overflow2' });
+    expect(gate.takeQuotaExhaustedNotice('u')).toBeNull();
+    expect(sent).toEqual([]);
+  });
+});
+
 describe('WeixinOutboundGate.discardPending', () => {
   it('clears the queue and the buffered final message', async () => {
     const { store, sent, gate } = setup();

@@ -114,7 +114,23 @@ export class MessageRouter {
   async handleMessage(message: ChannelIncomingMessage): Promise<
     { status: 'accepted' } | { status: 'pairing_required'; code: string }
   > {
-    return this.withSessionChangeNotification(() => this.handleMessageInner(message));
+    try {
+      return await this.withSessionChangeNotification(() => this.handleMessageInner(message));
+    } catch (error) {
+      // 顶层兜底：在此之前，任何未预期异常（provider 二进制缺失、startSession 抛错、
+      // 会话创建失败……）都只会冒泡到一行 console.error，用户端毫无反应——分不清
+      // 是「系统崩了」还是「AI 还在想」，只能一直干等。异常必须让用户看见。
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error('[bridge] handleMessage failed:', message.chatId, error);
+      // 告知失败本身也可能失败（如微信 token 过期）；此处绝不能再抛，
+      // 否则又变回静默，还会污染上层。
+      await this.sendToChat({
+        chatId: message.chatId,
+        kind: 'status',
+        text: `⚠️ 桥接层内部错误：${detail}\n可重发消息重试；若持续失败，请检查 provider 是否可用（claude-codex-wechat doctor）。`,
+      }).catch(() => undefined);
+      return { status: 'accepted' };
+    }
   }
 
   private async handleMessageInner(message: ChannelIncomingMessage): Promise<
@@ -488,6 +504,12 @@ export class MessageRouter {
       // it had no follow-up and goes out without a continuation hint. Best-effort:
       // a failed flush must not skip the typing reset below.
       await Promise.resolve(this.options.outboundGate?.finalize?.(message.chatId)).catch(() => undefined);
+      // 配额归零导致本轮回复被静默入队时，告知用户一次——否则他只会看到"没反应"。
+      // 这条提示本身也走 gate，会一并排队，但用户下次发消息 drain 时就能看到原因。
+      const quotaNotice = this.options.outboundGate?.takeQuotaExhaustedNotice?.(message.chatId);
+      if (quotaNotice) {
+        await this.sendToChat({ chatId: message.chatId, kind: 'status', text: quotaNotice }).catch(() => undefined);
+      }
       if (stillMine) await this.options.channel.setTyping?.(message.chatId, false);
     }
   }
