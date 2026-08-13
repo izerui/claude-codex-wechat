@@ -87,8 +87,12 @@ export function App() {
             <div style={{ minWidth: 0 }}>
               <strong>发现新版 v{status.update.latestVersion}</strong>
               {status.update.currentVersion ? <span className="text-muted-soft">（当前 v{status.update.currentVersion}）</span> : null}
-              <div className="small mt-1">更新命令（更新后需重启服务生效）：</div>
+              <div className="small mt-1">更新命令（自动更新并重启）：</div>
               <code className="d-block mt-1" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                claude-codex-wechat upgrade
+              </code>
+              <div className="small mt-2 text-muted-soft">若提示未知命令（旧版本还没有该命令），改用：</div>
+              <code className="d-block mt-1 text-muted-soft" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                 npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/{'\n'}claude-codex-wechat restart
               </code>
             </div>
@@ -97,7 +101,7 @@ export function App() {
                 type="button"
                 className="btn btn-sm btn-outline-secondary"
                 onClick={() => {
-                  void navigator.clipboard?.writeText('npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/\nclaude-codex-wechat restart');
+                  void navigator.clipboard?.writeText('claude-codex-wechat upgrade');
                 }}
               >
                 复制

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { promisify } from 'node:util';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startDaemon } from './daemon/bootstrap';
@@ -15,9 +17,12 @@ import {
   tailServiceLogs,
   uninstallService,
 } from './daemon/service';
-import { findExecutable } from './shared/platform';
+import { findExecutable, useShellForCli } from './shared/platform';
+import { performUpgrade, UPGRADE_REGISTRY_URL, type InstallResult } from './daemon/upgrade';
 import { resolveTerminalSearchPath } from './shared/loginShellEnv';
 import { readClientVersion } from './shared/version';
+
+const execFileAsync = promisify(execFile);
 
 const here = dirname(fileURLToPath(import.meta.url));
 // 生产打包后 cli.js 位于 dist/server/，前端静态资源位于 dist/web/。
@@ -47,6 +52,9 @@ async function main(): Promise<void> {
       return;
     case 'doctor':
       await cmdDoctor();
+      return;
+    case 'upgrade':
+      await cmdUpgrade();
       return;
     case 'uninstall':
       await cmdUninstall();
@@ -93,6 +101,69 @@ async function cmdStop(): Promise<void> {
 async function cmdRestart(): Promise<void> {
   const status = await restartManagedService(createServiceContext());
   printServiceStatus('service restarted', status);
+}
+
+async function cmdUpgrade(): Promise<void> {
+  const args = process.argv.slice(3);
+  const force = args.includes('--force');
+  const registryArg = args.find((arg) => arg.startsWith('--registry='));
+  const registryUrl = registryArg ? registryArg.slice('--registry='.length) : undefined;
+  const currentVersion = readClientVersion();
+
+  const result = await performUpgrade({
+    currentVersion,
+    force,
+    registryUrl,
+    log: (message) => console.log(message),
+    install: () => runGlobalInstall(registryUrl ?? UPGRADE_REGISTRY_URL),
+    restart: async () => {
+      await restartManagedService(createServiceContext());
+    },
+  });
+
+  switch (result.outcome) {
+    case 'upgraded':
+      console.log(`✓ 已升级到 ${result.to}`);
+      return;
+    case 'already-latest':
+      console.log(`✓ 已是最新版 ${result.to}（重装请加 --force）`);
+      return;
+    case 'check-failed':
+      console.error(`查询最新版本失败：${result.message}`);
+      console.error('服务未改动。可稍后重试，或手动执行：');
+      printManualUpgradeCommands();
+      process.exitCode = 1;
+      return;
+    case 'install-failed':
+      console.error(`更新失败：${result.message}`);
+      console.error('服务未重启，仍在运行旧版本。可手动执行：');
+      printManualUpgradeCommands();
+      process.exitCode = 1;
+  }
+}
+
+// 全局安装可能因目录不可写而失败（如系统 node）。此处不自作主张加 sudo，
+// 失败时把命令原样打给用户，由用户决定是否提权。
+async function runGlobalInstall(registryUrl: string): Promise<InstallResult> {
+  try {
+    const { stderr } = await execFileAsync(
+      'npm',
+      ['install', '-g', 'claude-codex-wechat@latest', `--registry=${registryUrl}`],
+      { shell: useShellForCli() },
+    );
+    if (stderr.trim()) console.log(stderr.trim());
+    return { ok: true };
+  } catch (err) {
+    const detail = err instanceof Error && 'stderr' in err && typeof err.stderr === 'string' && err.stderr.trim()
+      ? err.stderr.trim()
+      : err instanceof Error ? err.message : String(err);
+    return { ok: false, message: detail };
+  }
+}
+
+function printManualUpgradeCommands(): void {
+  console.error(`  npm install -g claude-codex-wechat@latest --registry=${UPGRADE_REGISTRY_URL}`);
+  console.error('  claude-codex-wechat restart');
 }
 
 async function cmdStatus(): Promise<void> {
@@ -155,7 +226,10 @@ function printUpdateHint(): void {
   if (!update?.updateAvailable) return;
   const current = update.currentVersion ?? readClientVersion();
   console.log(`\n发现新版 v${update.latestVersion}（当前 v${current}）。更新：`);
-  console.log('  npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/');
+  console.log('  claude-codex-wechat upgrade');
+  // 旧版本还没有 upgrade 子命令，保留手动命令兜底。
+  console.log('\n若提示未知命令，改用：');
+  console.log(`  npm install -g claude-codex-wechat@latest --registry=${UPGRADE_REGISTRY_URL}`);
   console.log('  claude-codex-wechat restart');
 }
 
@@ -212,6 +286,7 @@ function printUsage(): void {
   logs           打印最近日志
   tail           实时跟随日志
   doctor         检查配置、前端产物与 claude/codex 可执行文件
+  upgrade        更新到最新版并重启（--force 强制重装，--registry= 指定源）
   uninstall      卸载后台服务
   print-config   打印当前配置文件内容
   help           显示本帮助

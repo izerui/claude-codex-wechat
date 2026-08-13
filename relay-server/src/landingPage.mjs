@@ -140,7 +140,7 @@ export function renderLandingPage() {
         <button class="copy-button" type="button">复制</button>
         <pre>npm install -g claude-codex-wechat --registry=https://registry.npmmirror.com/</pre>
       </div>
-      <p class="muted">已装过、要更新到新版本：重新执行上面这条命令，然后运行 <code class="inline">claude-codex-wechat restart</code> 重启服务生效。</p>
+      <p class="muted">已装过、要更新到新版本：运行 <code class="inline">claude-codex-wechat upgrade</code> 即可自动更新并重启。<br />若提示未知命令（旧版本还没有该命令），就重新执行上面的安装命令，再运行 <code class="inline">claude-codex-wechat restart</code>。</p>
     </section>
 
     <section class="step">

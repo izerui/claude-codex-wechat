@@ -24,6 +24,19 @@ pnpm add -g claude-codex-wechat
 
 > 该包依赖 `better-sqlite3`。大多数电脑会直接下载预编译好的二进制；极少数环境可能需要本地编译工具链。
 
+## 更新
+
+```bash
+claude-codex-wechat upgrade
+```
+
+会自动拉取最新版并重启服务（重启期间微信桥接会短暂中断）。若提示未知命令，说明当前版本还没有该命令，改用：
+
+```bash
+npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/
+claude-codex-wechat restart
+```
+
 ## 开始使用
 
 安装完，三步就能跑通：
@@ -57,6 +70,7 @@ claude-codex-wechat doctor
 | `claude-codex-wechat restart` | 重启 |
 | `claude-codex-wechat stop` | 停止 |
 | `claude-codex-wechat doctor` | 体检：检查配置、前端产物、`claude`/`codex` 是否就绪 |
+| `claude-codex-wechat upgrade` | 更新到最新版并自动重启（`--force` 强制重装） |
 | `claude-codex-wechat print-config` | 打印当前配置 |
 | `claude-codex-wechat uninstall` | 卸载后台服务 |
 | `claude-codex-wechat help` | 显示帮助 |
