@@ -174,6 +174,8 @@ describe('EngineBays', () => {
         plugin={connectedPlugin}
         currentSession={claudeSession}
         canCreateSession
+        // 有激活的微信用户才允许操作；缺了这项按钮是禁用的，点击不会触发回调。
+        canOperate
         defaultWorkspace="/default/ws"
         lastProviderSessions={{ codex: { providerSessionId: 'sess_codex_old', cwd: '/old/codex', updatedAt: 1700000000000 } }}
         onCreateSession={onCreateSession}
@@ -197,6 +199,8 @@ describe('EngineBays', () => {
         plugin={connectedPlugin}
         currentSession={claudeSession}
         canCreateSession
+        // 有激活的微信用户才允许操作；缺了这项按钮是禁用的，点击不会触发回调。
+        canOperate
         defaultWorkspace="/default/ws"
         onCreateSession={onCreateSession}
       />,

@@ -1,6 +1,7 @@
 import type { ProviderEvent, ProviderSession } from '../types';
 import { CodexAppServerClient } from './codexAppServerClient';
 import { syncCodexThreadForResume } from './nativeThreads';
+import { buildCodexBridgeInstructions } from './bridgeDeveloperInstructions';
 
 type StoredSession = ProviderSession & {
   threadId?: string;
@@ -129,16 +130,21 @@ export class CodexInteractiveRunner {
   private readonly command?: string;
   private readonly syncThreadForResume: typeof syncCodexThreadForResume;
   private readonly idleTimeoutMs: number;
+  private readonly bridgeInstructions: string;
 
 
   constructor(input: {
     command?: string;
     syncThreadForResume?: typeof syncCodexThreadForResume;
     idleTimeoutMs?: number;
+    bridgeInstructions?: string;
   } = {}) {
     this.command = input.command;
     this.syncThreadForResume = input.syncThreadForResume ?? syncCodexThreadForResume;
     this.idleTimeoutMs = input.idleTimeoutMs ?? 180_000;
+    // 每轮 thread/start、thread/resume 都要复用同一份常量，避免因内容抖动
+    // 让 codex 侧的 prompt 缓存每轮失效。
+    this.bridgeInstructions = input.bridgeInstructions ?? buildCodexBridgeInstructions();
   }
 
   async startSession(input: {
@@ -185,6 +191,8 @@ export class CodexInteractiveRunner {
         threadId: session.threadId,
         cwd: session.cwd,
         persistExtendedHistory: true,
+        // resume 也要带：恢复出来的会话同样跑在微信桥接环境里。
+        developerInstructions: this.bridgeInstructions,
       }).catch(() => undefined), this.idleTimeoutMs);
       if (resumed === IDLE_SENTINEL) {
         await this.handleIdleTimeout(session);
@@ -199,6 +207,7 @@ export class CodexInteractiveRunner {
         experimentalRawEvents: true,
         sandboxPolicy: { type: 'disabled' },
         approvalMode: 'never',
+        developerInstructions: this.bridgeInstructions,
       }), this.idleTimeoutMs);
       if (started === IDLE_SENTINEL) {
         await this.handleIdleTimeout(session);

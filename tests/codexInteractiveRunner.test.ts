@@ -455,4 +455,51 @@ describe('CodexInteractiveRunner', () => {
 
     expect(events.some((event) => event.type === 'error')).toBe(false);
   });
+
+  // Codex 0.147 起 MCP 工具不再暴露给模型（ToolSearchAlwaysDeferMcpTools），
+  // 所以微信侧的发文件能力只能靠 developerInstructions 告知它 HTTP 端点。
+  // 续接会话同样要带上，否则第二轮之后 Codex 就忘了自己能发文件。
+  it('injects wechat bridge developer instructions on both thread start and resume', async () => {
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    const request = vi.fn(async (method: string, params?: unknown) => {
+      if (method === 'thread/start') return { threadId: 'thread-di' };
+      if (method === 'thread/resume') return { threadId: (params as { threadId: string }).threadId };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          notificationHandlers.get('turn/completed')?.({
+            threadId: 'thread-di',
+            turn: { id: 't1', items: [{ type: 'agentMessage', text: 'ok' }] },
+          });
+        });
+        return { turn: { id: 't1' } };
+      }
+      return {};
+    });
+
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(request);
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => {
+        notificationHandlers.delete(method);
+      };
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+    const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume: vi.fn(async () => true) });
+    await runner.startSession({ bridgeSessionId: 'bs_di', cwd: '/tmp/project', options: {} });
+    for await (const _ of runner.sendMessage({ bridgeSessionId: 'bs_di', text: 'first' })) { /* drain */ }
+    for await (const _ of runner.sendMessage({ bridgeSessionId: 'bs_di', text: 'second' })) { /* drain */ }
+
+    const startCall = request.mock.calls.find(([method]) => method === 'thread/start');
+    const resumeCall = request.mock.calls.find(([method]) => method === 'thread/resume');
+    for (const [label, call] of [['start', startCall], ['resume', resumeCall]] as const) {
+      const instructions = (call?.[1] as { developerInstructions?: string })?.developerInstructions;
+      expect(instructions, `${label} 应带上桥接指令`).toBeTruthy();
+      expect(instructions, `${label} 应告知发送端点`).toContain('/api/channel/send-media');
+      expect(instructions, `${label} 应告知抖音处理方式`).toContain('douyin');
+    }
+  });
 });

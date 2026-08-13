@@ -8,13 +8,13 @@ describe('relay end-to-end', () => {
     const relay = await startRelayServer({
       port: 0,
       baseDomain: 'style520.com',
-      authTokens: ['relay-token'],
+      authTokens: ['clrt_e2e000000000000000000000'],
     });
 
     try {
       const provider = new RelayTunnelProvider({
         serverUrl: `ws://127.0.0.1:${relay.port}/agent`,
-        authToken: 'relay-token',
+        authToken: 'clrt_e2e000000000000000000000',
         targetBaseUrl: 'http://127.0.0.1:8787',
         createSocket: RelayTunnelProvider.defaultCreateSocket,
       });

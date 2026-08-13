@@ -48,7 +48,13 @@ async function flushPromises() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function createFetchStub() {
+/**
+ * @param options.pluginConnected 微信通道是否已连接。默认 true——面板的多数交互都有
+ * isPluginConnected 守卫，未连接时根本不会发起请求。只有扫码登录这类「从未连接开始」
+ * 的流程才需要显式传 false。
+ */
+function createFetchStub(options: { pluginConnected?: boolean } = {}) {
+  const pluginConnected = options.pluginConnected ?? true;
   const calls: Array<{ url: string; method: string; body?: string }> = [];
   let bridgeController: ReadableStreamDefaultController<Uint8Array> | null = null;
   const encoder = new TextEncoder();
@@ -123,11 +129,11 @@ function createFetchStub() {
           id: 'weixin',
           type: 'weixin',
           name: 'WeChat channel',
-          enabled: false,
-          connected: false,
-          status: 'disabled',
+          enabled: pluginConnected,
+          connected: pluginConnected,
+          status: pluginConnected ? 'connected' : 'disabled',
           activeUsers: state.activeUser ? 1 : 0,
-          hasToken: false,
+          hasToken: pluginConnected,
         },
         settings: {
           defaultProvider: 'claude-code',
@@ -697,11 +703,12 @@ describe('App admin interactions', () => {
             id: 'weixin',
             type: 'weixin',
             name: 'WeChat channel',
-            enabled: false,
-            connected: false,
-            status: 'disabled',
+            // 未连接时面板不会去扫描可恢复会话，卡片和复制按钮都不会渲染。
+            enabled: true,
+            connected: true,
+            status: 'connected',
             activeUsers: 1,
-            hasToken: false,
+            hasToken: true,
           },
           settings: { defaultProvider: 'claude-code', defaultWorkspace: 'C:\\\\work\\\\repo' },
           runtimeConfig: null,
@@ -986,7 +993,8 @@ describe('App admin interactions', () => {
   });
 
   it('starts WeChat QR login and enables the channel after a done event', async () => {
-    const { fetchImpl, calls } = createFetchStub();
+    // 扫码登录本就是「从未连接走到已连接」的流程，起点必须是未连接。
+    const { fetchImpl, calls } = createFetchStub({ pluginConnected: false });
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
     vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource);
 
