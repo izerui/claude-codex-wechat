@@ -21,6 +21,7 @@ import { findExecutable, useShellForCli } from './shared/platform';
 import { performUpgrade, UPGRADE_REGISTRY_URL, type InstallResult } from './daemon/upgrade';
 import { resolveTerminalSearchPath } from './shared/loginShellEnv';
 import { readClientVersion } from './shared/version';
+import { resolveDaemonEntrypoint } from './daemon/entrypoint';
 
 const execFileAsync = promisify(execFile);
 
@@ -250,7 +251,14 @@ async function cmdUninstall(): Promise<void> {
 
 function createServiceContext() {
   return {
-    cliEntrypointPath: fileURLToPath(import.meta.url),
+    // 服务配置长期存活，必须指向已安装的 npm 包而非当前源码目录。
+    cliEntrypointPath: resolveDaemonEntrypoint({
+      currentPath: fileURLToPath(import.meta.url),
+      execPath: process.execPath,
+      platform: process.platform,
+      exists: existsSync,
+      override: process.env.BRIDGE_CLI_ENTRYPOINT,
+    }),
     nodePath: process.execPath,
     configPath: process.env.BRIDGE_CONFIG ?? defaultConfigPath(),
     port: Number(process.env.BRIDGE_PORT ?? 8787),
