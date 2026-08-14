@@ -20,7 +20,7 @@ function findDouyinScript(): string {
 function runScript(args: string[]): Promise<{ stdout: string; stderr: string }> {
   const script = findDouyinScript();
   return new Promise((resolve, reject) => {
-    execFile(nodeExecutable(), [script, ...args], { timeout: 120_000 }, (err, stdout, stderr) => {
+    execFile(nodeExecutable(), [script, ...args], { timeout: 180_000 }, (err, stdout, stderr) => {
       if (err) reject(new Error(stderr || err.message));
       else resolve({ stdout, stderr });
     });
