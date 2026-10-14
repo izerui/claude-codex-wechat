@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -232,7 +232,7 @@ describe('channel message flow', () => {
     await app.close();
   });
 
-  it('requires /reload after the native session advances elsewhere and then resumes normally', async () => {
+  it('auto-syncs after the native session advances elsewhere and ignores metadata-only writes', async () => {
     class FingerprintFlowProvider implements NativeProviderAdapter {
       readonly id = 'claude-code' as const;
       private readonly sessions = new Map<string, ProviderSession>();
@@ -278,9 +278,13 @@ describe('channel message flow', () => {
       }
 
       async getNativeVersion(): Promise<{ fingerprint: string; observedAt: number }> {
-        const metadata = statSync(this.nativePath);
+        const records = readFileSync(this.nativePath, 'utf8')
+          .split('\n')
+          .filter((line) => line.trim())
+          .map((line) => JSON.parse(line) as { type?: string });
+        const conversation = records.filter((record) => record.type === 'user' || record.type === 'assistant');
         return {
-          fingerprint: `claude:${this.sessionId}:${Math.trunc(metadata.mtimeMs)}:${metadata.size}`,
+          fingerprint: `claude:${this.sessionId}:conv:${conversation.length}:`,
           observedAt: Date.now(),
         };
       }
@@ -322,9 +326,12 @@ describe('channel message flow', () => {
     const beforeExternal = sent.map((message) => message.text);
     expect(beforeExternal).toContain('收到：第一次继续');
 
+    const attachSpy = vi.spyOn(FingerprintFlowProvider.prototype, 'attachSession');
+
+    // 只写元数据（CLI 退出时的 last-prompt/cost-state）不应触发同步
     writeFileSync(
       nativePath,
-      readFileSync(nativePath, 'utf8') + `${JSON.stringify({ type: 'assistant', text: 'external progress' })}\n`,
+      readFileSync(nativePath, 'utf8') + `${JSON.stringify({ type: 'last-prompt' })}\n${JSON.stringify({ type: 'cost-state' })}\n`,
       'utf8',
     );
 
@@ -337,29 +344,40 @@ describe('channel message flow', () => {
       timestamp: 2,
     });
 
-    expect(sent.map((message) => message.text)).toContain('该会话已在另一端继续，当前桥接状态已过期。请先 /reload 后再继续。');
+    expect(sent.map((message) => message.text)).toContain('收到：第二次继续');
+    expect(attachSpy).not.toHaveBeenCalled();
+
+    // 另一端真正推进了对话：自动重挂载后继续处理，不要求人工 /reload
+    writeFileSync(
+      nativePath,
+      readFileSync(nativePath, 'utf8') + `${JSON.stringify({ type: 'assistant', text: 'external progress' })}\n`,
+      'utf8',
+    );
 
     await channel.emitIncoming({
       id: 'm3',
       platform: PRIMARY_WEIXIN_PLATFORM,
       chatId: 'chat-reload-flow',
       user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '/reload' },
+      content: { type: 'text', text: '第三次继续' },
       timestamp: 3,
     });
 
-    expect(sent.map((message) => message.text)).toContain('已重新加载当前会话，可继续对话。');
+    expect(attachSpy).toHaveBeenCalledTimes(1);
+    expect(sent.map((message) => message.text)).toContain('收到：第三次继续');
+    expect(sent.map((message) => message.text)).not.toContain('该会话已在另一端继续，当前桥接状态已过期。请先 /reload 后再继续。');
+    attachSpy.mockRestore();
 
     await channel.emitIncoming({
       id: 'm4',
       platform: PRIMARY_WEIXIN_PLATFORM,
       chatId: 'chat-reload-flow',
       user: { id: 'wx_user_1' },
-      content: { type: 'text', text: 'reload 后继续' },
+      content: { type: 'text', text: '同步后继续' },
       timestamp: 4,
     });
 
-    expect(sent.map((message) => message.text)).toContain('收到：reload 后继续');
+    expect(sent.map((message) => message.text)).toContain('收到：同步后继续');
 
     await app.close();
   });

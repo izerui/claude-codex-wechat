@@ -128,7 +128,7 @@ describe('MessageRouter', () => {
     ]);
   });
 
-  it('blocks a chat send when the native session advanced elsewhere', async () => {
+  it('blocks a chat send when the native session advanced elsewhere and cannot be reattached', async () => {
     class StaleAwareProvider implements NativeProviderAdapter {
       readonly id = 'claude-code' as const;
       readonly sent: string[] = [];
@@ -144,7 +144,7 @@ describe('MessageRouter', () => {
       }
 
       async getNativeVersion() {
-        return { fingerprint: 'claude:claude-stale-1:200:20', observedAt: Date.now() };
+        return { fingerprint: 'claude:claude-stale-1:conv:4:u4', observedAt: Date.now() };
       }
 
       async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
@@ -174,7 +174,7 @@ describe('MessageRouter', () => {
     conversation.update({
       providerSessionId: 'claude-stale-1',
       status: 'idle',
-      lastSeenNativeFingerprint: 'claude:claude-stale-1:100:10',
+      lastSeenNativeFingerprint: 'claude:claude-stale-1:conv:2:a2',
     }, session.id);
     const router = new MessageRouter({
       channel,
@@ -198,6 +198,169 @@ describe('MessageRouter', () => {
       text: '该会话已在另一端继续，当前桥接状态已过期。请先 /reload 后再继续。',
     });
     expect(conversation.getCurrent()?.staleReason).toBe('native_advanced_elsewhere');
+  });
+
+  it('auto-reattaches and continues when the native session advanced elsewhere', async () => {
+    class ReattachingProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      readonly sent: string[] = [];
+      readonly attached: string[] = [];
+      readonly stopped: string[] = [];
+
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: 'claude-advanced-1',
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        this.attached.push(input.candidateId);
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: input.candidateId,
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+
+      async getNativeVersion() {
+        return { fingerprint: 'claude:claude-advanced-1:conv:4:u4', observedAt: Date.now() };
+      }
+
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        this.sent.push(input.text);
+        yield { type: 'text_delta', text: `收到：${input.text}` };
+        yield { type: 'message_done' };
+      }
+
+      async stopSession(bridgeSessionId: string): Promise<void> {
+        this.stopped.push(bridgeSessionId);
+      }
+    }
+
+    const provider = new ReattachingProvider();
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const conversation = new CurrentConversationStore(createRuntimeUserStore('message-router-auto-reattach-').configPath, {
+      defaultCwd: '/tmp/project',
+      defaultProviderId: 'claude-code',
+    });
+    const session = conversation.create({
+      chatId: 'chat-a',
+      ownerUserId: authorizedUser.id,
+      providerId: 'claude-code',
+      cwd: '/tmp/project',
+      resumeTitle: 'advanced session',
+    });
+    conversation.update({
+      providerSessionId: 'claude-advanced-1',
+      status: 'idle',
+      lastSeenNativeFingerprint: 'claude:claude-advanced-1:conv:2:a2',
+    }, session.id);
+    const router = new MessageRouter({
+      channel,
+      providers: [provider],
+      conversation,
+      resolveUser: () => authorizedUser,
+    });
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '继续' },
+      timestamp: 1,
+    });
+
+    expect(provider.stopped).toEqual([session.id]);
+    expect(provider.attached).toEqual(['claude-advanced-1']);
+    expect(provider.sent).toEqual(['继续']);
+    expect(sent).toEqual([{ kind: 'text', text: '收到：继续' }]);
+    expect(conversation.getCurrent()?.staleReason).toBeUndefined();
+    expect(conversation.getCurrent()?.lastSeenNativeFingerprint).toBe('claude:claude-advanced-1:conv:4:u4');
+  });
+
+  it('silently rebaselines a legacy mtime/size fingerprint instead of treating it as stale', async () => {
+    class LegacyBaselineProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      readonly sent: string[] = [];
+      attachCalls = 0;
+
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: 'claude-legacy-1',
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        this.attachCalls += 1;
+        return await this.startSession(input);
+      }
+
+      async getNativeVersion() {
+        return { fingerprint: 'claude:claude-legacy-1:conv:2:a2', observedAt: Date.now() };
+      }
+
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        this.sent.push(input.text);
+        yield { type: 'text_delta', text: `收到：${input.text}` };
+        yield { type: 'message_done' };
+      }
+
+      async stopSession(): Promise<void> {}
+    }
+
+    const provider = new LegacyBaselineProvider();
+    const channel = new MockChannelAdapter();
+    const sent: Array<{ kind: string; text: string }> = [];
+    channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+    const conversation = new CurrentConversationStore(createRuntimeUserStore('message-router-legacy-fp-').configPath, {
+      defaultCwd: '/tmp/project',
+      defaultProviderId: 'claude-code',
+    });
+    const session = conversation.create({
+      chatId: 'chat-a',
+      ownerUserId: authorizedUser.id,
+      providerId: 'claude-code',
+      cwd: '/tmp/project',
+      resumeTitle: 'legacy session',
+    });
+    conversation.update({
+      providerSessionId: 'claude-legacy-1',
+      status: 'idle',
+      lastSeenNativeFingerprint: 'claude:claude-legacy-1:1791733241416:1142125',
+    }, session.id);
+    const router = new MessageRouter({
+      channel,
+      providers: [provider],
+      conversation,
+      resolveUser: () => authorizedUser,
+    });
+
+    await router.handleMessage({
+      id: 'm1',
+      platform: 'weixin',
+      chatId: 'chat-a',
+      user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '继续' },
+      timestamp: 1,
+    });
+
+    expect(provider.attachCalls).toBe(0);
+    expect(provider.sent).toEqual(['继续']);
+    expect(sent).toEqual([{ kind: 'text', text: '收到：继续' }]);
+    expect(conversation.getCurrent()?.lastSeenNativeFingerprint).toBe('claude:claude-legacy-1:conv:2:a2');
   });
 
   it('allows send when the native fingerprint matches', async () => {
@@ -624,6 +787,68 @@ describe('MessageRouter', () => {
       content: { type: 'text', text: '1' }, timestamp: 3,
     });
     expect(received[2]).toBe('1');
+  });
+
+  it('does not map a numeric reply to stale options after auto-syncing external progress', async () => {
+    const received: string[] = [];
+    const attached: string[] = [];
+    let nativeFingerprint = 'claude:choice-native:conv:2:a1';
+    class ChoiceSyncProvider implements NativeProviderAdapter {
+      readonly id = 'claude-code' as const;
+      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        return {
+          bridgeSessionId: input.bridgeSessionId,
+          providerId: this.id,
+          providerSessionId: 'choice-native',
+          cwd: input.cwd,
+          status: 'idle',
+        };
+      }
+      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+        attached.push(input.candidateId);
+        return await this.startSession(input);
+      }
+      async getNativeVersion() {
+        return { fingerprint: nativeFingerprint, observedAt: Date.now() };
+      }
+      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+        received.push(input.text);
+        if (received.length === 1) {
+          yield { type: 'text_delta', text: '❓ 吃什么？\n1. 米饭\n2. 面条' };
+          yield { type: 'choice_prompt', labels: ['米饭', '面条'], multiSelect: false };
+          yield { type: 'message_done' };
+        } else {
+          yield { type: 'text_delta', text: `收到：${input.text}` };
+          yield { type: 'message_done' };
+        }
+      }
+      async stopSession(): Promise<void> {}
+    }
+    const channel = new MockChannelAdapter();
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+    const router = new MessageRouter({
+      channel,
+      providers: [new ChoiceSyncProvider()],
+      sessions,
+      resolveUser: () => authorizedUser,
+    });
+
+    await router.handleMessage({
+      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '问我吃什么' }, timestamp: 1,
+    });
+
+    // 用户转去终端继续聊过：原生会话出现了新的对话记录
+    nativeFingerprint = 'claude:choice-native:conv:6:u3';
+
+    await router.handleMessage({
+      id: 'm2', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
+      content: { type: 'text', text: '1' }, timestamp: 2,
+    });
+
+    // 自动同步了新历史，且旧选项已失效："1" 原样发出，而不是旧选项「米饭」
+    expect(attached).toEqual(['choice-native']);
+    expect(received[1]).toBe('1');
   });
 
   it('does not map a numeric reply from a previous session after /new', async () => {

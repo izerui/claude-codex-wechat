@@ -201,16 +201,36 @@ describe('ensureClaudeSessionBridgeMetadata', () => {
     await import('node:fs/promises').then(({ mkdir }) => mkdir(projectDir, { recursive: true }));
     const sessionId = 'fingerprint-session-1';
     const sessionPath = join(projectDir, `${sessionId}.jsonl`);
-    await writeFile(sessionPath, JSON.stringify({ type: 'user', cwd: '/tmp/project' }), 'utf8');
-
-    const stamp = await getClaudeNativeVersion({
+    await writeFile(sessionPath, [
+      JSON.stringify({ type: 'user', uuid: 'u1', cwd: '/tmp/project' }),
+      JSON.stringify({ type: 'assistant', uuid: 'a1' }),
+      '',
+    ].join('\n'), 'utf8');
+    const read = () => getClaudeNativeVersion({
       sessionId,
       cwd: '/tmp/project',
       env: { HOME: home },
     });
 
-    expect(stamp?.fingerprint).toMatch(/^claude:fingerprint-session-1:\d+:\d+$/);
+    const stamp = await read();
+    expect(stamp?.fingerprint).toBe('claude:fingerprint-session-1:conv:2:a1');
     expect(typeof stamp?.observedAt).toBe('number');
+
+    // CLI 退出时追加的元数据不改变指纹
+    await import('node:fs/promises').then(({ appendFile }) => appendFile(sessionPath, [
+      JSON.stringify({ type: 'last-prompt', lastPrompt: 'hi' }),
+      JSON.stringify({ type: 'cost-state' }),
+      '',
+    ].join('\n'), 'utf8'));
+    expect((await read())?.fingerprint).toBe('claude:fingerprint-session-1:conv:2:a1');
+
+    // 新的对话记录才改变指纹
+    await import('node:fs/promises').then(({ appendFile }) => appendFile(
+      sessionPath,
+      `${JSON.stringify({ type: 'user', uuid: 'u2' })}\n`,
+      'utf8',
+    ));
+    expect((await read())?.fingerprint).toBe('claude:fingerprint-session-1:conv:3:u2');
   });
 
   it('returns null for Claude native fingerprint when the session file is missing', async () => {

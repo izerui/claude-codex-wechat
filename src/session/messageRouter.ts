@@ -194,12 +194,12 @@ export class MessageRouter {
     if ((this.latestMutatingSeq.get(message.chatId) ?? 0) > seq) {
       return { status: 'accepted' };
     }
-    // 若上一轮发出过 AskUserQuestion 选项且这条是纯序号，翻译成选项文字。
-    const chatText = this.resolveChoiceReply(message.chatId, command.text);
-    if (await this.maybeSteer(message.chatId, chatText)) {
+    if (await this.maybeSteer(message.chatId, command.text)) {
       return { status: 'accepted' };
     }
-    await this.runExclusive(() => this.runChatGeneration(message, user, chatText, seq));
+    // 排队消息的选项解析延后到 runChatGeneration 的 freshness 检查之后：若期间会话在
+    // 另一端被推进并自动重挂载，旧选项已随之清除，纯序号不能再被翻译成过期选项文字。
+    await this.runExclusive(() => this.runChatGeneration(message, user, command.text, seq));
     return { status: 'accepted' };
   }
 
@@ -223,7 +223,8 @@ export class MessageRouter {
     if (!active) return Promise.resolve(false);
     const provider = this.providers.get(active.providerId);
     if (!provider?.steerSession) return Promise.resolve(false);
-    return provider.steerSession(active.bridgeSessionId, text).then(() => true);
+    // 注入进行中的这一轮：选项正是这一轮产生的，可直接把纯序号翻译成选项文字。
+    return provider.steerSession(active.bridgeSessionId, this.resolveChoiceReply(chatId, text)).then(() => true);
   }
 
   // Serialize session-mutating work onto one global chain. The chain is updated
@@ -277,6 +278,20 @@ export class MessageRouter {
     }).catch(() => null);
     if (!version || !session.lastSeenNativeFingerprint) return { ok: true };
     if (version.fingerprint === session.lastSeenNativeFingerprint) return { ok: true };
+    // 旧版按 mtime/size 取的基线与新指纹不可比，静默重建基线，不当作另一端有进展。
+    if (LEGACY_NATIVE_FINGERPRINT.test(session.lastSeenNativeFingerprint)) {
+      this.conversation.update({ lastSeenNativeFingerprint: version.fingerprint }, session.id);
+      return { ok: true };
+    }
+    // 另一端确实推进了对话：能重挂载就自动同步，不让微信端人工 /reload。
+    if (provider.attachSession) {
+      try {
+        await this.reattachSession(session, provider);
+        return { ok: true };
+      } catch {
+        // 自动同步失败时退回人工提示
+      }
+    }
     this.conversation.update({
       staleReason: 'native_advanced_elsewhere',
       lastActivityAt: Date.now(),
@@ -285,6 +300,36 @@ export class MessageRouter {
       ok: false,
       message: '该会话已在另一端继续，当前桥接状态已过期。请先 /reload 后再继续。',
     };
+  }
+
+  // 回收旧子进程并以 resume 方式重新挂载同一原生会话，使其加载另一端追加的最新历史。
+  private async reattachSession(
+    current: CurrentConversationBinding,
+    provider: NativeProviderAdapter,
+  ): Promise<void> {
+    if (!current.providerSessionId || !provider.attachSession) return;
+    // 与手动 /reload 一致：重挂载后旧轮次留下的待选项已失效，一并清除。
+    for (const [chatId, pending] of this.pendingChoices) {
+      if (pending.sessionId === current.id) this.pendingChoices.delete(chatId);
+    }
+    this.recycleProviderProcess(current);
+    const reattached = await provider.attachSession({
+      candidateId: current.providerSessionId,
+      bridgeSessionId: current.id,
+      cwd: current.cwd,
+    });
+    // 不在此处抢跑取指纹:attachSession 的 resume 子进程写会话文件是异步的,
+    // 此刻取到的可能是写盘前的旧状态,存下后下一条消息又会误判 stale(死循环)。
+    // 改为清空基线,让下一条消息经 ensureSessionFresh 的空指纹放行,并在那一轮
+    // 生成结束后由 refreshNativeFingerprint 在文件写稳后重建正确基线。
+    this.conversation.update({
+      providerSessionId: reattached.providerSessionId ?? current.providerSessionId,
+      status: reattached.status,
+      lastSeenNativeFingerprint: undefined,
+      lastReloadedAt: Date.now(),
+      staleReason: undefined,
+      lastActivityAt: Date.now(),
+    }, current.id);
   }
 
   private async refreshNativeFingerprint(
@@ -307,7 +352,7 @@ export class MessageRouter {
   private async runChatGeneration(
     message: ChannelIncomingMessage,
     user: ActiveWeChatUserRecord,
-    text: string,
+    rawText: string,
     seq: number,
   ): Promise<void> {
     const superseded = () => (this.latestMutatingSeq.get(message.chatId) ?? 0) > seq;
@@ -380,6 +425,8 @@ export class MessageRouter {
       await this.sendToChat({ chatId: message.chatId, kind: 'status', text: freshness.message });
       return;
     }
+    // 若上一轮发出过 AskUserQuestion 选项且这条是纯序号，翻译成选项文字。
+    const text = this.resolveChoiceReply(message.chatId, rawText);
 
     const genId = ++this.generationSeq;
     let abortGeneration!: () => void;
@@ -563,24 +610,7 @@ export class MessageRouter {
       }
 
       await this.preemptActiveGeneration(chatId);
-      this.recycleProviderProcess(current);
-      const reattached = await provider.attachSession({
-        candidateId: current.providerSessionId,
-        bridgeSessionId: current.id,
-        cwd: current.cwd,
-      });
-      // 不在此处抢跑取指纹:attachSession 的 resume 子进程写会话文件是异步的,
-      // 此刻取到的是写盘前的旧 mtime/size,存下后下一条消息又会误判 stale(死循环)。
-      // 改为清空基线,让下一条消息经 ensureSessionFresh 的空指纹放行,并在那一轮
-      // 生成结束后由 refreshNativeFingerprint 在文件写稳后重建正确基线。
-      this.conversation.update({
-        providerSessionId: reattached.providerSessionId ?? current.providerSessionId,
-        status: reattached.status,
-        lastSeenNativeFingerprint: undefined,
-        lastReloadedAt: Date.now(),
-        staleReason: undefined,
-        lastActivityAt: Date.now(),
-      }, current.id);
+      await this.reattachSession(current, provider);
       await this.sendToChat({ chatId, kind: 'status', text: '已重新加载当前会话，可继续对话。' });
       return;
     }
@@ -763,6 +793,9 @@ export class MessageRouter {
     }
   }
 }
+
+// 0.1.59 及之前的原生指纹格式：<provider>:<sessionId>:<mtimeMs>:<size>
+const LEGACY_NATIVE_FINGERPRINT = /^(claude|codex):[^:]+:\d+:\d+$/;
 
 function summarizeResumeTitle(text: string): string | undefined {
   const normalized = text.replace(/\s+/g, ' ').trim();

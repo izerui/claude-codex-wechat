@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { mkdtempSync } from 'node:fs';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -168,16 +168,27 @@ describe('syncCodexThreadForResume', () => {
         '07',
         'rollout-2026-07-07T10-00-00-codex-session-1.jsonl',
       );
-      writeFileSync(rolloutPath, JSON.stringify({ cwd: '/tmp/codex-project' }), 'utf8');
-
-      const stamp = await getCodexNativeVersion({
+      writeFileSync(rolloutPath, [
+        JSON.stringify({ type: 'session_meta', payload: { cwd: '/tmp/codex-project' } }),
+        JSON.stringify({ timestamp: 't1', type: 'response_item', payload: { type: 'message' } }),
+        '',
+      ].join('\n'), 'utf8');
+      const read = () => getCodexNativeVersion({
         sessionId: 'codex-session-1',
         cwd: '/tmp/codex-project',
         env: { HOME: home, CODEX_HOME: codexHome },
       });
 
-      expect(stamp?.fingerprint).toMatch(/^codex:codex-session-1:\d+:\d+$/);
+      const stamp = await read();
+      expect(stamp?.fingerprint).toBe('codex:codex-session-1:conv:1:t1');
       expect(typeof stamp?.observedAt).toBe('number');
+
+      // token_count 等事件不改变指纹
+      appendFileSync(rolloutPath, `${JSON.stringify({ timestamp: 't2', type: 'event_msg', payload: { type: 'token_count' } })}\n`, 'utf8');
+      expect((await read())?.fingerprint).toBe('codex:codex-session-1:conv:1:t1');
+
+      appendFileSync(rolloutPath, `${JSON.stringify({ timestamp: 't3', type: 'response_item', payload: { type: 'message' } })}\n`, 'utf8');
+      expect((await read())?.fingerprint).toBe('codex:codex-session-1:conv:2:t3');
     } finally {
       process.env.HOME = previousHome;
       process.env.CODEX_HOME = previousCodexHome;

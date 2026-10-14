@@ -196,10 +196,27 @@ export async function getClaudeNativeVersion(input: {
 }): Promise<NativeVersionStamp | null> {
   const sessionPath = await findRecoverableClaudeSessionPath(input.sessionId, input.env ?? process.env);
   if (!sessionPath) return null;
-  const metadata = await stat(sessionPath).catch(() => null);
-  if (!metadata?.isFile()) return null;
+  const content = await readFile(sessionPath, 'utf8').catch(() => null);
+  if (content === null) return null;
+  // 指纹只看真实对话记录（带 uuid 的 user/assistant）。CLI 在进程退出等时机会追加
+  // last-prompt、cost-state、custom-title 之类元数据，桥接自身也会改写 entrypoint；
+  // 若按 mtime/size 取指纹，这些写入都会被误判为"会话已在另一端继续"。
+  let count = 0;
+  let lastUuid = '';
+  for (const line of content.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const record = JSON.parse(line) as Record<string, unknown>;
+      if ((record.type === 'user' || record.type === 'assistant') && typeof record.uuid === 'string') {
+        count += 1;
+        lastUuid = record.uuid;
+      }
+    } catch {
+      // 忽略写到一半的末行
+    }
+  }
   return {
-    fingerprint: `claude:${input.sessionId}:${Math.trunc(metadata.mtimeMs)}:${metadata.size}`,
+    fingerprint: `claude:${input.sessionId}:conv:${count}:${lastUuid}`,
     observedAt: Date.now(),
   };
 }

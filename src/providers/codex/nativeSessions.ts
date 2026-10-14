@@ -97,10 +97,25 @@ export async function getCodexNativeVersion(input: {
 }): Promise<NativeVersionStamp | null> {
   const sessionPath = await findRecoverableCodexSessionPath(input.sessionId, input.env ?? process.env);
   if (!sessionPath) return null;
-  const metadata = await stat(sessionPath).catch(() => null);
-  if (!metadata?.isFile()) return null;
+  const content = await readFile(sessionPath, 'utf8').catch(() => null);
+  if (content === null) return null;
+  // 只统计 response_item（真实对话/工具调用），token_count 等事件和元数据写入不改变指纹。
+  let count = 0;
+  let lastTimestamp = '';
+  for (const line of content.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const record = JSON.parse(line) as Record<string, unknown>;
+      if (record.type === 'response_item') {
+        count += 1;
+        lastTimestamp = typeof record.timestamp === 'string' ? record.timestamp : '';
+      }
+    } catch {
+      // 忽略写到一半的末行
+    }
+  }
   return {
-    fingerprint: `codex:${input.sessionId}:${Math.trunc(metadata.mtimeMs)}:${metadata.size}`,
+    fingerprint: `codex:${input.sessionId}:conv:${count}:${lastTimestamp}`,
     observedAt: Date.now(),
   };
 }
