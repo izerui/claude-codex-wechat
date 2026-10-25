@@ -22,6 +22,26 @@ describe('douyin-download 官方播放器回退', () => {
     expect(parseOfficialVideoUrl(dom)).toBe('https://v26-web.douyinvod.com/video/a.mp4?x=1&y=2');
   });
 
+  it('支持官方播放器返回的 zjcdn 精确域名并保留签名参数', () => {
+    const dom = '<video src="https://v3-dy-o.zjcdn.com/video/a.mp4?sign=abc&amp;expires=123"></video>';
+
+    expect(parseOfficialVideoUrl(dom)).toBe(
+      'https://v3-dy-o.zjcdn.com/video/a.mp4?sign=abc&expires=123',
+    );
+  });
+
+  it.each([
+    'http://v3-dy-o.zjcdn.com/video.mp4',
+    'https://v3-dy-o.zjcdn.com.evil.example/video.mp4',
+    'https://fake-v3-dy-o.zjcdn.com/video.mp4',
+    'https://other.zjcdn.com/video.mp4',
+    'https://evildouyin.com/video.mp4',
+  ])('拒绝非 HTTPS 或未获准的相似域名：%s', (url) => {
+    expect(() => parseOfficialVideoUrl(`<video src="${url}"></video>`)).toThrow(
+      '非预期的视频域名',
+    );
+  });
+
   it('拒绝非抖音 CDN，避免把下载脚本变成任意 URL 拉取器', () => {
     expect(() => parseOfficialVideoUrl('<video src="https://evil.example/a.mp4"></video>')).toThrow(
       '非预期的视频域名',

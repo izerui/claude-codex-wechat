@@ -31,6 +31,7 @@ const PLAYER_VIRTUAL_TIME_MS = 15_000;
 const PLAYER_ATTEMPTS = 2;
 const MAX_DOM_BYTES = 2 * 1024 * 1024;
 const ALLOWED_VIDEO_HOST_SUFFIXES = [".douyinvod.com", ".douyin.com", ".snssdk.com"];
+const ALLOWED_VIDEO_HOSTS = new Set(["v3-dy-o.zjcdn.com"]);
 
 // ─── 带重试/超时的 fetch ─────────────────────────────────────────────────────
 
@@ -159,7 +160,9 @@ export function parseOfficialVideoUrl(dom) {
   }
 
   const allowed =
-    url.protocol === "https:" && ALLOWED_VIDEO_HOST_SUFFIXES.some((suffix) => url.hostname.endsWith(suffix));
+    url.protocol === "https:" &&
+    (ALLOWED_VIDEO_HOSTS.has(url.hostname) ||
+      ALLOWED_VIDEO_HOST_SUFFIXES.some((suffix) => url.hostname.endsWith(suffix)));
   if (!allowed) throw new Error(`抖音官方播放器返回了非预期的视频域名：${url.hostname}`);
   return url.toString();
 }
