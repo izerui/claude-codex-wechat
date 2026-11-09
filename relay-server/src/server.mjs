@@ -87,6 +87,8 @@ export async function startRelayServer(input) {
       return;
     }
     const connection = wsRegistry.get(connectionId);
+    // 兑换成功时 relay 要追加的响应头；在写回 agent 响应时合并，不能用 setHeader（会被 agent 同名头覆盖）。
+    let relayHeaders = null;
     if (ticketAuthEnabled && !directLoopback && connection) {
       const authToken = connection.authToken;
       const hasSession = readSessionIds(req.headers.cookie).some((id) => ticketAuth.isValidSession(authToken, id));
@@ -98,9 +100,11 @@ export async function startRelayServer(input) {
           return;
         }
         const secure = String(connection.publicBase ?? '').startsWith('https://') ? '; Secure' : '';
-        res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=${sessionId}; Path=/${token}/; HttpOnly; SameSite=Lax; Max-Age=604800${secure}`);
-        res.setHeader('Referrer-Policy', 'no-referrer');
-        res.setHeader('Cache-Control', 'no-store');
+        relayHeaders = {
+          setCookie: `${SESSION_COOKIE_NAME}=${sessionId}; Path=/${token}/; HttpOnly; SameSite=Lax; Max-Age=604800${secure}`,
+          'cache-control': 'no-store',
+          'referrer-policy': 'no-referrer',
+        };
         ticketAuth.issueTicket(authToken);
         sendRegistered(connectionId);
       }
@@ -123,7 +127,7 @@ export async function startRelayServer(input) {
         if (!pending.res.headersSent) pending.res.writeHead(504);
         pending.res.end('agent_timeout');
       }, requestTimeoutMs);
-      pendingResponses.set(requestId, { res, connectionId, timeout });
+      pendingResponses.set(requestId, { res, connectionId, timeout, relayHeaders });
       const forwardQuery = removeQueryParam(rawQuery, 'ticket');
       socket.send(JSON.stringify({
         type: 'request',
@@ -238,7 +242,7 @@ export async function startRelayServer(input) {
           body: responseBuffer,
           relayToken,
         });
-        pending.res.writeHead(message.status ?? 200, rewritten.headers);
+        pending.res.writeHead(message.status ?? 200, finalizeResponseHeaders(rewritten.headers, pending.relayHeaders));
         pending.res.end(rewritten.body);
       }
       // 流式转发:客户端把每个响应拆成 response-start → response-chunk* → response-end 三段。
@@ -266,7 +270,7 @@ export async function startRelayServer(input) {
           // 真流式透传：首字节已到，取消缓冲超时；后续 chunk 直接下发。
           clearTimeout(pending.timeout);
           pending.streaming = true;
-          pending.res.writeHead(message.status ?? 200, headers);
+          pending.res.writeHead(message.status ?? 200, finalizeResponseHeaders(headers, pending.relayHeaders));
         }
         return;
       }
@@ -306,7 +310,7 @@ export async function startRelayServer(input) {
           body: responseBuffer,
           relayToken,
         });
-        pending.res.writeHead(pending.startStatus ?? 200, rewritten.headers);
+        pending.res.writeHead(pending.startStatus ?? 200, finalizeResponseHeaders(rewritten.headers, pending.relayHeaders));
         pending.res.end(rewritten.body);
       }
     });
@@ -437,6 +441,31 @@ function shouldRewriteTextResponse(contentType) {
 // UA 可被伪造，这里只挡住扫描器和随手转发后在普通浏览器打开的场景，不是强鉴权。
 export function isWeChatUserAgent(userAgent) {
   return /MicroMessenger/i.test(String(userAgent ?? ''));
+}
+
+// 写回 agent 响应前的最后一道处理：agent 不能种 / 覆盖 relay_session（同域下各后缀共享 cookie 空间），
+// 兑换票据时 relay 自己的 Set-Cookie 追加在后，Cache-Control / Referrer-Policy 以 relay 为准。
+function finalizeResponseHeaders(agentHeaders, relayHeaders) {
+  const headers = {};
+  const cookies = [];
+  for (const [name, value] of Object.entries(agentHeaders ?? {})) {
+    const lower = name.toLowerCase();
+    if (lower === 'set-cookie') {
+      for (const cookie of [].concat(value)) {
+        if (!String(cookie).trim().startsWith(`${SESSION_COOKIE_NAME}=`)) cookies.push(cookie);
+      }
+      continue;
+    }
+    if (relayHeaders && Object.hasOwn(relayHeaders, lower)) continue;
+    headers[name] = value;
+  }
+  if (relayHeaders) {
+    cookies.push(relayHeaders.setCookie);
+    headers['cache-control'] = relayHeaders['cache-control'];
+    headers['referrer-policy'] = relayHeaders['referrer-policy'];
+  }
+  if (cookies.length) headers['set-cookie'] = cookies;
+  return headers;
 }
 
 function rejectUnauthorized(res) {

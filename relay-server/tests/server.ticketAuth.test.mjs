@@ -16,7 +16,7 @@ async function waitFor(predicate, timeoutMs = 2000) {
   }
 }
 
-async function registerAgent(port) {
+async function registerAgent(port, responseHeaders = { 'content-type': 'text/plain' }) {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/agent`);
   const registered = [];
   const requests = [];
@@ -29,7 +29,7 @@ async function registerAgent(port) {
       type: 'response',
       requestId: payload.requestId,
       status: 200,
-      headers: { 'content-type': 'text/plain' },
+      headers: responseHeaders,
       bodyBase64: Buffer.from('hello from agent').toString('base64'),
     }));
   });
@@ -45,14 +45,15 @@ async function registerAgent(port) {
 }
 
 async function startWithAgent(options = {}) {
+  const { agentResponseHeaders, ...relayOptions } = options;
   const relay = await startRelayServer({
     port: 0,
     wechatOnly: true,
     ticketAuth: true,
     publicBaseUrl: 'https://wechat.example.com',
-    ...options,
+    ...relayOptions,
   });
-  const agent = await registerAgent(relay.port);
+  const agent = await registerAgent(relay.port, options.agentResponseHeaders);
   return { relay, ...agent };
 }
 
@@ -284,6 +285,39 @@ test('ticketAuth off keeps the old behavior', async () => {
   try {
     assert.equal(registered[0].publicUrl, undefined);
     assert.equal((await fetch(`http://127.0.0.1:${relay.port}/${token}/`, { headers: PUBLIC })).status, 200);
+  } finally {
+    ws.close();
+    await relay.close();
+  }
+});
+
+test('agent response headers cannot drop the session cookie or no-store on redemption', async () => {
+  const { relay, ws, token, registered } = await startWithAgent({
+    agentResponseHeaders: { 'content-type': 'text/plain', 'cache-control': 'public, max-age=0', 'set-cookie': 'foo=bar; Path=/' },
+  });
+  try {
+    const response = await redeem(relay, token, ticketOf(registered[0]));
+    assert.equal(response.status, 200);
+    const cookies = response.headers.getSetCookie();
+    assert.ok(cookies.some((c) => c.startsWith('relay_session=')), JSON.stringify(cookies));
+    assert.ok(cookies.includes('foo=bar; Path=/'));
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  } finally {
+    ws.close();
+    await relay.close();
+  }
+});
+
+test('agent cannot plant or overwrite a relay_session cookie', async () => {
+  const { relay, ws, token } = await startWithAgent({
+    agentResponseHeaders: { 'content-type': 'text/plain', 'set-cookie': ['relay_session=evil; Path=/other/', 'foo=bar'] },
+  });
+  try {
+    // 本机直连不需要票据，直接拿到 agent 原始响应头经 relay 过滤后的结果。
+    const response = await fetch(`http://127.0.0.1:${relay.port}/${token}/`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.headers.getSetCookie(), ['foo=bar']);
   } finally {
     ws.close();
     await relay.close();
