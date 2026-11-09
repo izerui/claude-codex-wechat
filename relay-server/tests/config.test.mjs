@@ -20,6 +20,8 @@ test('loads relay server config from env', () => {
     authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile: undefined,
     wechatOnly: true,
+    ticketAuth: true,
+    publicBaseUrl: undefined,
   });
 });
 
@@ -45,6 +47,8 @@ test('allows missing RELAY_BASE_DOMAIN when RELAY_SERVER_URL is provided', () =>
     authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile: undefined,
     wechatOnly: true,
+    ticketAuth: true,
+    publicBaseUrl: undefined,
   });
 });
 
@@ -63,6 +67,8 @@ test('loads relay server config from RELAY_AUTH_TOKENS', () => {
     authTokens: ['relay-token-a', 'relay-token-b', 'relay-token-c'],
     authTokensFile: undefined,
     wechatOnly: true,
+    ticketAuth: true,
+    publicBaseUrl: undefined,
   });
 });
 
@@ -85,6 +91,8 @@ test('loads relay server config from RELAY_AUTH_TOKENS_FILE', () => {
     authTokens: ['relay-token-a', 'relay-token-b', 'relay-token-c'],
     authTokensFile: tokenFile,
     wechatOnly: true,
+    ticketAuth: true,
+    publicBaseUrl: undefined,
   });
 });
 
@@ -109,6 +117,8 @@ test('prefers RELAY_AUTH_TOKENS_FILE over inline env tokens', () => {
     authTokens: ['file-token-a', 'file-token-b'],
     authTokensFile: tokenFile,
     wechatOnly: true,
+    ticketAuth: true,
+    publicBaseUrl: undefined,
   });
 });
 
@@ -134,6 +144,8 @@ test('allows startup config without RELAY_BASE_DOMAIN or RELAY_SERVER_URL', () =
     authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile: undefined,
     wechatOnly: true,
+    ticketAuth: true,
+    publicBaseUrl: undefined,
   });
 });
 
@@ -150,5 +162,16 @@ test('allows missing RELAY_AUTH_TOKEN during the current open relay phase', () =
     authTokens: [],
     authTokensFile: undefined,
     wechatOnly: true,
+    ticketAuth: true,
+    publicBaseUrl: undefined,
   });
+});
+
+test('RELAY_TICKET_AUTH can be turned off and RELAY_PUBLIC_BASE_URL is normalized', () => {
+  for (const value of ['0', 'false', 'OFF', 'no']) {
+    assert.equal(loadRelayConfig({ RELAY_TICKET_AUTH: value }).ticketAuth, false);
+  }
+  assert.equal(loadRelayConfig({}).ticketAuth, true);
+  assert.equal(loadRelayConfig({ RELAY_PUBLIC_BASE_URL: 'https://wechat.style520.com/' }).publicBaseUrl, 'https://wechat.style520.com');
+  assert.equal(loadRelayConfig({ RELAY_PUBLIC_BASE_URL: '  ' }).publicBaseUrl, undefined);
 });
