@@ -302,3 +302,21 @@ git commit -m "chore(relay): 升级至 0.1.8"
 ```
 
 kubernetes 仓库的 `app.yaml` 改动不提交、不 apply，交由用户在新镜像上线后处理。
+
+---
+
+### Task 5: 页面令牌取代 cookie 会话（最终审查 C1 修复，设计第 3、4 节已更新）
+
+**Files:**
+- Modify: `relay-server/src/ticketAuth.mjs`（会话 → 页面令牌，接口不变：`redeemTicket` 返回令牌，`isValidSession` 校验令牌；删除 `SESSION_COOKIE_NAME`，新增 `PAGE_TOKEN_HEADER = 'x-relay-page-token'`、`PAGE_TOKEN_PARAM = '__rpt'`）
+- Modify: `relay-server/src/server.mjs`
+- Modify: `relay-server/tests/ticketAuth.test.mjs`、`relay-server/tests/server.ticketAuth.test.mjs`、`relay-server/README.md`
+
+**Interfaces:**
+- Produces: `renderPageTokenScript(pageToken: string, suffix: string): string`（导出，供测试执行注入脚本）；`injectPageTokenScript(html: string, script: string): string`。
+
+- [ ] **Step 1: 改写测试**：cookie 相关断言改为页面令牌；新增注入脚本、令牌头 / `__rpt`、`Sec-Fetch-Dest` 静态放行与 `/api/` 拒绝、`Service-Worker-Allowed` 删除、注入脚本只给本后缀加令牌（在 `node:vm` 中以假的 `fetch` / `XMLHttpRequest` / `EventSource` 执行脚本断言）。
+- [ ] **Step 2: 运行确认失败**：`cd relay-server && node --test tests/server.ticketAuth.test.mjs tests/ticketAuth.test.mjs`
+- [ ] **Step 3: 实现**：按设计第 4 节放行顺序；兑换时把令牌放进 pending，HTML 响应在前缀重写后注入脚本并重算 `content-length`；`finalizeResponseHeaders` 删除 `Service-Worker-Allowed`、不再处理 cookie。
+- [ ] **Step 4: 全量测试**：`cd relay-server && npm test` → 全部 PASS
+- [ ] **Step 5: README 安全说明改为页面令牌；Commit**
