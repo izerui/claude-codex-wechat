@@ -3,10 +3,11 @@ import { WebSocketServer } from 'ws';
 import { createDomainRegistry } from './domainRegistry.mjs';
 import { renderLandingPage } from './landingPage.mjs';
 import { parseRelayMessage } from './protocol.mjs';
+import { createTicketAuth, SESSION_COOKIE_NAME } from './ticketAuth.mjs';
 import { createWsRegistry } from './wsRegistry.mjs';
 
 export async function startRelayServer(input) {
-  const { host = '0.0.0.0', port, wechatOnly = false } = input;
+  const { host = '0.0.0.0', port, wechatOnly = false, ticketAuth: ticketAuthEnabled = false, publicBaseUrl, ticketAuthOptions } = input;
   const requestTimeoutMs = Number.isFinite(input.requestTimeoutMs) && input.requestTimeoutMs > 0
     ? input.requestTimeoutMs
     : 30_000;
@@ -16,7 +17,45 @@ export async function startRelayServer(input) {
   const domainRegistry = createDomainRegistry({});
   const wsRegistry = createWsRegistry();
   const pendingResponses = new Map();
+  const ticketAuth = createTicketAuth(ticketAuthOptions);
   let nextRequestId = 1;
+
+  // 向客户端下发（或重新推送）registered。所有版本的客户端都会用其中的 publicUrl 覆盖本地公网地址，
+  // /help 回复的就是它——票据因此能在不改客户端的前提下送到绑定的微信里。
+  function sendRegistered(connectionId) {
+    const record = wsRegistry.get(connectionId);
+    const allocation = domainRegistry.lookupAllocation(connectionId);
+    if (!record || !allocation) return;
+    let publicUrl = allocation.publicUrl;
+    if (ticketAuthEnabled && record.publicBase) {
+      const ticket = ticketAuth.currentTicket(record.authToken) ?? ticketAuth.issueTicket(record.authToken);
+      publicUrl = `${record.publicBase}/${allocation.token}/?ticket=${ticket}`;
+    }
+    try {
+      record.socket.send(JSON.stringify({
+        type: 'registered',
+        connectionId,
+        token: allocation.token,
+        // 能力协商:向客户端宣告本服务器支持流式转发。老客户端会忽略该字段;
+        // 新客户端据此决定走流式(response-start/chunk/end)还是退回缓冲(response)。
+        streaming: true,
+        ...(publicUrl ? { publicUrl } : {}),
+      }));
+    } catch {
+      // 连接已坏，close 处理会负责清理。
+    }
+  }
+
+  // 过期票据换新并推送，保证用户任何时候发 /help 拿到的都是可用链接；顺带清理过期会话。
+  function refreshExpiredTickets() {
+    for (const authToken of ticketAuth.takeExpiredTicketOwners()) {
+      const connectionId = wsRegistry.lookupConnectionIdByAuthToken(authToken);
+      if (!connectionId) continue;
+      ticketAuth.issueTicket(authToken);
+      sendRegistered(connectionId);
+    }
+    ticketAuth.sweep();
+  }
 
   const server = http.createServer((req, res) => {
     if (req.url === '/healthz') {
@@ -29,20 +68,43 @@ export async function startRelayServer(input) {
       res.end(renderLandingPage({ onlineCount: Array.from(wsRegistry.entries()).length }));
       return;
     }
-    const path = String(req.url ?? '/');
-    const token = path.split('/').filter(Boolean)[0] ?? '';
+    const rawUrl = String(req.url ?? '/');
+    const queryIndex = rawUrl.indexOf('?');
+    const rawPath = queryIndex === -1 ? rawUrl : rawUrl.slice(0, queryIndex);
+    const rawQuery = queryIndex === -1 ? '' : rawUrl.slice(queryIndex + 1);
+    const segments = rawPath.split('/').filter(Boolean);
+    const token = segments[0] ?? '';
     const connectionId = domainRegistry.lookupByToken(token);
     if (!connectionId) {
       res.writeHead(404);
       res.end('not_found');
       return;
     }
-    if (wechatOnly && !isWeChatUserAgent(req.headers['user-agent']) && !isDirectLoopbackRequest(req)) {
-      res.writeHead(403, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(renderWeChatOnlyPage());
+    const directLoopback = isDirectLoopbackRequest(req);
+    // 先过微信检查再看票据：预览抓取 / 普通浏览器在这里就被拒，不会把用户的一次性票据用掉。
+    if (wechatOnly && !isWeChatUserAgent(req.headers['user-agent']) && !directLoopback) {
+      rejectUnauthorized(res);
       return;
     }
     const connection = wsRegistry.get(connectionId);
+    if (ticketAuthEnabled && !directLoopback && connection) {
+      const authToken = connection.authToken;
+      const hasSession = readSessionIds(req.headers.cookie).some((id) => ticketAuth.isValidSession(authToken, id));
+      if (!hasSession) {
+        const ticket = readQueryParam(rawQuery, 'ticket');
+        const sessionId = req.method === 'GET' && ticket ? ticketAuth.redeemTicket(authToken, ticket) : null;
+        if (!sessionId) {
+          rejectUnauthorized(res);
+          return;
+        }
+        const secure = String(connection.publicBase ?? '').startsWith('https://') ? '; Secure' : '';
+        res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=${sessionId}; Path=/${token}/; HttpOnly; SameSite=Lax; Max-Age=604800${secure}`);
+        res.setHeader('Referrer-Policy', 'no-referrer');
+        res.setHeader('Cache-Control', 'no-store');
+        ticketAuth.issueTicket(authToken);
+        sendRegistered(connectionId);
+      }
+    }
     const socket = connection?.socket ?? null;
     if (!socket || socket.readyState !== 1) {
       res.writeHead(502);
@@ -62,12 +124,14 @@ export async function startRelayServer(input) {
         pending.res.end('agent_timeout');
       }, requestTimeoutMs);
       pendingResponses.set(requestId, { res, connectionId, timeout });
+      const forwardQuery = removeQueryParam(rawQuery, 'ticket');
       socket.send(JSON.stringify({
         type: 'request',
         requestId,
         method: req.method ?? 'GET',
-        path: `/${path.split('/').filter(Boolean).slice(1).join('/')}` || '/',
-        headers: req.headers,
+        path: `/${segments.slice(1).join('/')}${forwardQuery ? `?${forwardQuery}` : ''}`,
+        // relay 的会话凭据只在 relay 用，不带进用户本机。
+        headers: withoutSessionCookie(req.headers),
         bodyBase64: Buffer.concat(chunks).toString('base64'),
       }));
     });
@@ -92,6 +156,8 @@ export async function startRelayServer(input) {
     }
   }, heartbeatIntervalMs);
   heartbeatTimer.unref?.();
+  const ticketTimer = ticketAuthEnabled ? setInterval(refreshExpiredTickets, 60_000) : null;
+  ticketTimer?.unref?.();
   server.on('upgrade', (request, socket, head) => {
     if (request.url !== '/agent') {
       socket.destroy();
@@ -102,7 +168,7 @@ export async function startRelayServer(input) {
     });
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, request) => {
     let connectionId = null;
     // 心跳存活标记：每收到一个 pong 就续命；心跳定时器会把它复位为 false 再 ping。
     ws.isAlive = true;
@@ -146,19 +212,14 @@ export async function startRelayServer(input) {
           socket: ws,
           authToken: message.authToken,
           ...(allocation.publicUrl ? { publicUrl: allocation.publicUrl } : {}),
+          publicBase: publicBaseUrl ?? derivePublicBase(request?.headers ?? {}),
           targetBaseUrl: message.targetBaseUrl,
           connectedAt: Date.now(),
           lastSeenAt: Date.now(),
         });
-        ws.send(JSON.stringify({
-          type: 'registered',
-          connectionId,
-          token: allocation.token,
-          // 能力协商:向客户端宣告本服务器支持流式转发。老客户端会忽略该字段;
-          // 新客户端据此决定走流式(response-start/chunk/end)还是退回缓冲(response)。
-          streaming: true,
-          ...(allocation.publicUrl ? { publicUrl: allocation.publicUrl } : {}),
-        }));
+        // 每次（重新）注册都换一张新票，旧链接随之作废；已兑换的会话按 authToken 保留。
+        ticketAuth.revokeTicket(message.authToken);
+        sendRegistered(connectionId);
         return;
       }
       if (message.type === 'response') {
@@ -266,6 +327,11 @@ export async function startRelayServer(input) {
         }
       }
       if (!connectionId) return;
+      // 被同 authToken 新连接顶替时，旧记录已在注册处删除，这里不会误删新连接的票据。
+      const record = wsRegistry.get(connectionId);
+      if (record && wsRegistry.lookupConnectionIdByAuthToken(record.authToken) === connectionId) {
+        ticketAuth.revokeTicket(record.authToken);
+      }
       domainRegistry.release(connectionId);
       wsRegistry.delete(connectionId);
     });
@@ -282,8 +348,10 @@ export async function startRelayServer(input) {
     // 仅供进程内观测（测试断言在线连接）。relay 不提供任何 HTTP 管理接口，
     // 尤其不能列出连接 / 公网地址，否则会暴露各用户无鉴权控制台的入口。
     listConnections: () => Array.from(wsRegistry.entries()).map(([, record]) => ({ authToken: record.authToken })),
+    refreshExpiredTickets,
     close: async () => {
       clearInterval(heartbeatTimer);
+      if (ticketTimer) clearInterval(ticketTimer);
       for (const [requestId, pending] of pendingResponses.entries()) {
         pendingResponses.delete(requestId);
         clearTimeout(pending.timeout);
@@ -369,6 +437,61 @@ function shouldRewriteTextResponse(contentType) {
 // UA 可被伪造，这里只挡住扫描器和随手转发后在普通浏览器打开的场景，不是强鉴权。
 export function isWeChatUserAgent(userAgent) {
   return /MicroMessenger/i.test(String(userAgent ?? ''));
+}
+
+function rejectUnauthorized(res) {
+  res.writeHead(403, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(renderWeChatOnlyPage());
+}
+
+// 拼接公网地址用：优先反代透传的 x-forwarded-*，回退 host；都没有时返回 undefined（隧道将无法兑换票据）。
+export function derivePublicBase(headers) {
+  const firstValue = (value) => String(value ?? '').split(',')[0].trim();
+  const host = firstValue(headers['x-forwarded-host']) || firstValue(headers.host);
+  if (!host) return undefined;
+  const proto = firstValue(headers['x-forwarded-proto']) || 'http';
+  return `${proto}://${host}`;
+}
+
+function readSessionIds(cookieHeader) {
+  return String(cookieHeader ?? '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith(`${SESSION_COOKIE_NAME}=`))
+    .map((part) => part.slice(SESSION_COOKIE_NAME.length + 1));
+}
+
+function withoutSessionCookie(headers) {
+  if (headers.cookie === undefined) return headers;
+  const rest = String(headers.cookie)
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part && !part.startsWith(`${SESSION_COOKIE_NAME}=`));
+  const next = { ...headers };
+  if (rest.length) next.cookie = rest.join('; ');
+  else delete next.cookie;
+  return next;
+}
+
+// 只按参数名处理、其余片段原样保留，避免重新编码改变转发给本机的查询串。
+function queryParamName(part) {
+  const name = part.split('=')[0];
+  try {
+    return decodeURIComponent(name.replace(/\+/g, ' '));
+  } catch {
+    return name;
+  }
+}
+
+function readQueryParam(rawQuery, name) {
+  const part = rawQuery.split('&').find((item) => queryParamName(item) === name);
+  if (part === undefined) return null;
+  const value = part.slice(part.indexOf('=') + 1);
+  return part.includes('=') ? value : '';
+}
+
+function removeQueryParam(rawQuery, name) {
+  return rawQuery.split('&').filter((item) => item && queryParamName(item) !== name).join('&');
 }
 
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
