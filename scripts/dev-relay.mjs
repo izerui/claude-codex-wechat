@@ -13,7 +13,6 @@ const relayPort = process.env.RELAY_PORT ?? '8788';
 const bridgePort = process.env.BRIDGE_PORT ?? '8787';
 const relayServerUrl = process.env.RELAY_SERVER_URL ?? `ws://127.0.0.1:${relayPort}/agent`;
 const activationSecret = process.env.RELAY_ACTIVATION_SECRET ?? 'dev-activation-secret';
-const adminToken = process.env.RELAY_ADMIN_TOKEN ?? 'dev-admin-token';
 const relayClientToken = ensureBridgeRelayAuthToken(configPath, relayPort);
 
 ensureRelayTokenFile(relayTokensPath, relayClientToken);
@@ -33,7 +32,6 @@ children.push(spawnWithPrefix(
       RELAY_SERVER_URL: relayServerUrl,
       RELAY_AUTH_TOKENS_FILE: relayTokensPath,
       RELAY_ACTIVATION_SECRET: activationSecret,
-      RELAY_ADMIN_TOKEN: adminToken,
     },
   },
 ));

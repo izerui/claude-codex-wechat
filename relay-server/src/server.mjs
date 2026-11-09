@@ -1,14 +1,12 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
-import { renderAdminPage } from './adminPage.mjs';
 import { createDomainRegistry } from './domainRegistry.mjs';
 import { renderLandingPage } from './landingPage.mjs';
 import { parseRelayMessage } from './protocol.mjs';
-import { appendTokenToFile, createClientToken } from './tokenManager.mjs';
 import { createWsRegistry } from './wsRegistry.mjs';
 
 export async function startRelayServer(input) {
-  const { host = '0.0.0.0', port, authTokens, authTokensFile, adminToken } = input;
+  const { host = '0.0.0.0', port, wechatOnly = false } = input;
   const requestTimeoutMs = Number.isFinite(input.requestTimeoutMs) && input.requestTimeoutMs > 0
     ? input.requestTimeoutMs
     : 30_000;
@@ -21,11 +19,6 @@ export async function startRelayServer(input) {
   let nextRequestId = 1;
 
   const server = http.createServer((req, res) => {
-    if (isProtectedAdminApiRequest(req.url) && !isAuthorizedAdminRequest(req.headers.authorization, adminToken)) {
-      res.writeHead(401, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: 'admin_unauthorized' }));
-      return;
-    }
     if (req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
@@ -33,63 +26,7 @@ export async function startRelayServer(input) {
     }
     if (req.url === '/' || req.url === '') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(renderLandingPage());
-      return;
-    }
-    if (req.url === '/admin') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(renderAdminPage({ adminToken }));
-      return;
-    }
-    if (req.method === 'POST' && req.url === '/admin/tokens') {
-      const token = createClientToken();
-      const result = authTokensFile
-        ? appendTokenToFile({ filePath: authTokensFile, token })
-        : { created: false, added: false, tokens: [token] };
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        ok: true,
-        token,
-        totalTokens: result.tokens.length,
-      }));
-      return;
-    }
-    if (req.url === '/connections') {
-      const publicBaseUrl = derivePublicBaseUrlFromRequest(req);
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        connections: Array.from(wsRegistry.entries()).map(([connectionId, record]) => ({
-          authToken: record.authToken,
-          ...(publicBaseUrl ? { publicUrl: `${publicBaseUrl}/${domainRegistry.lookupAllocation(connectionId)?.token}` } : {}),
-        })),
-      }));
-      return;
-    }
-    const disconnectByAuthTokenMatch = String(req.url ?? '').match(/^\/connections\/auth-token\/([^/]+)\/disconnect$/);
-    if (req.method === 'POST' && disconnectByAuthTokenMatch?.[1]) {
-      const authToken = decodeURIComponent(disconnectByAuthTokenMatch[1]);
-      const connection = wsRegistry.getByAuthToken(authToken);
-      if (!connection) {
-        res.writeHead(404);
-        res.end('not_found');
-        return;
-      }
-      connection.socket.close();
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
-      return;
-    }
-    const disconnectMatch = String(req.url ?? '').match(/^\/connections\/([^/]+)\/disconnect$/);
-    if (req.method === 'POST' && disconnectMatch?.[1]) {
-      const connection = wsRegistry.get(disconnectMatch[1]);
-      if (!connection) {
-        res.writeHead(404);
-        res.end('not_found');
-        return;
-      }
-      connection.socket.close();
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
+      res.end(renderLandingPage({ onlineCount: Array.from(wsRegistry.entries()).length }));
       return;
     }
     const path = String(req.url ?? '/');
@@ -98,6 +35,11 @@ export async function startRelayServer(input) {
     if (!connectionId) {
       res.writeHead(404);
       res.end('not_found');
+      return;
+    }
+    if (wechatOnly && !isWeChatUserAgent(req.headers['user-agent']) && !isDirectLoopbackRequest(req)) {
+      res.writeHead(403, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(renderWeChatOnlyPage());
       return;
     }
     const connection = wsRegistry.get(connectionId);
@@ -337,6 +279,9 @@ export async function startRelayServer(input) {
   const actualPort = typeof address === 'object' && address ? address.port : port;
   return {
     port: actualPort,
+    // 仅供进程内观测（测试断言在线连接）。relay 不提供任何 HTTP 管理接口，
+    // 尤其不能列出连接 / 公网地址，否则会暴露各用户无鉴权控制台的入口。
+    listConnections: () => Array.from(wsRegistry.entries()).map(([, record]) => ({ authToken: record.authToken })),
     close: async () => {
       clearInterval(heartbeatTimer);
       for (const [requestId, pending] of pendingResponses.entries()) {
@@ -356,27 +301,6 @@ export async function startRelayServer(input) {
       await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve(undefined)));
     },
   };
-}
-
-function isProtectedAdminApiRequest(url) {
-  return String(url ?? '').startsWith('/admin/')
-    || url === '/connections'
-    || String(url ?? '').startsWith('/connections/');
-}
-
-function isAuthorizedAdminRequest(header, adminToken) {
-  if (!adminToken) return true;
-  if (typeof header !== 'string') return false;
-  return header === `Bearer ${adminToken}`;
-}
-
-function derivePublicBaseUrlFromRequest(req) {
-  const forwardedProto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0]?.trim();
-  const forwardedHost = String(req.headers['x-forwarded-host'] ?? '').split(',')[0]?.trim();
-  const host = forwardedHost || String(req.headers.host ?? '').trim();
-  if (!host) return '';
-  const proto = forwardedProto || 'http';
-  return `${proto}://${host}`.replace(/\/+$/, '');
 }
 
 export function rewriteTextResponseForRelayPrefix(input) {
@@ -439,4 +363,31 @@ function shouldRewriteTextResponse(contentType) {
     || /javascript/i.test(contentType)
     || /ecmascript/i.test(contentType)
     || /text\/css/i.test(contentType);
+}
+
+// 微信内置浏览器（手机端与桌面端）的 UA 都带 MicroMessenger。
+// UA 可被伪造，这里只挡住扫描器和随手转发后在普通浏览器打开的场景，不是强鉴权。
+export function isWeChatUserAgent(userAgent) {
+  return /MicroMessenger/i.test(String(userAgent ?? ''));
+}
+
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const PROXY_HEADERS = ['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip', 'forwarded'];
+
+// 本机直连（如本地开发、在 relay 所在机器上自测）不受微信限制。
+// 同机反向代理转发的公网流量也是从回环地址进来的，所以只要带了任一代理头就按公网请求处理；
+// 部署时反代必须透传 x-forwarded-* 头（README 已要求），否则公网请求会被当成本机直连放行。
+export function isDirectLoopbackRequest(req) {
+  if (!LOOPBACK_ADDRESSES.has(String(req.socket?.remoteAddress ?? ''))) return false;
+  return PROXY_HEADERS.every((name) => req.headers[name] === undefined);
+}
+
+function renderWeChatOnlyPage() {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>无权限访问</title></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f2efe9;color:#333">
+<div style="text-align:center;padding:24px"><h2 style="margin:0">无权限访问</h2></div>
+</body>
+</html>`;
 }

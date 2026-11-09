@@ -28,7 +28,6 @@ npm install -g @liuyuhua/relay-server
 ## 快速启动
 
 ```bash
-RELAY_ADMIN_TOKEN=换成一段足够长的随机管理密钥 \
 relay-server
 ```
 
@@ -45,7 +44,6 @@ relay-server
 docker run -d \
   --name relay-server \
   -p 8788:8788 \
-  -e RELAY_ADMIN_TOKEN=换成一段足够长的随机管理密钥 \
   ghcr.io/<github-owner>/relay-server:latest
 ```
 
@@ -58,17 +56,15 @@ services:
     restart: unless-stopped
     ports:
       - "8788:8788"
-    environment:
-      RELAY_ADMIN_TOKEN: 换成一段足够长的随机管理密钥
 ```
 
 ## 环境变量
 
 | 变量 | 说明 |
 | --- | --- |
-| `RELAY_ADMIN_TOKEN` | **强烈建议设置**。用于保护管理端接口 |
 | `RELAY_HOST` | 监听地址，默认 `0.0.0.0`（监听所有网卡）；只想绑定内网时可指定 |
 | `RELAY_PORT` | 监听端口，默认 `8788` |
+| `RELAY_WECHAT_ONLY` | 默认开启：公网隧道地址只允许微信内置浏览器打开，其他浏览器返回 403「无权限访问」。本机直连（回环地址且不带 `x-forwarded-*` 等代理头）不受限制。设为 `0` / `false` 关闭 |
 
 > 客户端接入不需要在 relay 侧配任何 token——如上所述，relay 不做 token 准入校验。
 
@@ -111,7 +107,6 @@ https://wechat.example.com/sjdfh2xxx
 
 在把 relay 暴露到公网之前，确认：
 
-- `RELAY_ADMIN_TOKEN` 是一段独立的、足够长的随机密钥
 - 前面挂了反向代理，站点走 `HTTPS`，且正确透传 `x-forwarded-host` / `x-forwarded-proto`
 - 公网域名已指向 relay 主机
 - bridge 侧用的是 `wss://<你的host>/agent`
@@ -119,13 +114,12 @@ https://wechat.example.com/sjdfh2xxx
 上线顺序：
 
 1. 配好 DNS
-2. 设置 `RELAY_ADMIN_TOKEN`
-3. 启动 `relay-server`（并配好前置反代 + HTTPS）
-4. 等目标 bridge 客户端连上后，确认其公网地址可访问
+2. 启动 `relay-server`（并配好前置反代 + HTTPS）
+3. 等目标 bridge 客户端连上后，确认其公网地址可访问
 
 ## 本地开发
 
-在仓库根目录有两个便捷脚本。只启动 relay（带 dev 默认值 `RELAY_PORT=8788`、`RELAY_ADMIN_TOKEN=dev-admin-token`）：
+在仓库根目录有两个便捷脚本。只启动 relay（带 dev 默认值 `RELAY_PORT=8788`）：
 
 ```bash
 pnpm dev:relay
@@ -155,5 +149,5 @@ pnpm --dir relay-server test
 ## 安全说明
 
 - relay 的访问控制依赖随机不可枚举的公网路径，务必让站点走 `HTTPS`。
-- `RELAY_ADMIN_TOKEN` 用于保护管理端，与客户端 `authToken` 是两回事，请用不同的密钥。
+- relay 不提供任何管理页面或管理接口（不能列出在线客户端、公网地址，也不能远程断开连接），避免暴露各用户的控制台入口。首页 `/` 只公开显示当前在线客户端的数量。
 - relay 不校验客户端 `authToken`，请勿把它当作准入凭据。

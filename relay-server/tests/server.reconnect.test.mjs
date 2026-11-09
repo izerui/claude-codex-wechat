@@ -54,10 +54,7 @@ test('a reconnecting agent with the same auth token takes over the stale registr
     await firstClosed;
 
     // Exactly one live connection remains, and routing still works through it.
-    const response = await fetch(`http://127.0.0.1:${relay.port}/connections`);
-    const payload = await response.json();
-    assert.equal(payload.connections.length, 1);
-    assert.equal(payload.connections[0].authToken, AUTH_TOKEN);
+    assert.deepEqual(relay.listConnections(), [{ authToken: AUTH_TOKEN }]);
 
     second.ws.close();
   } finally {
@@ -133,10 +130,8 @@ test('the relay server terminates an agent that stops answering pings and frees 
 
     const freed = await new Promise((resolve) => {
       const deadline = Date.now() + 2000;
-      const poll = setInterval(async () => {
-        const response = await fetch(`http://127.0.0.1:${relay.port}/connections`);
-        const payload = await response.json();
-        if (payload.connections.length === 0) {
+      const poll = setInterval(() => {
+        if (relay.listConnections().length === 0) {
           clearInterval(poll);
           resolve(true);
         } else if (Date.now() > deadline) {

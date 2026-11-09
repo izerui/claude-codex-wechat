@@ -66,15 +66,8 @@ export function App() {
     void refresh();
   }, [refresh]);
 
-  const localUrl = status?.preferredLocalUrl
-    ?? (typeof window !== 'undefined' && window.location?.host
-      ? `http://${window.location.host}`
-      : 'http://127.0.0.1');
-  const displayAddress = tunnelStatus?.running && tunnelStatus.publicUrl
-    ? tunnelStatus.publicUrl
-    : localUrl;
-  const isPublicAddress = Boolean(tunnelStatus?.running && tunnelStatus.publicUrl);
-  const displayHref = displayAddress;
+  // 公网地址只允许在微信内打开，这里不展示链接，只提示在微信里用 /help 获取。
+  const hasPublicAddress = Boolean(tunnelStatus?.running && tunnelStatus.publicUrl);
   const tunnelWarning = !(tunnelStatus?.installed || tunnelStatus?.running || tunnelStatus?.enabled)
     ? '未配置 Relay Server'
     : null;
@@ -126,16 +119,11 @@ export function App() {
                 {status?.ok === true ? '在线' : '待确认'}
               </span>
             </div>
-            <a
-              className="font-monospace text-muted-soft"
-              style={{ fontSize: 12, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              href={displayHref}
-              target="_blank"
-              rel="noreferrer"
-              title={displayAddress}
-            >
-              {displayAddress}
-            </a>
+            {hasPublicAddress ? (
+              <span className="text-muted-soft" style={{ fontSize: 12 }}>
+                远程访问：在微信中发送 <code>/help</code> 获取链接（仅支持在微信内打开）
+              </span>
+            ) : null}
           </div>
         </header>
 

@@ -19,8 +19,15 @@ test('loads relay server config from env', () => {
     relayServerUrl: undefined,
     authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile: undefined,
-    adminToken: undefined,
+    wechatOnly: true,
   });
+});
+
+test('RELAY_WECHAT_ONLY 显式关闭时放开给任意浏览器', () => {
+  for (const value of ['0', 'false', 'OFF', 'no']) {
+    assert.equal(loadRelayConfig({ RELAY_WECHAT_ONLY: value }).wechatOnly, false);
+  }
+  assert.equal(loadRelayConfig({ RELAY_WECHAT_ONLY: '1' }).wechatOnly, true);
 });
 
 test('allows missing RELAY_BASE_DOMAIN when RELAY_SERVER_URL is provided', () => {
@@ -37,7 +44,7 @@ test('allows missing RELAY_BASE_DOMAIN when RELAY_SERVER_URL is provided', () =>
     relayServerUrl: 'wss://wechat.style520.com/agent',
     authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile: undefined,
-    adminToken: undefined,
+    wechatOnly: true,
   });
 });
 
@@ -55,7 +62,7 @@ test('loads relay server config from RELAY_AUTH_TOKENS', () => {
     relayServerUrl: undefined,
     authTokens: ['relay-token-a', 'relay-token-b', 'relay-token-c'],
     authTokensFile: undefined,
-    adminToken: undefined,
+    wechatOnly: true,
   });
 });
 
@@ -77,7 +84,7 @@ test('loads relay server config from RELAY_AUTH_TOKENS_FILE', () => {
     relayServerUrl: undefined,
     authTokens: ['relay-token-a', 'relay-token-b', 'relay-token-c'],
     authTokensFile: tokenFile,
-    adminToken: undefined,
+    wechatOnly: true,
   });
 });
 
@@ -101,7 +108,7 @@ test('prefers RELAY_AUTH_TOKENS_FILE over inline env tokens', () => {
     relayServerUrl: undefined,
     authTokens: ['file-token-a', 'file-token-b'],
     authTokensFile: tokenFile,
-    adminToken: undefined,
+    wechatOnly: true,
   });
 });
 
@@ -126,7 +133,7 @@ test('allows startup config without RELAY_BASE_DOMAIN or RELAY_SERVER_URL', () =
     relayServerUrl: undefined,
     authTokens: ['clrt_1234567890abcdef12345678'],
     authTokensFile: undefined,
-    adminToken: undefined,
+    wechatOnly: true,
   });
 });
 
@@ -142,6 +149,6 @@ test('allows missing RELAY_AUTH_TOKEN during the current open relay phase', () =
     relayServerUrl: undefined,
     authTokens: [],
     authTokensFile: undefined,
-    adminToken: undefined,
+    wechatOnly: true,
   });
 });

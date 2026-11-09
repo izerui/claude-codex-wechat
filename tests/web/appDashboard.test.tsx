@@ -1,7 +1,12 @@
 /** @vitest-environment jsdom */
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../src/web/App';
+
+// 每个用例独立渲染，避免上一个用例残留的 DOM 干扰「不应出现」类断言。
+afterEach(() => {
+  cleanup();
+});
 
 const okStatus = { ok: true, sessions: [], permissions: [], preferredLocalUrl: 'http://192.168.1.25:8787' };
 
@@ -82,8 +87,9 @@ describe('App dashboard provider status', () => {
     expect(await screen.findByText('在线')).toBeTruthy();
     expect((await screen.findAllByText('v2.0.1')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('未找到可执行文件')).length).toBeGreaterThan(0);
-    const publicLink = await screen.findByRole('link', { name: 'https://relay.style520.com/session-001' });
-    expect(publicLink.getAttribute('href')).toBe('https://relay.style520.com/session-001');
+    // 公网地址只能在微信内打开：控制台不展示链接，只提示用 /help 获取。
+    expect(await screen.findByText(/在微信中发送/)).toBeTruthy();
+    expect(screen.queryByText('https://relay.style520.com/session-001')).toBeNull();
     expect(screen.queryByRole('button', { name: '关闭公网' })).toBeNull();
     expect(screen.queryByRole('button', { name: '开启公网' })).toBeNull();
     expect(screen.queryByText('5177 页面')).toBeNull();
@@ -150,8 +156,9 @@ describe('App dashboard provider status', () => {
     expect((await screen.findAllByText('/opt/bin/claude')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('/opt/bin/codex')).length).toBeGreaterThan(0);
     expect(await screen.findByText('未配置 Relay Server')).toBeTruthy();
-    const localLink = await screen.findByRole('link', { name: 'http://192.168.1.25:8787' });
-    expect(localLink.getAttribute('href')).toBe('http://192.168.1.25:8787');
+    // 没有公网隧道时不展示任何地址（也不再展示局域网地址）。
+    expect(screen.queryByText(/在微信中发送/)).toBeNull();
+    expect(screen.queryByText('http://192.168.1.25:8787')).toBeNull();
     expect(screen.queryByRole('button', { name: '开启公网' })).toBeNull();
     expect(screen.queryByRole('button', { name: '关闭公网' })).toBeNull();
     expect(screen.queryByText(/检查于/)).toBeNull();

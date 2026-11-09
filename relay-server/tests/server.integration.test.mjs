@@ -627,7 +627,7 @@ test('accepts registration when auth token is in the whitelist', async () => {
   }
 });
 
-test('lists active relay connections with client instance metadata', async () => {
+test('does not expose any admin endpoints', async () => {
   const relay = await startRelayServer({
     port: 0,
     baseDomain: 'style520.com',
@@ -636,96 +636,6 @@ test('lists active relay connections with client instance metadata', async () =>
 
   try {
     const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
-    const registered = await new Promise((resolve, reject) => {
-      ws.addEventListener('open', () => {
-        ws.send(JSON.stringify({
-          type: 'register',
-          clientVersion: '0.1.0',
-          targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'clrt_1234567890abcdef12345678',
-        }));
-      });
-      ws.addEventListener('message', (raw) => {
-        const payload = JSON.parse(String(raw.data));
-        if (payload.type === 'registered') resolve(payload);
-      });
-      ws.addEventListener('error', reject);
-    });
-
-    const response = await fetch(`http://127.0.0.1:${relay.port}/connections`);
-    const payload = await response.json();
-
-    assert.equal(response.status, 200);
-    assert.deepEqual(payload.connections, [{
-      authToken: 'clrt_1234567890abcdef12345678',
-      publicUrl: payload.connections[0].publicUrl,
-    }]);
-    assert.match(payload.connections[0].publicUrl, new RegExp(`^http://127\\.0\\.0\\.1:${relay.port}/[a-z0-9]{10,12}$`));
-    ws.close();
-  } finally {
-    await relay.close();
-  }
-});
-
-test('disconnects an active relay connection by id', async () => {
-  const relay = await startRelayServer({
-    port: 0,
-    baseDomain: 'style520.com',
-    authTokens: ['clrt_1234567890abcdef12345678'],
-  });
-
-  try {
-    const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
-    const closePromise = new Promise((resolve) => {
-      ws.addEventListener('close', () => resolve(undefined));
-    });
-    const registered = await new Promise((resolve, reject) => {
-      ws.addEventListener('open', () => {
-        ws.send(JSON.stringify({
-          type: 'register',
-          clientVersion: '0.1.0',
-          targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'clrt_1234567890abcdef12345678',
-        }));
-      });
-      ws.addEventListener('message', (raw) => {
-        const payload = JSON.parse(String(raw.data));
-        if (payload.type === 'registered') resolve(payload);
-      });
-      ws.addEventListener('error', reject);
-    });
-
-    const response = await fetch(`http://127.0.0.1:${relay.port}/connections/${registered.connectionId}/disconnect`, {
-      method: 'POST',
-    });
-    const payload = await response.json();
-
-    assert.equal(response.status, 200);
-    assert.deepEqual(payload, { ok: true });
-    await closePromise;
-
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const statusResponse = await fetch(`http://127.0.0.1:${relay.port}/connections`);
-    const statusPayload = await statusResponse.json();
-    assert.equal(statusResponse.status, 200);
-    assert.deepEqual(statusPayload.connections, []);
-  } finally {
-    await relay.close();
-  }
-});
-
-test('disconnects an active relay connection by auth token', async () => {
-  const relay = await startRelayServer({
-    port: 0,
-    baseDomain: 'style520.com',
-    authTokens: ['clrt_1234567890abcdef12345678'],
-  });
-
-  try {
-    const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
-    const closePromise = new Promise((resolve) => {
-      ws.addEventListener('close', () => resolve(undefined));
-    });
     await new Promise((resolve, reject) => {
       ws.addEventListener('open', () => {
         ws.send(JSON.stringify({
@@ -742,14 +652,17 @@ test('disconnects an active relay connection by auth token', async () => {
       ws.addEventListener('error', reject);
     });
 
-    const response = await fetch(`http://127.0.0.1:${relay.port}/connections/auth-token/${encodeURIComponent('clrt_1234567890abcdef12345678')}/disconnect`, {
-      method: 'POST',
-    });
-    const payload = await response.json();
-
-    assert.equal(response.status, 200);
-    assert.deepEqual(payload, { ok: true });
-    await closePromise;
+    // 有客户端在线时，也不能通过任何 HTTP 端点拿到它的公网控制台地址。
+    assert.equal((await fetch(`http://127.0.0.1:${relay.port}/admin`)).status, 404);
+    const listResponse = await fetch(`http://127.0.0.1:${relay.port}/connections`);
+    assert.equal(listResponse.status, 404);
+    assert.doesNotMatch(await listResponse.text(), /clrt_|publicUrl/);
+    for (const path of ['/admin/tokens', '/connections/x/disconnect', '/connections/auth-token/clrt_1234567890abcdef12345678/disconnect']) {
+      assert.equal((await fetch(`http://127.0.0.1:${relay.port}${path}`, { method: 'POST' })).status, 404);
+    }
+    // 管理端被移除后，在线连接不应被任何 HTTP 请求踢掉。
+    assert.deepEqual(relay.listConnections(), [{ authToken: 'clrt_1234567890abcdef12345678' }]);
+    ws.close();
   } finally {
     await relay.close();
   }
@@ -805,43 +718,9 @@ test('a second agent registration with the same auth token takes over the first'
     // The stale first connection is evicted by the takeover.
     await ws1Closed;
 
-    const response = await fetch(`http://127.0.0.1:${relay.port}/connections`);
-    const payload = await response.json();
-    assert.equal(payload.connections.length, 1);
-    assert.equal(payload.connections[0].authToken, 'clrt_1234567890abcdef12345678');
+    assert.deepEqual(relay.listConnections(), [{ authToken: 'clrt_1234567890abcdef12345678' }]);
 
     ws2.close();
-  } finally {
-    await relay.close();
-  }
-});
-
-test('serves the relay admin page', async () => {
-  const relay = await startRelayServer({
-    port: 0,
-    baseDomain: 'style520.com',
-    authTokens: ['clrt_1234567890abcdef12345678'],
-  });
-
-  try {
-    const response = await fetch(`http://127.0.0.1:${relay.port}/admin`);
-    const html = await response.text();
-
-    assert.equal(response.status, 200);
-    assert.match(response.headers.get('content-type') ?? '', /text\/html/);
-    assert.match(html, /relay-server 管理后台/);
-    assert.match(html, /输入管理令牌后进入后台/);
-    assert.match(html, /管理令牌/);
-    assert.match(html, /当前没有在线客户端/);
-    assert.match(html, /在线连接/);
-    assert.match(html, /data-auth-token/);
-    assert.doesNotMatch(html, /分配 token/);
-    assert.doesNotMatch(html, /激活码/);
-    assert.doesNotMatch(html, /data-activation-code/);
-    assert.doesNotMatch(html, /回源地址/);
-    assert.doesNotMatch(html, /连接时间/);
-    assert.doesNotMatch(html, /最近活动/);
-    assert.doesNotMatch(html, /刷新/);
   } finally {
     await relay.close();
   }
@@ -890,116 +769,6 @@ test('rejects invalid websocket registration payloads without crashing the relay
     goodWs.close();
   } finally {
     await relay.close();
-  }
-});
-
-test('rejects unauthorized admin access when RELAY_ADMIN_TOKEN is configured', async () => {
-  const relay = await startRelayServer({
-    port: 0,
-    baseDomain: 'style520.com',
-    authTokens: ['clrt_1234567890abcdef12345678'],
-    adminToken: 'relay-admin-secret',
-  });
-
-  try {
-    const pageResponse = await fetch(`http://127.0.0.1:${relay.port}/admin`);
-    const pageHtml = await pageResponse.text();
-    assert.equal(pageResponse.status, 200);
-    assert.match(pageHtml, /输入管理令牌后进入后台/);
-
-    const listResponse = await fetch(`http://127.0.0.1:${relay.port}/connections`);
-    const listPayload = await listResponse.json();
-    assert.equal(listResponse.status, 401);
-    assert.deepEqual(listPayload, { ok: false, error: 'admin_unauthorized' });
-
-    const authorizedResponse = await fetch(`http://127.0.0.1:${relay.port}/admin`, {
-      headers: {
-        Authorization: 'Bearer relay-admin-secret',
-      },
-    });
-    assert.equal(authorizedResponse.status, 200);
-  } finally {
-    await relay.close();
-  }
-});
-
-test('generates and appends a client token through the admin API when RELAY_AUTH_TOKENS_FILE is configured', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'relay-admin-token-'));
-  const authTokensFile = join(dir, 'auth-tokens.txt');
-  const relay = await startRelayServer({
-    port: 0,
-    baseDomain: 'style520.com',
-    authTokens: ['clrt_1234567890abcdef12345678'],
-    authTokensFile,
-  });
-
-  try {
-    const response = await fetch(`http://127.0.0.1:${relay.port}/admin/tokens`, {
-      method: 'POST',
-    });
-    const payload = await response.json();
-
-    assert.equal(response.status, 200);
-    assert.match(payload.token, /^clrt_[a-z0-9]{24}$/);
-    assert.equal(typeof payload.totalTokens, 'number');
-    const fileContent = await readFile(authTokensFile, 'utf8');
-    assert.match(fileContent, new RegExp(payload.token));
-  } finally {
-    await relay.close();
-    await rm(authTokensFile, { force: true });
-  }
-});
-
-test('returns only panel fields from /connections after a token is assigned', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'relay-admin-assign-'));
-  const authTokensFile = join(dir, 'auth-tokens.txt');
-  const relay = await startRelayServer({
-    port: 0,
-    baseDomain: 'style520.com',
-    authTokens: ['clrt_1234567890abcdef12345678'],
-    authTokensFile,
-  });
-
-  try {
-    const tokenResponse = await fetch(`http://127.0.0.1:${relay.port}/admin/tokens`, {
-      method: 'POST',
-      headers: {
-      },
-    });
-    const tokenPayload = await tokenResponse.json();
-    assert.equal(tokenResponse.status, 200);
-    assert.match(tokenPayload.token, /^clrt_[a-z0-9]{24}$/);
-
-    const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/agent`);
-    const registered = await new Promise((resolve, reject) => {
-      ws.addEventListener('open', () => {
-        ws.send(JSON.stringify({
-          type: 'register',
-          clientVersion: '0.1.0',
-          targetBaseUrl: 'http://127.0.0.1:8787',
-          authToken: 'clrt_1234567890abcdef12345678',
-        }));
-      });
-      ws.addEventListener('message', (raw) => {
-        const payload = JSON.parse(String(raw.data));
-        if (payload.type === 'registered') resolve(payload);
-      });
-      ws.addEventListener('error', reject);
-    });
-
-    const response = await fetch(`http://127.0.0.1:${relay.port}/connections`);
-    const payload = await response.json();
-
-    assert.equal(response.status, 200);
-    assert.deepEqual(payload.connections, [{
-      authToken: 'clrt_1234567890abcdef12345678',
-      publicUrl: payload.connections[0].publicUrl,
-    }]);
-    assert.match(payload.connections[0].publicUrl, new RegExp(`^http://127\\.0\\.0\\.1:${relay.port}/[a-z0-9]{10,12}$`));
-    ws.close();
-  } finally {
-    await relay.close();
-    await rm(authTokensFile, { force: true });
   }
 });
 

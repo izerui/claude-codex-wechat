@@ -379,13 +379,14 @@ afterEach(async () => {
 });
 
 describe('App admin interactions', () => {
-  it('shows the relay public URL from the dashboard without a manual toggle button', async () => {
+  it('hints to get the relay public URL via /help without showing it or a manual toggle button', async () => {
     const { fetchImpl } = createFetchStub();
     vi.stubGlobal('fetch', fetchImpl as typeof fetch);
 
     render(<App />);
 
-    expect(await screen.findByText('https://relay.style520.com/session-001')).toBeTruthy();
+    expect(await screen.findByText(/在微信中发送/)).toBeTruthy();
+    expect(screen.queryByText('https://relay.style520.com/session-001')).toBeNull();
     expect(screen.queryByRole('button', { name: '开启公网' })).toBeNull();
     expect(screen.queryByRole('button', { name: '关闭公网' })).toBeNull();
   });
@@ -638,8 +639,8 @@ describe('App admin interactions', () => {
 
     render(<App />);
 
-    const relayLink = await screen.findByRole('link', { name: 'https://style520.com/sjdfh2xxx' });
-    expect(relayLink.getAttribute('href')).toBe('https://style520.com/sjdfh2xxx');
+    expect(await screen.findByText(/在微信中发送/)).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'https://style520.com/sjdfh2xxx' })).toBeNull();
   });
 
   it('copies the resume-by-id command from a recoverable session card', async () => {

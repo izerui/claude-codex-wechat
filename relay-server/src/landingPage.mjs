@@ -1,4 +1,5 @@
-export function renderLandingPage() {
+// onlineCount 只是一个数字：首页公开展示在线规模，但绝不列出任何客户端的 token 或公网地址。
+export function renderLandingPage({ onlineCount = 0 } = {}) {
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -185,7 +186,7 @@ claude-codex-wechat restart</pre>
       </div>
     </section>
 
-    <p class="footer">遇到问题？先跑 <code class="inline">claude-codex-wechat doctor</code> 自检。</p>
+    <p class="footer">遇到问题？先跑 <code class="inline">claude-codex-wechat doctor</code> 自检。 · 当前在线 <strong>${Number(onlineCount) || 0}</strong> 个客户端</p>
   </main>
 
   <script>
