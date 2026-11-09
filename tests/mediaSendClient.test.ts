@@ -71,6 +71,6 @@ describe('sendMediaToWeChat', () => {
     await sendMediaToWeChat({ kind: 'image', filePath: '/tmp/a.png', fetchImpl });
 
     const [url] = fetchImpl.mock.calls[0] as unknown as [string];
-    expect(url).toBe('http://localhost:8787/api/channel/send-media');
+    expect(url).toBe('http://127.0.0.1:8787/api/channel/send-media');
   });
 });

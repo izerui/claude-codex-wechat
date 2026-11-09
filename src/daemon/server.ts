@@ -25,7 +25,7 @@ import { RuntimeUserStore } from '../storage/runtimeUserStore';
 import type { ActiveWeChatUserStore } from '../storage/userStore';
 import { loadBridgeConfig, type WeixinConfig, type BridgeConfig } from './config';
 import { BridgeEventHub } from './events';
-import { listLanIpv4Addresses } from './bootstrap';
+import { listReachableLanAddresses } from './bootstrap';
 import type { TunnelProvider } from '../runtime/tunnelProvider';
 import { RelayTunnelRouter } from '../runtime/relayTunnelRouter';
 import { ensureRelayAuthTokenSync } from './configPersistence';
@@ -117,7 +117,7 @@ export function createDaemonServer(options: {
       'wechat-media': {
         command: mcpCommand,
         args: mcpArgs,
-        env: { BRIDGE_API_URL: `http://localhost:${bridgePort}` },
+        env: { BRIDGE_API_URL: `http://127.0.0.1:${bridgePort}` },
       },
     },
   }, null, 2) + '\n');
@@ -228,7 +228,7 @@ export function createDaemonServer(options: {
         getHelpAddress: async () => {
           const tunnel = await tunnelProvider?.getStatus().catch(() => null);
           if (tunnel?.running && tunnel.publicUrl) return tunnel.publicUrl;
-          const lan = listLanIpv4Addresses()[0];
+          const lan = listReachableLanAddresses()[0];
           if (lan) return `http://${lan}:${process.env.BRIDGE_PORT ?? 8787}`;
           return `http://127.0.0.1:${process.env.BRIDGE_PORT ?? 8787}`;
         },
@@ -286,7 +286,7 @@ export function createDaemonServer(options: {
       sessions: conversation.getCurrent() ? [conversation.getCurrent()!] : [],
       update,
       preferredLocalUrl: (() => {
-        const lan = listLanIpv4Addresses()[0];
+        const lan = listReachableLanAddresses()[0];
         const port = process.env.BRIDGE_PORT ?? 8787;
         if (lan) return `http://${lan}:${port}`;
         return `http://127.0.0.1:${port}`;

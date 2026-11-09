@@ -176,7 +176,7 @@ src/
 
 - 默认配置：`~/.claude-codex-wechat/config.json`（`BRIDGE_CONFIG` 可覆盖）。
 - 同目录下落盘：SQLite、微信凭据/状态、媒体文件等。
-- 关键环境变量：`BRIDGE_PORT`、`BRIDGE_CONFIG`、`BRIDGE_CLAUDE_COMMAND`、`BRIDGE_CODEX_COMMAND`、`BRIDGE_WECHAT_*`。
+- 关键环境变量：`BRIDGE_PORT`、`BRIDGE_HOST`（默认 `127.0.0.1`）、`BRIDGE_CONFIG`、`BRIDGE_CLAUDE_COMMAND`、`BRIDGE_CODEX_COMMAND`、`BRIDGE_WECHAT_*`。
 
 ---
 

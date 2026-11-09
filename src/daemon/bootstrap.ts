@@ -57,7 +57,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
 }> {
   installCrashLogging();
   const port = options.port ?? Number(process.env.BRIDGE_PORT ?? 8787);
-  const host = options.host ?? '0.0.0.0';
+  const host = options.host ?? resolveListenHost();
   const configPath = options.configPath ?? process.env.BRIDGE_CONFIG ?? defaultConfigPath();
   // 回收上次运行崩溃在 write→rename 窗口残留的原子写临时文件。
   await cleanupStaleTempFiles(configPath).catch(() => undefined);
@@ -125,12 +125,31 @@ export async function startDaemon(options: StartDaemonOptions): Promise<{
   }
   console.log('claude-codex-wechat listening:');
   console.log(`  Local:   http://127.0.0.1:${actualPort}`);
-  for (const ip of listLanIpv4Addresses()) {
+  for (const ip of listReachableLanAddresses(host)) {
     console.log(`  Network: http://${ip}:${actualPort}`);
   }
   console.log(`config path: ${configPath}`);
 
   return { app, port: actualPort, host, configPath };
+}
+
+/**
+ * 管理 API 没有鉴权，监听 0.0.0.0 等于把会话切换、目录浏览、微信 token 暴露给整个局域网
+ * （实际发生过同网段机器扫到 8787 后反复 attach 会话）。默认只听回环；
+ * 确需局域网直连时显式设置 BRIDGE_HOST=0.0.0.0，手机远程访问应走 tunnel 中转。
+ */
+export function resolveListenHost(): string {
+  return process.env.BRIDGE_HOST?.trim() || '127.0.0.1';
+}
+
+function isWildcardHost(host: string): boolean {
+  return host === '0.0.0.0' || host === '::';
+}
+
+/** 实际能从局域网访问到的地址：只听回环时为空，避免给用户展示一个连不上的 Network 地址。 */
+export function listReachableLanAddresses(host: string = resolveListenHost()): string[] {
+  if (isWildcardHost(host)) return listLanIpv4Addresses();
+  return listLanIpv4Addresses().includes(host) ? [host] : [];
 }
 
 export function listLanIpv4Addresses(): string[] {

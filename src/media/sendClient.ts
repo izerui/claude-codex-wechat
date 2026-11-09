@@ -19,7 +19,8 @@ export type SendMediaInput = {
 };
 
 export function defaultBridgeApiUrl(): string {
-  return process.env.BRIDGE_API_URL || 'http://localhost:8787';
+  // 用 127.0.0.1 而非 localhost：daemon 只听 IPv4 回环，localhost 可能先解析到 ::1 而连不上。
+  return process.env.BRIDGE_API_URL || 'http://127.0.0.1:8787';
 }
 
 export async function sendMediaToWeChat(input: SendMediaInput): Promise<string> {

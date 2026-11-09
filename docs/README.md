@@ -102,6 +102,7 @@ export BRIDGE_CONFIG=/absolute/path/to/config.json
 #### 通用
 
 - `BRIDGE_PORT`
+- `BRIDGE_HOST`：监听地址，默认 `127.0.0.1`（仅本机）。管理 API 无鉴权，确需局域网直连才设为 `0.0.0.0`
 - `BRIDGE_CONFIG`
 
 #### Provider command 覆盖
