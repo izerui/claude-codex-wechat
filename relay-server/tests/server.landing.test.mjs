@@ -18,6 +18,7 @@ test('serves the end-user onboarding guide at the root path', async () => {
     assert.match(html, /npm install -g claude-codex-wechat/);
     assert.match(html, /claude-codex-wechat start/);
     assert.match(html, /127\.0\.0\.1:8787/);
+    assert.match(html, /隐私与安全承诺/);
     // 页面是纯自动流程，不应再出现让用户手动改配置 / 手填令牌的内容。
     assert.doesNotMatch(html, /config\.json/);
     assert.doesNotMatch(html, /authToken/);

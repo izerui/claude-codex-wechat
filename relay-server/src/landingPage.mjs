@@ -112,6 +112,20 @@ export function renderLandingPage({ onlineCount = 0 } = {}) {
     }
     ul.tips { margin: 8px 0 0; padding-left: 20px; color: #374151; }
     ul.tips li { margin: 4px 0; }
+    section.step.privacy {
+      border-color: #bbf7d0;
+      background: #f0fdf4;
+    }
+    section.step.privacy .step-index { background: #16a34a; }
+    section.step.privacy p.warning {
+      margin-top: 14px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      font-size: 14px;
+    }
     .footer {
       margin-top: 32px;
       text-align: center;
@@ -184,6 +198,16 @@ export function renderLandingPage({ onlineCount = 0 } = {}) {
         <pre>npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/
 claude-codex-wechat restart</pre>
       </div>
+    </section>
+
+    <section class="step privacy">
+      <h2><span class="step-index">🔒</span>隐私与安全承诺</h2>
+      <ul class="tips">
+        <li>你的对话、代码和电脑，只属于你自己。</li>
+        <li>服务端只做转发，不存储、不窥探、不操控。</li>
+        <li>没有后门，没有后台，任何人都无从下手。</li>
+      </ul>
+      <p class="warning"><strong>⚠️ 致试图入侵者：</strong>别白费力气了，这里没有后门、没有后台、没有任何能通往用户电脑的入口。未经授权侵入或控制他人计算机，触犯《中华人民共和国刑法》第二百八十五、二百八十六条，必将被依法追究刑事责任。</p>
     </section>
 
     <p class="footer">遇到问题？先跑 <code class="inline">claude-codex-wechat doctor</code> 自检。 · 当前在线 <strong>${Number(onlineCount) || 0}</strong> 个客户端</p>
