@@ -3,7 +3,7 @@ import { WebSocketServer } from 'ws';
 import { createDomainRegistry } from './domainRegistry.mjs';
 import { renderLandingPage } from './landingPage.mjs';
 import { parseRelayMessage } from './protocol.mjs';
-import { createTicketAuth, SESSION_COOKIE_NAME } from './ticketAuth.mjs';
+import { createTicketAuth, PAGE_TOKEN_HEADER, PAGE_TOKEN_PARAM } from './ticketAuth.mjs';
 import { createWsRegistry } from './wsRegistry.mjs';
 
 export async function startRelayServer(input) {
@@ -87,26 +87,26 @@ export async function startRelayServer(input) {
       return;
     }
     const connection = wsRegistry.get(connectionId);
-    // 兑换成功时 relay 要追加的响应头；在写回 agent 响应时合并，不能用 setHeader（会被 agent 同名头覆盖）。
+    // 兑换票据时 relay 要强制的响应头；在写回 agent 响应时合并，不能用 setHeader（会被 agent 同名头覆盖）。
     let relayHeaders = null;
+    // 兑换成功后要注入页面的令牌；只有这个页面的内存里有它，同源的其他后缀页面拿不到。
+    let pageTokenToInject = null;
     if (ticketAuthEnabled && !directLoopback && connection) {
       const authToken = connection.authToken;
-      const hasSession = readSessionIds(req.headers.cookie).some((id) => ticketAuth.isValidSession(authToken, id));
-      if (!hasSession) {
+      const presented = [req.headers[PAGE_TOKEN_HEADER], readQueryParam(rawQuery, PAGE_TOKEN_PARAM)];
+      const hasPageToken = presented.some((value) => typeof value === 'string' && value && ticketAuth.isValidSession(authToken, value));
+      if (!hasPageToken) {
         const ticket = readQueryParam(rawQuery, 'ticket');
-        const sessionId = req.method === 'GET' && ticket ? ticketAuth.redeemTicket(authToken, ticket) : null;
-        if (!sessionId) {
+        const pageToken = req.method === 'GET' && ticket ? ticketAuth.redeemTicket(authToken, ticket) : null;
+        if (pageToken) {
+          pageTokenToInject = pageToken;
+          relayHeaders = { 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' };
+          ticketAuth.issueTicket(authToken);
+          sendRegistered(connectionId);
+        } else if (!isStaticSubresource(req, segments)) {
           rejectUnauthorized(res);
           return;
         }
-        const secure = String(connection.publicBase ?? '').startsWith('https://') ? '; Secure' : '';
-        relayHeaders = {
-          setCookie: `${SESSION_COOKIE_NAME}=${sessionId}; Path=/${token}/; HttpOnly; SameSite=Lax; Max-Age=604800${secure}`,
-          'cache-control': 'no-store',
-          'referrer-policy': 'no-referrer',
-        };
-        ticketAuth.issueTicket(authToken);
-        sendRegistered(connectionId);
       }
     }
     const socket = connection?.socket ?? null;
@@ -127,15 +127,21 @@ export async function startRelayServer(input) {
         if (!pending.res.headersSent) pending.res.writeHead(504);
         pending.res.end('agent_timeout');
       }, requestTimeoutMs);
-      pendingResponses.set(requestId, { res, connectionId, timeout, relayHeaders });
-      const forwardQuery = removeQueryParam(rawQuery, 'ticket');
+      pendingResponses.set(requestId, {
+        res,
+        connectionId,
+        timeout,
+        relayHeaders,
+        ...(pageTokenToInject ? { injectScript: renderPageTokenScript(pageTokenToInject, token) } : {}),
+      });
+      const forwardQuery = removeQueryParam(removeQueryParam(rawQuery, 'ticket'), PAGE_TOKEN_PARAM);
       socket.send(JSON.stringify({
         type: 'request',
         requestId,
         method: req.method ?? 'GET',
         path: `/${segments.slice(1).join('/')}${forwardQuery ? `?${forwardQuery}` : ''}`,
-        // relay 的会话凭据只在 relay 用，不带进用户本机。
-        headers: withoutSessionCookie(req.headers),
+        // relay 的页面令牌只在 relay 用，不带进用户本机。
+        headers: withoutPageTokenHeader(req.headers),
         bodyBase64: Buffer.concat(chunks).toString('base64'),
       }));
     });
@@ -237,11 +243,11 @@ export async function startRelayServer(input) {
         clearTimeout(pending.timeout);
         const responseBuffer = Buffer.from(String(message.bodyBase64 ?? ''), 'base64');
         const relayToken = connectionId ? domainRegistry.lookupAllocation(connectionId)?.token : null;
-        const rewritten = rewriteTextResponseForRelayPrefix({
+        const rewritten = withInjectedScript(rewriteTextResponseForRelayPrefix({
           headers: message.headers ?? {},
           body: responseBuffer,
           relayToken,
-        });
+        }), pending.injectScript);
         pending.res.writeHead(message.status ?? 200, finalizeResponseHeaders(rewritten.headers, pending.relayHeaders));
         pending.res.end(rewritten.body);
       }
@@ -305,11 +311,11 @@ export async function startRelayServer(input) {
         // 重写模式：拿到完整 body，走与缓冲路径完全相同的整体重写。
         const responseBuffer = Buffer.concat(pending.rewriteBuffer ?? []);
         const relayToken = connectionId ? domainRegistry.lookupAllocation(connectionId)?.token : null;
-        const rewritten = rewriteTextResponseForRelayPrefix({
+        const rewritten = withInjectedScript(rewriteTextResponseForRelayPrefix({
           headers: pending.startHeaders ?? {},
           body: responseBuffer,
           relayToken,
-        });
+        }), pending.injectScript);
         pending.res.writeHead(pending.startStatus ?? 200, finalizeResponseHeaders(rewritten.headers, pending.relayHeaders));
         pending.res.end(rewritten.body);
       }
@@ -443,29 +449,65 @@ export function isWeChatUserAgent(userAgent) {
   return /MicroMessenger/i.test(String(userAgent ?? ''));
 }
 
-// 写回 agent 响应前的最后一道处理：agent 不能种 / 覆盖 relay_session（同域下各后缀共享 cookie 空间），
-// 兑换票据时 relay 自己的 Set-Cookie 追加在后，Cache-Control / Referrer-Policy 以 relay 为准。
+// 写回 agent 响应前的最后一道处理：
+// - 删除 Service-Worker-Allowed：否则某个后缀注册的 Service Worker 能把作用域扩大到整个域名，拦截别人的请求；
+// - 兑换票据时 Cache-Control / Referrer-Policy 以 relay 为准（覆盖 agent 同名头）。
 function finalizeResponseHeaders(agentHeaders, relayHeaders) {
   const headers = {};
-  const cookies = [];
   for (const [name, value] of Object.entries(agentHeaders ?? {})) {
     const lower = name.toLowerCase();
-    if (lower === 'set-cookie') {
-      for (const cookie of [].concat(value)) {
-        if (!String(cookie).trim().startsWith(`${SESSION_COOKIE_NAME}=`)) cookies.push(cookie);
-      }
-      continue;
-    }
+    if (lower === 'service-worker-allowed') continue;
     if (relayHeaders && Object.hasOwn(relayHeaders, lower)) continue;
     headers[name] = value;
   }
-  if (relayHeaders) {
-    cookies.push(relayHeaders.setCookie);
-    headers['cache-control'] = relayHeaders['cache-control'];
-    headers['referrer-policy'] = relayHeaders['referrer-policy'];
+  return relayHeaders ? { ...headers, ...relayHeaders } : headers;
+}
+
+// 前端静态资源由 <script>/<link>/<img> 等标签加载，无法携带令牌请求头。Sec-Fetch-Dest 由浏览器设置、
+// 页面脚本不能伪造，据此放行；排除 /api/，防止借标签触发本机接口。
+const STATIC_FETCH_DESTS = new Set(['script', 'style', 'image', 'font', 'manifest']);
+
+function isStaticSubresource(req, segments) {
+  return STATIC_FETCH_DESTS.has(String(req.headers['sec-fetch-dest'] ?? '')) && segments[1] !== 'api';
+}
+
+function withoutPageTokenHeader(headers) {
+  if (headers[PAGE_TOKEN_HEADER] === undefined) return headers;
+  const next = { ...headers };
+  delete next[PAGE_TOKEN_HEADER];
+  return next;
+}
+
+// 注入到兑换票据后返回的页面 <head> 开头：令牌只在这段闭包里，给本后缀路径的 fetch / XHR 加请求头，
+// 给 EventSource（不能设请求头）加查询参数。对其他路径一律不附带，避免令牌泄露给别人的隧道。
+export function renderPageTokenScript(pageToken, suffix) {
+  return `(function(){var T=${JSON.stringify(pageToken)},H=${JSON.stringify(PAGE_TOKEN_HEADER)},P=${JSON.stringify(PAGE_TOKEN_PARAM)},B=${JSON.stringify(`/${suffix}/`)};`
+    + 'function own(u){try{var x=new URL(String(u),location.href);return x.origin===location.origin&&x.pathname.indexOf(B)===0}catch(e){return false}}'
+    + 'var F=window.fetch;if(F){window.fetch=function(i,o){var r=typeof Request!=="undefined"&&i instanceof Request;if(own(r?i.url:i)){o=Object.assign({},o);var h=new Headers(o.headers||(r?i.headers:undefined));h.set(H,T);o.headers=h}return F.call(this,i,o)}}'
+    + 'var X=window.XMLHttpRequest;if(X){var xo=X.prototype.open,xs=X.prototype.send;X.prototype.open=function(m,u){this.__relayOwn=own(u);return xo.apply(this,arguments)};X.prototype.send=function(){if(this.__relayOwn)this.setRequestHeader(H,T);return xs.apply(this,arguments)}}'
+    + 'var E=window.EventSource;if(E){var W=function(u,c){if(own(u)){var x=new URL(String(u),location.href);x.searchParams.set(P,T);u=x.toString()}return new E(u,c)};W.prototype=E.prototype;W.CONNECTING=E.CONNECTING;W.OPEN=E.OPEN;W.CLOSED=E.CLOSED;window.EventSource=W}'
+    + '})();';
+}
+
+export function injectPageTokenScript(html, script) {
+  const tag = `<script>${script}</script>`;
+  const head = html.match(/<head(\s[^>]*)?>/i);
+  if (!head) return tag + html;
+  const at = head.index + head[0].length;
+  return html.slice(0, at) + tag + html.slice(at);
+}
+
+function withInjectedScript(response, script) {
+  if (!script) return response;
+  const contentType = Object.entries(response.headers).find(([name]) => name.toLowerCase() === 'content-type')?.[1];
+  if (!/text\/html/i.test(String(contentType ?? ''))) return response;
+  const body = Buffer.from(injectPageTokenScript(response.body.toString('utf8'), script), 'utf8');
+  const headers = {};
+  for (const [name, value] of Object.entries(response.headers)) {
+    if (name.toLowerCase() !== 'content-length') headers[name] = value;
   }
-  if (cookies.length) headers['set-cookie'] = cookies;
-  return headers;
+  headers['content-length'] = String(body.byteLength);
+  return { headers, body };
 }
 
 function rejectUnauthorized(res) {
@@ -480,26 +522,6 @@ export function derivePublicBase(headers) {
   if (!host) return undefined;
   const proto = firstValue(headers['x-forwarded-proto']) || 'http';
   return `${proto}://${host}`;
-}
-
-function readSessionIds(cookieHeader) {
-  return String(cookieHeader ?? '')
-    .split(';')
-    .map((part) => part.trim())
-    .filter((part) => part.startsWith(`${SESSION_COOKIE_NAME}=`))
-    .map((part) => part.slice(SESSION_COOKIE_NAME.length + 1));
-}
-
-function withoutSessionCookie(headers) {
-  if (headers.cookie === undefined) return headers;
-  const rest = String(headers.cookie)
-    .split(';')
-    .map((part) => part.trim())
-    .filter((part) => part && !part.startsWith(`${SESSION_COOKIE_NAME}=`));
-  const next = { ...headers };
-  if (rest.length) next.cookie = rest.join('; ');
-  else delete next.cookie;
-  return next;
 }
 
 // 只按参数名处理、其余片段原样保留，避免重新编码改变转发给本机的查询串。

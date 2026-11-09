@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTicketAuth, generateTicket, SESSION_COOKIE_NAME } from '../src/ticketAuth.mjs';
+import { createTicketAuth, generateTicket, PAGE_TOKEN_HEADER, PAGE_TOKEN_PARAM } from '../src/ticketAuth.mjs';
 
 test('generateTicket returns 8 chars of a-z0-9', () => {
   for (let i = 0; i < 50; i++) assert.match(generateTicket(), /^[a-z0-9]{8}$/);
 });
 
-test('session cookie name is relay_session', () => {
-  assert.equal(SESSION_COOKIE_NAME, 'relay_session');
+test('page token travels as x-relay-page-token header or __rpt param', () => {
+  assert.equal(PAGE_TOKEN_HEADER, 'x-relay-page-token');
+  assert.equal(PAGE_TOKEN_PARAM, '__rpt');
 });
 
 test('ticket is one-time and bound to its auth token', () => {

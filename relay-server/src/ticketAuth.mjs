@@ -1,6 +1,9 @@
 import { randomBytes, randomInt } from 'node:crypto';
 
-export const SESSION_COOKIE_NAME = 'relay_session';
+// 页面令牌由 relay 注入页面脚本的闭包里，随请求显式携带（不用 cookie：同域各后缀共享 cookie 空间，
+// 浏览器会把 cookie 自动附带到同源脚本发起的请求上，别人的隧道页面就能借用）。
+export const PAGE_TOKEN_HEADER = 'x-relay-page-token';
+export const PAGE_TOKEN_PARAM = '__rpt';
 
 const TICKET_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const TICKET_LENGTH = 8;
@@ -14,8 +17,8 @@ export function generateTicket() {
   return ticket;
 }
 
-// 公网链接的一次性票据与兑换后的会话，全部存在 relay 进程内存：重启即全部失效，用户重新 /help 即可。
-// 每个 authToken 同一时刻只有一张有效票据；会话按 authToken 绑定，断线重连后依然有效。
+// 公网链接的一次性票据与兑换后的页面令牌（下称会话），全部存在 relay 进程内存：重启即全部失效，用户重新 /help 即可。
+// 每个 authToken 同一时刻只有一张有效票据；会话按 authToken 绑定，断线重连后依然有效，最长 7 天。
 export function createTicketAuth({ ticketTtlMs = 86_400_000, sessionTtlMs = 604_800_000, now = Date.now } = {}) {
   const tickets = new Map();
   const sessions = new Map();
