@@ -121,7 +121,7 @@ function EngineBay(input: {
         <span className="badge badge-soft-accent">{formatProviderStatus(input.providerInfo)}</span>
         {input.active && input.session ? (
           (() => {
-            const s = formatSessionStatusDisplay(input.session.status);
+            const s = formatSessionStatusDisplay(input.session);
             return (
               <span className={`badge ${s.badgeClass} ms-auto d-inline-flex align-items-center gap-1`}>
                 <span aria-hidden="true">{s.icon}</span>

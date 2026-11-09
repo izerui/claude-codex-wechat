@@ -73,6 +73,15 @@ export class CurrentConversationStore {
     return record;
   }
 
+  // daemon 启动时调用：上次进程退出时可能停在「回复中 / 启动中」，而 provider 子进程已随之结束，
+  // 原样显示会让控制台一直挂着旧状态。统一改回 idle，会话 ID 保留，下条消息照常续上。
+  resetInterruptedStatus(): void {
+    const current = this.getCurrent();
+    if (current && (current.status === 'running' || current.status === 'starting')) {
+      this.writeCurrent({ ...current, status: 'idle' });
+    }
+  }
+
   setCurrent(record: CurrentConversationBinding): CurrentConversationBinding {
     this.writeCurrent(record);
     return record;

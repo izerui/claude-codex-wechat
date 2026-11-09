@@ -91,6 +91,7 @@ export function createDaemonServer(options: {
     defaultCwd: bridgeDefaults.defaultWorkspace,
     defaultProviderId: bridgeDefaults.defaultProvider,
   });
+  conversation.resetInterruptedStatus();
   const providers = new ProviderRegistry({
     claudeCommand: options.providerCommands?.claude?.command,
     codexCommand: options.providerCommands?.codex?.command,

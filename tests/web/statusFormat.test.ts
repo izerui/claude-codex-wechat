@@ -27,11 +27,13 @@ describe('statusFormat', () => {
     expect(formatSessionStatusBadgeClass('running')).toBe('badge-solid-success');
   });
 
-  it('maps session status to icon + label', () => {
-    expect(formatSessionStatusDisplay('running')).toMatchObject({ icon: '🟢', label: '运行中' });
-    expect(formatSessionStatusDisplay('idle')).toMatchObject({ icon: '✅', label: '就绪' });
-    expect(formatSessionStatusDisplay('starting')).toMatchObject({ icon: '⏳', label: '启动中' });
-    expect(formatSessionStatusDisplay('failed')).toMatchObject({ icon: '❌', label: '异常' });
-    expect(formatSessionStatusDisplay('whatever')).toMatchObject({ icon: '🟡', label: 'whatever' });
+  it('maps a session to one of three states: 未启动 / 回复中 / 就绪', () => {
+    expect(formatSessionStatusDisplay({ status: 'starting' })).toMatchObject({ icon: '🕓', label: '未启动' });
+    expect(formatSessionStatusDisplay({ status: 'idle' })).toMatchObject({ icon: '🕓', label: '未启动' });
+    expect(formatSessionStatusDisplay({ status: 'running' })).toMatchObject({ icon: '🟢', label: '回复中' });
+    expect(formatSessionStatusDisplay({ status: 'running', providerSessionId: 's1' })).toMatchObject({ icon: '🟢', label: '回复中' });
+    for (const status of ['idle', 'starting', 'errored', 'closed', 'whatever']) {
+      expect(formatSessionStatusDisplay({ status, providerSessionId: 's1' })).toMatchObject({ icon: '✅', label: '就绪' });
+    }
   });
 });

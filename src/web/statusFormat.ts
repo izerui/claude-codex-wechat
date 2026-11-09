@@ -54,24 +54,15 @@ export function formatSessionStatusBadgeClass(status: string): string {
 
 export type SessionStatusDisplay = { icon: string; label: string; badgeClass: string };
 
-/** 把会话状态映射成「图标 + 中文标签 + 徽章样式」，让运行状态一眼可辨。 */
-export function formatSessionStatusDisplay(status: string): SessionStatusDisplay {
-  switch (status) {
-    case 'running':
-    case 'active':
-      return { icon: '🟢', label: '运行中', badgeClass: 'badge-solid-success' };
-    case 'starting':
-      return { icon: '⏳', label: '启动中', badgeClass: 'badge-soft-accent' };
-    case 'idle':
-      return { icon: '✅', label: '就绪', badgeClass: 'badge-soft-success' };
-    case 'accepted':
-      return { icon: '✅', label: '已就绪', badgeClass: 'badge-soft-success' };
-    case 'error':
-    case 'failed':
-      return { icon: '❌', label: '异常', badgeClass: 'badge-solid-error' };
-    default:
-      return { icon: '🟡', label: status, badgeClass: 'badge-soft-neutral' };
-  }
+/**
+ * 会话只展示三种状态：未启动 / 回复中 / 就绪。
+ * 新建会话只是写一条记录，provider 进程要等第一条微信消息才拉起，所以没有会话 ID 即「未启动」；
+ * running 由消息处理开始时写入、本轮结束时写回 idle，其余一律视为可发消息的「就绪」。
+ */
+export function formatSessionStatusDisplay(session: { status: string; providerSessionId?: string }): SessionStatusDisplay {
+  if (session.status === 'running') return { icon: '🟢', label: '回复中', badgeClass: 'badge-solid-success' };
+  if (!session.providerSessionId) return { icon: '🕓', label: '未启动', badgeClass: 'badge-soft-neutral' };
+  return { icon: '✅', label: '就绪', badgeClass: 'badge-soft-success' };
 }
 
 export function formatTimestamp(value?: number, now: number = Date.now()): string {

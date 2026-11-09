@@ -1,5 +1,5 @@
 import type { ChannelAdapter, ChannelAttachment, ChannelIncomingMessage, ChannelOutgoingMessage } from '../channels/types';
-import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, ProviderEvent } from '../providers/types';
+import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, ProviderEvent, ProviderSessionStatus } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { parseBridgeCommand, type BridgeCommand } from './commandParser';
 import type { OutboundDeliveryGate } from './outboundGate';
@@ -98,6 +98,14 @@ export class MessageRouter {
     const current = this.conversation.getCurrent();
     if (!current) return '';
     return `${current.id}|${current.providerId}|${current.providerSessionId ?? ''}|${current.cwd}|${current.status}`;
+  }
+
+  // 状态变化要实时推给前端：聊天生成不走 withSessionChangeNotification 的收尾通知。
+  private setConversationStatus(sessionId: string, status: ProviderSessionStatus): void {
+    const current = this.conversation.getCurrent();
+    if (!current || current.id !== sessionId || current.status === status) return;
+    this.conversation.update({ status }, sessionId);
+    this.options.events?.emit({ type: 'channel.current-session-changed' });
   }
 
   private async withSessionChangeNotification<T>(run: () => Promise<T>): Promise<T> {
@@ -199,7 +207,18 @@ export class MessageRouter {
     }
     // 排队消息的选项解析延后到 runChatGeneration 的 freshness 检查之后：若期间会话在
     // 另一端被推进并自动重挂载，旧选项已随之清除，纯序号不能再被翻译成过期选项文字。
-    await this.runExclusive(() => this.runChatGeneration(message, user, command.text, seq));
+    await this.runExclusive(async () => {
+      try {
+        await this.runChatGeneration(message, user, command.text, seq);
+      } finally {
+        // 无论正常结束、/stop、出错还是抛异常，本轮结束都回到「就绪」。provider 只在回合开始时
+        // 报 running、结束时不会报 idle，所以由这里收口；仍有新生成在跑（被新消息抢占）时不动它。
+        if (!this.activeGenerations.has(message.chatId)) {
+          const current = this.conversation.getCurrent();
+          if (current?.status === 'running') this.setConversationStatus(current.id, 'idle');
+        }
+      }
+    });
     return { status: 'accepted' };
   }
 
@@ -391,6 +410,8 @@ export class MessageRouter {
     }
     const provider = this.providers.get(session.providerId);
     if (!provider) throw new Error(`provider_not_registered:${session.providerId}`);
+    // 从收到消息起就显示「回复中」，首条消息拉起 provider 的那几秒也算在内。
+    this.setConversationStatus(session.id, 'running');
 
     if (!session.providerSessionId) {
       const resumeTitle = session.resumeTitle ?? sessionResumeTitle;
