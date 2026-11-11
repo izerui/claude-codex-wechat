@@ -19,9 +19,32 @@ test('serves the end-user onboarding guide at the root path', async () => {
     assert.match(html, /claude-codex-wechat start/);
     assert.match(html, /127\.0\.0\.1:8787/);
     assert.match(html, /隐私与安全承诺/);
+    assert.match(html, /claude-codex-wechat uninstall/);
+    assert.match(html, /npm uninstall -g claude-codex-wechat/);
+    assert.match(html, /rm -rf ~\/\.claude-codex-wechat/);
+    assert.match(html, /Remove-Item -Recurse -Force "\$env:USERPROFILE\\\.claude-codex-wechat"/);
     // 页面是纯自动流程，不应再出现让用户手动改配置 / 手填令牌的内容。
     assert.doesNotMatch(html, /config\.json/);
     assert.doesNotMatch(html, /authToken/);
+  } finally {
+    await relay.close();
+  }
+});
+
+test('serves the swarm build animation script for the root guide', async () => {
+  const relay = await startRelayServer({ port: 0 });
+
+  try {
+    const html = await (await fetch(`http://127.0.0.1:${relay.port}/`)).text();
+    assert.match(html, /\/landing\/swarm\.js/);
+    assert.match(html, /重播搭建/);
+
+    const response = await fetch(`http://127.0.0.1:${relay.port}/landing/swarm.js`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /javascript/);
+    const script = await response.text();
+    assert.match(script, /__swarmRebuild/);
+    assert.match(script, /__swarmAutoLive/);
   } finally {
     await relay.close();
   }

@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>claude-codex-wechat · 接入指南</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #000;
+      --paper: #fff;
+      --blue: #0000ee;
+      --mute: #444;
+      --gray: #ececec;
+      --sans: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      --heavy: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+      --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--paper); -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    ::selection { background: var(--blue); color: #fff; }
+
+    .shell {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 18px 40px 56px;
+    }
+
+    /* 报头条：细字 + 粗规则线（真实 border） */
+    .masthead {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+      padding-bottom: 8px;
+      border-bottom: 10px solid var(--ink);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .masthead .verbs { color: var(--blue); letter-spacing: .3em; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      column-gap: 24px;
+    }
+
+    .hero {
+      padding: 22px 0 24px;
+      align-items: end;
+      border-bottom: 1px solid var(--ink);
+    }
+    .hero h1 {
+      grid-column: 1 / span 8;
+      margin: 0;
+      font-size: clamp(34px, 5vw, 72px);
+      line-height: .92;
+      font-weight: 800;
+      letter-spacing: -.045em;
+      overflow-wrap: anywhere;
+    }
+    .hero h1 .nw { white-space: nowrap; }
+    .hero p {
+      grid-column: 9 / span 4;
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.55;
+      padding-left: 18px;
+      border-left: 1px solid var(--ink);
+    }
+
+    section.step {
+      padding: 20px 0 22px;
+      border-bottom: 1px solid var(--ink);
+    }
+    .lhs { grid-column: 1 / span 4; min-width: 0; }
+    .rhs { grid-column: 5 / span 8; min-width: 0; }
+
+    section.step h2 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 1.05;
+      font-weight: 800;
+      letter-spacing: -.03em;
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+    }
+    .step-index {
+      flex: 0 0 auto;
+      display: inline-block;
+      min-width: 26px;
+      padding: 3px 0 2px;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: 0;
+      text-align: center;
+      color: #fff;
+      background: var(--blue);
+      transform: translateY(-.35em);
+    }
+
+    /* 三个巨型动词：装好 启动 扫码 */
+    section.big { padding: 14px 0 18px; align-items: end; }
+    section.big h2 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+    section.big .step-index { transform: none; }
+    .verb {
+      display: inline-block;
+      margin: 6px 0 0 -.06em;
+      font-family: var(--heavy);
+      font-size: clamp(84px, 8.6vw, 128px);
+      font-weight: 900;
+      line-height: .9;
+      letter-spacing: -.07em;
+      -webkit-text-stroke: .028em var(--ink);
+      white-space: nowrap;
+    }
+    section.big .rhs { padding-bottom: 6px; }
+
+    .rhs p { margin: 0 0 10px; max-width: 62ch; }
+    .rhs p.muted { color: var(--mute); font-size: 14px; }
+    .rhs p.os {
+      margin: 18px 0 0;
+      color: var(--ink);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .06em;
+    }
+
+    .code-block {
+      display: flex;
+      align-items: stretch;
+      margin: 10px 0 10px;
+      border: 1.5px solid var(--ink);
+      background: var(--paper);
+    }
+    pre {
+      flex: 1 1 auto;
+      min-width: 0;
+      margin: 0;
+      padding: 14px 16px;
+      font-family: var(--mono);
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--ink);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .copy-button {
+      flex: 0 0 auto;
+      min-width: 78px;
+      min-height: 48px;
+      margin: 0;
+      padding: 0 14px;
+      border: 0;
+      border-left: 1.5px solid var(--ink);
+      border-radius: 0;
+      background: var(--ink);
+      color: #fff;
+      font-family: var(--sans);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      cursor: pointer;
+    }
+    .copy-button:hover { background: var(--blue); }
+    .copy-button:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+    .copy-button.is-done { background: var(--blue); }
+
+    code.inline {
+      font-family: var(--mono);
+      font-size: .9em;
+      background: var(--gray);
+      padding: 1px 5px;
+      overflow-wrap: anywhere;
+    }
+
+    ul.tips { margin: 0; padding: 0; list-style: none; }
+    ul.tips li {
+      padding: 9px 0 9px 30px;
+      border-top: 1px solid var(--ink);
+      text-indent: -30px;
+    }
+    ul.tips li:first-child { border-top: 0; padding-top: 0; }
+    ul.tips li .n {
+      display: inline-block;
+      width: 30px;
+      text-indent: 0;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--blue);
+    }
+
+    /* 隐私：承诺做成大字引语，警示反白 */
+    section.privacy { border-top: 4px solid var(--ink); margin-top: -1px; border-bottom: 0; }
+    section.privacy ul.tips li {
+      font-size: clamp(20px, 2.1vw, 30px);
+      font-weight: 800;
+      line-height: 1.25;
+      letter-spacing: -.02em;
+      padding-top: 14px;
+      padding-bottom: 14px;
+      padding-left: 44px;
+      text-indent: -44px;
+    }
+    section.privacy ul.tips li:first-child { padding-top: 0; }
+    section.privacy ul.tips li .n { width: 44px; font-size: 13px; vertical-align: .35em; }
+    section.privacy p.warning {
+      margin: 22px 0 0;
+      max-width: none;
+      padding: 18px 20px;
+      background: var(--ink);
+      color: #fff;
+      font-size: 14px;
+      line-height: 1.75;
+    }
+    section.privacy p.warning strong {
+      background: var(--blue);
+      color: #fff;
+      padding: 1px 6px;
+      margin-right: 6px;
+    }
+
+    .footer {
+      margin: 0;
+      padding: 18px 0 0;
+      border-top: 10px solid var(--ink);
+      font-size: 14px;
+    }
+    .footer strong {
+      color: var(--blue);
+      font-size: 22px;
+      font-weight: 800;
+      padding: 0 2px;
+    }
+
+    @media (max-width: 760px) {
+      body { font-size: 16px; }
+      .shell { padding: 12px 20px 44px; }
+      .masthead { font-size: 12px; border-bottom-width: 8px; }
+      .masthead .verbs { letter-spacing: .18em; }
+      .grid { display: block; }
+      .hero { padding: 20px 0 24px; }
+      .hero h1 { font-size: clamp(30px, 9.4vw, 44px); line-height: .98; }
+      .hero p { margin-top: 18px; padding-left: 14px; font-size: 16px; }
+      section.step { padding: 20px 0 24px; }
+      section.step h2 { font-size: 28px; }
+      section.big h2 { font-size: 15px; }
+      .lhs { margin-bottom: 14px; }
+      section.big { padding: 16px 0 22px; }
+      section.big .lhs { margin-bottom: 12px; }
+      .verb { font-size: clamp(84px, 27vw, 120px); }
+      .rhs p.muted { font-size: 15px; }
+      pre { font-size: 15px; padding: 12px 14px; }
+      .copy-button { min-width: 64px; padding: 0 10px; }
+      section.privacy ul.tips li { padding-left: 34px; text-indent: -34px; }
+      section.privacy ul.tips li .n { width: 34px; }
+      section.privacy p.warning { font-size: 15px; padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="masthead" aria-hidden="true">
+      <span>CLAUDE-CODEX-WECHAT</span>
+      <span class="verbs">装好 启动 扫码</span>
+    </div>
+
+    <header class="hero grid">
+      <h1>claude-codex-wechat <span class="nw">接入指南</span></h1>
+      <p>在本机跑一个桥接程序，就能用微信直接驱动你电脑上的 Claude Code / Codex 会话。装好、启动、扫码，即可使用，全程无需改配置。</p>
+    </header>
+
+    <section class="step grid">
+      <div class="lhs">
+        <h2><span class="step-index">0</span>准备</h2>
+      </div>
+      <div class="rhs">
+        <ul class="tips">
+          <li><span class="n" aria-hidden="true">a</span>本机已安装 <strong>Node.js ≥ 20</strong>。</li>
+          <li><span class="n" aria-hidden="true">b</span>已安装并登录好要用的 <code class="inline">claude</code> 或 <code class="inline">codex</code> 命令行。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="step big grid">
+      <div class="lhs">
+        <h2><span class="step-index">1</span>安装</h2>
+        <span class="verb" aria-hidden="true">装好</span>
+      </div>
+      <div class="rhs">
+        <div class="code-block">
+          <pre>npm install -g claude-codex-wechat --registry=https://registry.npmmirror.com/</pre>
+          <button class="copy-button" type="button">复制</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="step big grid">
+      <div class="lhs">
+        <h2><span class="step-index">2</span>启动</h2>
+        <span class="verb" aria-hidden="true">启动</span>
+      </div>
+      <div class="rhs">
+        <p>后台启动即可（首次启动会自动生成接入凭据、自动连接中转，无需任何配置）：</p>
+        <div class="code-block">
+          <pre>claude-codex-wechat start</pre>
+          <button class="copy-button" type="button">复制</button>
+        </div>
+        <p class="muted">用 <code class="inline">claude-codex-wechat status</code> 可随时查看运行状态。</p>
+      </div>
+    </section>
+
+    <section class="step big grid">
+      <div class="lhs">
+        <h2><span class="step-index">3</span>扫码绑定微信</h2>
+        <span class="verb" aria-hidden="true">扫码</span>
+      </div>
+      <div class="rhs">
+        <p>启动后，在本机浏览器打开管理页，用微信扫码登录即可完成绑定：</p>
+        <div class="code-block">
+          <pre>http://127.0.0.1:8787</pre>
+          <button class="copy-button" type="button">复制</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="step grid">
+      <div class="lhs">
+        <h2><span class="step-index">4</span>开始使用</h2>
+      </div>
+      <div class="rhs">
+        <ul class="tips">
+          <li><span class="n" aria-hidden="true">a</span>直接在微信里给机器人发消息，像聊天一样让它在你电脑上干活——读写代码、执行命令、改文件。</li>
+          <li><span class="n" aria-hidden="true">b</span>它跑在你自己的电脑上，用的就是你本机的 Claude / Codex 和项目文件。</li>
+          <li><span class="n" aria-hidden="true">c</span>随时离开、稍后再发消息，都能接着上次的会话继续，不用重新开始。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="step grid">
+      <div class="lhs">
+        <h2><span class="step-index">↑</span>更新</h2>
+      </div>
+      <div class="rhs">
+        <p>已经装过了、想升级到最新版，运行这一条即可（自动拉取新版并重启服务）：</p>
+        <div class="code-block">
+          <pre>claude-codex-wechat upgrade</pre>
+          <button class="copy-button" type="button">复制</button>
+        </div>
+        <p class="muted">若提示「未知命令」，说明当前装的还是没有该命令的旧版本，改用下面两条：</p>
+        <div class="code-block">
+          <pre>npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/
+claude-codex-wechat restart</pre>
+          <button class="copy-button" type="button">复制</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="step grid">
+      <div class="lhs">
+        <h2><span class="step-index">×</span>卸载</h2>
+      </div>
+      <div class="rhs">
+        <p>不想用了，先停止并移除后台服务，再删除全局安装的程序：</p>
+        <div class="code-block">
+          <pre>claude-codex-wechat uninstall
+npm uninstall -g claude-codex-wechat</pre>
+          <button class="copy-button" type="button">复制</button>
+        </div>
+        <p class="muted">以上两条在 macOS / Linux / Windows 上通用。如需同时清除本地配置、微信登录状态和日志，再删除数据目录：</p>
+        <p class="muted os">macOS / Linux：</p>
+        <div class="code-block">
+          <pre>rm -rf ~/.claude-codex-wechat</pre>
+          <button class="copy-button" type="button">复制</button>
+        </div>
+        <p class="muted os">Windows（PowerShell）：</p>
+        <div class="code-block">
+          <pre>Remove-Item -Recurse -Force "$env:USERPROFILE\.claude-codex-wechat"</pre>
+          <button class="copy-button" type="button">复制</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="step privacy grid">
+      <div class="lhs">
+        <h2><span class="step-index">§</span>隐私与安全承诺</h2>
+      </div>
+      <div class="rhs">
+        <ul class="tips">
+          <li><span class="n" aria-hidden="true">01</span>你的对话、代码和电脑，只属于你自己。</li>
+          <li><span class="n" aria-hidden="true">02</span>服务端只做转发，不存储、不窥探、不操控。</li>
+          <li><span class="n" aria-hidden="true">03</span>没有后门，没有后台，任何人都无从下手。</li>
+        </ul>
+        <p class="warning"><strong>致试图入侵者：</strong>别白费力气了，这里没有后门、没有后台、没有任何能通往用户电脑的入口。未经授权侵入或控制他人计算机，触犯《中华人民共和国刑法》第二百八十五、二百八十六条，必将被依法追究刑事责任。</p>
+      </div>
+    </section>
+
+    <p class="footer">遇到问题？先跑 <code class="inline">claude-codex-wechat doctor</code> 自检。 · 当前在线 <strong>3</strong> 个客户端</p>
+  </main>
+
+  <script>
+    (function () {
+      function legacyCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+        return ok;
+      }
+      document.querySelectorAll('.copy-button').forEach(function (button) {
+        var timer = 0;
+        button.addEventListener('click', function () {
+          var pre = button.parentElement.querySelector('pre');
+          if (!pre) return;
+          var text = pre.textContent || '';
+          var done = function () {
+            button.textContent = '已复制';
+            button.classList.add('is-done');
+            window.clearTimeout(timer);
+            timer = window.setTimeout(function () {
+              button.textContent = '复制';
+              button.classList.remove('is-done');
+            }, 1500);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(done, function () {
+              if (legacyCopy(text)) done();
+            });
+          } else if (legacyCopy(text)) {
+            done();
+          }
+        });
+      });
+    })();
+  </script>
+<script src="vendor/swarm.js"></script></body>
+</html>

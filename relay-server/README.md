@@ -153,5 +153,5 @@ pnpm --dir relay-server test
 - 公网隧道地址**只知道路径进不去**：relay 为每个在线客户端签发一次性票据（8 位，1 天有效），拼进下发给客户端的 `publicUrl`，用户在微信里发 `/help` 拿到的就是带 `?ticket=` 的链接。票据用一次即作废并自动换新。兑换后 relay 在返回的页面里注入一个**页面令牌**（只存在该页面内存中，最长 7 天），页面后续的接口请求都带上它；不用 cookie，因为同一域名下其他用户的页面脚本也能让浏览器带上 cookie。刷新或重新打开页面需要重新 `/help`。前端静态资源（`Sec-Fetch-Dest` 为 script/style/image/font/manifest 且不在 `/api/` 下）无需令牌。新老客户端都无需升级。
 - relay 会删除隧道响应中的 `Service-Worker-Allowed` 头，防止某个隧道的 Service Worker 接管整个域名。
 - 票据和会话只存在 relay 内存中，relay 重启或重新部署后需要重新发 `/help`。务必让站点走 `HTTPS`。
-- relay 不提供任何管理页面或管理接口（不能列出在线客户端、公网地址，也不能远程断开连接），避免暴露各用户的控制台入口。首页 `/` 只公开显示当前在线客户端的数量。
+- relay 不提供任何管理页面或管理接口（不能列出在线客户端、公网地址，也不能远程断开连接），避免暴露各用户的控制台入口。首页 `/` 只公开显示当前在线客户端的数量。首页首次访问会播放一段光标搭建动画（脚本由 `/landing/swarm.js` 提供，即 `vendor/swarm.js`，该文件不适用本项目的 MIT 许可，来源与授权见 [vendor/NOTICE.md](./vendor/NOTICE.md)）。
 - relay 不校验客户端 `authToken`，请勿把它当作准入凭据。

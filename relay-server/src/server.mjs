@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
 import { createDomainRegistry } from './domainRegistry.mjs';
-import { renderLandingPage } from './landingPage.mjs';
+import { LANDING_SWARM_PATH, readLandingSwarmScript, renderLandingPage } from './landingPage.mjs';
 import { parseRelayMessage } from './protocol.mjs';
 import { createTicketAuth, PAGE_TOKEN_HEADER, PAGE_TOKEN_PARAM } from './ticketAuth.mjs';
 import { createWsRegistry } from './wsRegistry.mjs';
@@ -61,6 +61,14 @@ export async function startRelayServer(input) {
     if (req.url === '/healthz') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.url === LANDING_SWARM_PATH) {
+      res.writeHead(200, {
+        'content-type': 'text/javascript; charset=utf-8',
+        'cache-control': 'public, max-age=86400',
+      });
+      res.end(readLandingSwarmScript());
       return;
     }
     if (req.url === '/' || req.url === '') {

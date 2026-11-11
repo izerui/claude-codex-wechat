@@ -1,3 +1,15 @@
+import { readFileSync } from 'node:fs';
+
+// 首页的光标搭建动画（vendor/swarm.js，来源与许可见 vendor/NOTICE.md）。
+export const LANDING_SWARM_PATH = '/landing/swarm.js';
+const SWARM_SCRIPT_URL = new URL('../vendor/swarm.js', import.meta.url);
+let swarmScript = null;
+
+export function readLandingSwarmScript() {
+  swarmScript ??= readFileSync(SWARM_SCRIPT_URL);
+  return swarmScript;
+}
+
 // onlineCount 只是一个数字：首页公开展示在线规模，但绝不列出任何客户端的 token 或公网地址。
 export function renderLandingPage({ onlineCount = 0 } = {}) {
   return `<!doctype html>
@@ -126,6 +138,22 @@ export function renderLandingPage({ onlineCount = 0 } = {}) {
       color: #991b1b;
       font-size: 14px;
     }
+    .replay-button {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      min-height: 44px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 0 16px;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+    .replay-button:hover { color: var(--accent); border-color: var(--accent); }
     .footer {
       margin-top: 32px;
       text-align: center;
@@ -200,6 +228,27 @@ claude-codex-wechat restart</pre>
       </div>
     </section>
 
+    <section class="step">
+      <h2><span class="step-index">×</span>卸载</h2>
+      <p>不想用了，先停止并移除后台服务，再删除全局安装的程序：</p>
+      <div class="code-block">
+        <button class="copy-button" type="button">复制</button>
+        <pre>claude-codex-wechat uninstall
+npm uninstall -g claude-codex-wechat</pre>
+      </div>
+      <p class="muted">以上两条在 macOS / Linux / Windows 上通用。如需同时清除本地配置、微信登录状态和日志，再删除数据目录：</p>
+      <p class="muted">macOS / Linux：</p>
+      <div class="code-block">
+        <button class="copy-button" type="button">复制</button>
+        <pre>rm -rf ~/.claude-codex-wechat</pre>
+      </div>
+      <p class="muted">Windows（PowerShell）：</p>
+      <div class="code-block">
+        <button class="copy-button" type="button">复制</button>
+        <pre>Remove-Item -Recurse -Force "$env:USERPROFILE\\.claude-codex-wechat"</pre>
+      </div>
+    </section>
+
     <section class="step privacy">
       <h2><span class="step-index">🔒</span>隐私与安全承诺</h2>
       <ul class="tips">
@@ -212,6 +261,8 @@ claude-codex-wechat restart</pre>
 
     <p class="footer">遇到问题？先跑 <code class="inline">claude-codex-wechat doctor</code> 自检。 · 当前在线 <strong>${Number(onlineCount) || 0}</strong> 个客户端</p>
   </main>
+
+  <button class="replay-button" id="swarm-replay" type="button" title="看一群光标把这页重新搭一遍">重播搭建</button>
 
   <script>
     document.querySelectorAll('.copy-button').forEach(function (button) {
@@ -229,6 +280,34 @@ claude-codex-wechat restart</pre>
         }
       });
     });
+
+
+    // 光标搭建动画：同一浏览器只在首次访问时自动播放，之后点「重播搭建」再看；搭完 1.5 秒自动回到真实页面。
+    (function () {
+      var SEEN_KEY = 'ccw-swarm-seen';
+      function play() {
+        window.__swarmAutoLive = 1500;
+        var swarm = window.__swarmRebuild;
+        if (swarm) {
+          if (!swarm.app) swarm.start();
+          return;
+        }
+        var script = document.createElement('script');
+        script.src = '${LANDING_SWARM_PATH}';
+        document.body.appendChild(script);
+      }
+      document.getElementById('swarm-replay').addEventListener('click', play);
+
+      var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var seen = true;
+      try {
+        seen = window.localStorage.getItem(SEEN_KEY) === '1';
+        window.localStorage.setItem(SEEN_KEY, '1');
+      } catch (error) {}
+      if (seen || reduceMotion) return;
+      if (document.readyState === 'complete') play();
+      else window.addEventListener('load', play);
+    })();
   </script>
 </body>
 </html>`;

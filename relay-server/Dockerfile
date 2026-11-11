@@ -7,6 +7,7 @@ RUN npm ci --omit=dev
 
 COPY bin ./bin
 COPY src ./src
+COPY vendor ./vendor
 COPY README.md ./README.md
 
 EXPOSE 8788

@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>claude-codex-wechat · 接入指南</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f3efe6;
+      --paper-deep: #ebe5d8;
+      --ink: #1f1c18;
+      --ink-2: #39342e;
+      --ink-3: #655d53;
+      --rule: rgba(84, 66, 48, 0.22);
+      --rule-strong: rgba(31, 28, 24, 0.55);
+      --hair: rgba(31, 28, 24, 0.14);
+      --red: #b8352b;
+      --red-wash: rgba(184, 53, 43, 0.06);
+      --panel: #221f1b;
+      --panel-line: rgba(240, 234, 221, 0.12);
+      --panel-text: #f0eadd;
+      --panel-muted: #aaa093;
+      --serif: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
+      --latin: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", "Noto Serif CJK SC", serif;
+      --sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+      --mono: "SF Mono", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
+
+      /* 稿纸模数：字格 c、行间空 g；栏数 cols、行数 rows */
+      --c: 40px;
+      --g: 12px;
+      --cols: 18;
+      --rows: 3;
+      --ind: 2;
+      --band: calc(var(--c) + var(--g));
+    }
+    * { box-sizing: border-box; }
+    html { overflow-x: clip; }
+    body {
+      margin: 0;
+      background-color: var(--paper);
+      background-image:
+        radial-gradient(120% 70% at 50% 0%, rgba(255, 252, 244, 0.7), rgba(255, 252, 244, 0) 70%),
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.35  0 0 0 0 0.28  0 0 0 0 0.2  0 0 0 0.05 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+      color: var(--ink-2);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.9;
+      letter-spacing: 0.02em;
+      text-autospace: normal;
+      line-break: strict;
+      text-wrap: pretty;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; }
+    strong { color: var(--ink); font-weight: 600; }
+
+    /* ========== 版式骨架：书口栏 + 版心 ========== */
+    .book {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      column-gap: 64px;
+      width: calc(112px + 64px + var(--cols) * var(--c) + 1px);
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 96px 0 104px;
+    }
+
+    /* 书口：竖排步骤名 */
+    .spine { position: relative; }
+    .spine-rule {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      right: 0;
+      width: 1px;
+      background: var(--hair);
+    }
+    .spine-inner {
+      position: sticky;
+      top: 72px;
+      padding-top: 6px;
+    }
+    .spine-mark {
+      display: block;
+      writing-mode: vertical-rl;
+      font-family: var(--serif);
+      font-size: 13px;
+      letter-spacing: 0.5em;
+      color: var(--red);
+      margin: 0 0 28px auto;
+      padding-right: 22px;
+    }
+    .spine ol {
+      list-style: none;
+      margin: 0;
+      padding: 0 22px 0 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+    .spine a {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-width: 44px;
+      padding: 8px 6px;
+      text-decoration: none;
+      color: var(--ink-3);
+      font-family: var(--serif);
+      font-size: 15px;
+      line-height: 1.25;
+    }
+    .spine a span {
+      writing-mode: vertical-rl;
+      letter-spacing: 0.32em;
+    }
+    .spine a i {
+      font-style: normal;
+      font-family: var(--latin);
+      font-size: 12px;
+      line-height: 1;
+      color: var(--ink-3);
+      opacity: 0.8;
+    }
+    .spine a:hover,
+    .spine a.is-here { color: var(--red); }
+    .spine a.is-here i { color: var(--red); opacity: 1; }
+
+    /* ========== 首屏：稿纸 ========== */
+    .hero { margin-bottom: 88px; }
+    .sheet-cap {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      width: calc(var(--cols) * var(--c) + 1px);
+      max-width: 100%;
+      margin-bottom: 10px;
+      font-family: var(--serif);
+      font-size: 12px;
+      letter-spacing: 0.3em;
+      color: var(--ink-3);
+    }
+    .sheet {
+      position: relative;
+      width: calc(var(--cols) * var(--c) + 1px);
+      height: calc(var(--g) + var(--rows) * var(--band) + 1px);
+      border-top: 2px solid var(--rule-strong);
+      border-bottom: 2px solid var(--rule-strong);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    }
+    .sheet-grid {
+      position: absolute;
+      inset: 0;
+    }
+    .sheet-grid i {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: calc(var(--band) + 1px);
+      background:
+        linear-gradient(var(--rule), var(--rule)) 0 var(--g) / 100% 1px no-repeat,
+        linear-gradient(var(--rule), var(--rule)) 0 calc(var(--g) + var(--c)) / 100% 1px no-repeat,
+        linear-gradient(to right, var(--rule) 1px, transparent 1px) 0 var(--g) / var(--c) var(--c) repeat-x;
+    }
+    .sheet-grid i:nth-child(1) { top: 0; }
+    .sheet-grid i:nth-child(2) { top: var(--band); }
+    .sheet-grid i:nth-child(3) { top: calc(2 * var(--band)); }
+    .sheet-grid i:nth-child(4) { top: calc(3 * var(--band)); display: none; }
+
+    .title {
+      position: absolute;
+      top: calc(var(--g) + var(--band));
+      left: calc(var(--ind) * var(--c));
+      width: calc(15 * var(--c));
+      margin: 0;
+      display: flex;
+      flex-wrap: wrap;
+      row-gap: var(--g);
+      color: var(--ink);
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+    .ch {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: var(--c);
+      height: var(--c);
+      font-family: var(--serif);
+      font-size: calc(var(--c) * 0.7);
+      line-height: 1;
+      white-space: pre;
+    }
+    .ch.lat {
+      font-family: var(--latin);
+      font-size: calc(var(--c) * 0.58);
+      letter-spacing: -0.01em;
+      padding-bottom: calc(var(--c) * 0.08);
+    }
+    .ch.cjk { font-weight: 600; }
+
+    /* 插入点：停在最后一格之后 */
+    .caret {
+      position: absolute;
+      top: calc(var(--g) + var(--band) + var(--c) * 0.14);
+      left: calc((var(--ind) + 15) * var(--c) + 4px);
+      width: 2px;
+      height: calc(var(--c) * 0.72);
+      background: var(--red);
+    }
+
+    /* 朱印 */
+    .seal {
+      position: absolute;
+      right: calc(var(--c) * 0.55);
+      top: calc(var(--g) + 2 * var(--band) - var(--c) * 0.18);
+      width: calc(var(--c) * 1.22);
+      height: calc(var(--c) * 1.22);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--red);
+      color: #f6eee2;
+      border-radius: 3px;
+      outline: 1.5px solid rgba(246, 238, 226, 0.85);
+      outline-offset: calc(var(--c) * -0.09);
+      transform: rotate(-4deg);
+      font-family: var(--serif);
+      font-weight: 700;
+      font-size: calc(var(--c) * 0.4);
+      line-height: 1.05;
+      writing-mode: vertical-rl;
+      letter-spacing: 0.04em;
+      opacity: 0.93;
+      mix-blend-mode: multiply;
+    }
+
+    .lede {
+      margin: 40px 0 0 calc(var(--ind) * var(--c));
+      max-width: 30em;
+      font-size: 18px;
+      line-height: 1.95;
+      color: var(--ink-2);
+      text-align: justify;
+    }
+
+    /* ========== 正文各节：两格缩进，编号悬于页边 ========== */
+    .step {
+      position: relative;
+      padding: 30px 0 0 calc(var(--ind) * var(--c));
+      margin-top: 64px;
+      border-top: 1px solid var(--hair);
+      scroll-margin-top: 48px;
+    }
+    .step h2 {
+      display: flex;
+      align-items: center;
+      margin: 0 0 14px calc(var(--ind) * var(--c) * -1);
+      font-family: var(--serif);
+      font-size: 25px;
+      font-weight: 600;
+      line-height: 1.3;
+      letter-spacing: 0.1em;
+      color: var(--ink);
+      font-feature-settings: "palt";
+    }
+    .step-index {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: var(--c);
+      height: var(--c);
+      margin-right: var(--c);
+      border: 1px solid var(--rule);
+      color: var(--red);
+      font-family: var(--latin);
+      font-size: calc(var(--c) * 0.46);
+      font-weight: 400;
+      letter-spacing: 0;
+      background: rgba(255, 252, 244, 0.45);
+    }
+    .step p {
+      margin: 10px 0;
+      max-width: 36em;
+      text-align: justify;
+    }
+    .step p.muted {
+      color: var(--ink-3);
+      font-size: 15px;
+    }
+
+    ul.tips {
+      list-style: none;
+      margin: 6px 0 0;
+      padding: 0;
+      max-width: 36em;
+    }
+    ul.tips li {
+      position: relative;
+      margin: 6px 0;
+      padding-left: 1.5em;
+      text-align: start;
+    }
+    ul.tips li > b.dot {
+      position: absolute;
+      left: 0.2em;
+      top: 0.82em;
+      width: 6px;
+      height: 6px;
+      background: var(--red);
+    }
+
+    code.inline {
+      font-family: var(--mono);
+      font-size: 0.86em;
+      color: var(--ink);
+      background: rgba(31, 28, 24, 0.06);
+      border-bottom: 1px solid rgba(31, 28, 24, 0.18);
+      padding: 1px 5px;
+      border-radius: 2px;
+      overflow-wrap: anywhere;
+      letter-spacing: 0;
+    }
+
+    /* ========== 命令嵌板：墨底米字 ========== */
+    .code-block {
+      position: relative;
+      margin: 16px 0 8px;
+      max-width: min(100%, 800px);
+      background: var(--panel);
+      border-radius: 2px;
+      box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.6),
+        0 14px 28px -18px rgba(31, 28, 24, 0.55);
+    }
+    .panel-head {
+      display: flex;
+      align-items: stretch;
+      justify-content: space-between;
+      height: 44px;
+      border-bottom: 1px solid var(--panel-line);
+    }
+    .panel-tag {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 18px;
+      font-size: 12px;
+      letter-spacing: 0.24em;
+      color: var(--panel-muted);
+    }
+    .panel-tag b {
+      display: block;
+      width: 7px;
+      height: 7px;
+      background: var(--red);
+    }
+    .copy-button {
+      min-width: 76px;
+      min-height: 44px;
+      margin: 0;
+      padding: 0 18px;
+      border: 0;
+      border-left: 1px solid var(--panel-line);
+      background: transparent;
+      color: var(--panel-text);
+      font-family: var(--sans);
+      font-size: 13px;
+      letter-spacing: 0.2em;
+      cursor: pointer;
+      border-radius: 0 2px 0 0;
+      transition: background-color 0.15s ease, color 0.15s ease;
+    }
+    .copy-button:hover { background: rgba(240, 234, 221, 0.08); }
+    .copy-button:focus-visible {
+      outline: 2px solid var(--red);
+      outline-offset: -2px;
+    }
+    .copy-button.sealed {
+      background: var(--red);
+      color: #f8f1e6;
+      font-family: var(--serif);
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      box-shadow: inset 0 0 0 3px var(--red), inset 0 0 0 4.5px rgba(248, 241, 230, 0.75);
+      animation: stamp 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+    }
+    @keyframes stamp {
+      0% { transform: scale(1.45) rotate(-9deg); opacity: 0; }
+      60% { transform: scale(0.94) rotate(-3deg); opacity: 1; }
+      100% { transform: scale(1) rotate(-3deg); opacity: 1; }
+    }
+    pre {
+      margin: 0;
+      padding: 16px 20px 18px;
+      color: var(--panel-text);
+      font-family: var(--mono);
+      font-size: 14px;
+      line-height: 1.75;
+      letter-spacing: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      tab-size: 2;
+    }
+
+    /* ========== 承诺：钤印框 ========== */
+    .step.privacy ul.tips li {
+      font-family: var(--serif);
+      font-size: 19px;
+      color: var(--ink);
+      letter-spacing: 0.06em;
+      margin: 10px 0;
+    }
+    .step.privacy ul.tips li > b.dot { top: 0.9em; }
+    .step.privacy p.warning {
+      margin-top: 26px;
+      max-width: 36em;
+      padding: 16px 20px 16px 18px;
+      border-left: 3px solid var(--red);
+      background: var(--red-wash);
+      color: var(--ink-2);
+      font-size: 15px;
+      line-height: 1.85;
+    }
+    .step.privacy p.warning strong { color: var(--red); }
+
+    /* ========== 版权页式页脚 ========== */
+    .footer {
+      margin: 88px 0 0;
+      padding: 24px 0 0 calc(var(--ind) * var(--c));
+      border-top: 2px solid var(--rule-strong);
+      color: var(--ink-3);
+      font-size: 14px;
+      line-height: 1.9;
+    }
+    .footer strong { color: var(--red); font-family: var(--latin); font-size: 16px; padding: 0 1px; }
+
+    /* ========== 断点：字格随屏宽取整 ========== */
+    @media (min-width: 1100px) { :root { --c: 44px; --g: 13px; } }
+    @media (min-width: 1240px) { :root { --c: 52px; --g: 15px; } }
+    @media (min-width: 1380px) { :root { --c: 58px; --g: 16px; } }
+
+    @media (max-width: 1023px) {
+      :root { --c: 36px; --g: 11px; }
+      .book {
+        display: block;
+        width: auto;
+        padding: 0 24px 80px;
+      }
+      .spine {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        margin: 0 -24px;
+        background-color: var(--paper);
+      }
+      .spine-rule {
+        top: auto;
+        left: 0;
+        width: auto;
+        height: 1px;
+      }
+      .spine-inner { position: static; padding: 0; }
+      .spine-mark { display: none; }
+      .spine ol {
+        flex-direction: row;
+        align-items: stretch;
+        gap: 0;
+        padding: 0 12px;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .spine ol::-webkit-scrollbar { display: none; }
+      .spine a {
+        flex-direction: row;
+        align-items: baseline;
+        min-height: 48px;
+        padding: 13px 11px 0;
+        white-space: nowrap;
+      }
+      .spine a span { writing-mode: horizontal-tb; letter-spacing: 0.12em; }
+      .hero { padding-top: 48px; }
+      .sheet, .sheet-cap { margin-left: auto; margin-right: auto; }
+      .hero-body { width: calc(var(--cols) * var(--c) + 1px); max-width: 100%; margin: 0 auto; }
+      main.folio { width: calc(var(--cols) * var(--c) + 1px); max-width: 100%; margin: 0 auto; }
+    }
+    @media (min-width: 900px) and (max-width: 1023px) { :root { --c: 46px; --g: 13px; } }
+
+    @media (max-width: 719px) {
+      :root { --c: 28px; --g: 9px; --cols: 10; --rows: 4; --ind: 0; }
+      .book { padding: 0 16px 64px; }
+      .spine { margin: 0 -16px; }
+      .sheet-grid i:nth-child(4) { display: block; }
+      .title { width: calc(10 * var(--c)); }
+      .caret {
+        top: calc(var(--g) + 2 * var(--band) + var(--c) * 0.14);
+        left: calc(5 * var(--c) + 3px);
+      }
+      .seal {
+        right: calc(var(--c) * 0.4);
+        top: calc(var(--g) + 3 * var(--band) - var(--c) * 0.1);
+      }
+      .hero { padding-top: 32px; margin-bottom: 56px; }
+      .lede { margin-top: 28px; font-size: 16px; line-height: 1.9; }
+      .step { margin-top: 48px; padding: 24px 0 0; }
+      .step h2 { margin-left: 0; font-size: 21px; margin-bottom: 10px; }
+      .step-index { margin-right: 14px; }
+      .step p.muted { font-size: 15px; }
+      pre { padding: 14px 16px 16px; font-size: 13.5px; }
+      .panel-tag { padding: 0 14px; }
+      .step.privacy ul.tips li { font-size: 17px; }
+      .footer { padding-left: 0; margin-top: 64px; }
+    }
+    @media (min-width: 352px) and (max-width: 719px) { :root { --c: 32px; --g: 10px; } }
+    @media (min-width: 372px) and (max-width: 719px) { :root { --c: 34px; --g: 10px; } }
+    @media (min-width: 412px) and (max-width: 719px) { :root { --c: 38px; --g: 11px; } }
+    @media (min-width: 520px) and (max-width: 719px) { :root { --c: 46px; --g: 13px; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .copy-button.sealed { animation: none; transform: rotate(-3deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="book">
+    <nav class="spine" aria-label="步骤">
+      <span class="spine-rule" aria-hidden="true"></span>
+      <div class="spine-inner">
+        <span class="spine-mark" aria-hidden="true">接入指南</span>
+        <ol>
+          <li><a href="#s0"><i>0</i><span>准备</span></a></li>
+          <li><a href="#s1"><i>1</i><span>安装</span></a></li>
+          <li><a href="#s2"><i>2</i><span>启动</span></a></li>
+          <li><a href="#s3"><i>3</i><span>扫码</span></a></li>
+          <li><a href="#s4"><i>4</i><span>使用</span></a></li>
+          <li><a href="#s5"><i>↑</i><span>更新</span></a></li>
+          <li><a href="#s6"><i>×</i><span>卸载</span></a></li>
+          <li><a href="#s7"><i>※</i><span>承诺</span></a></li>
+        </ol>
+      </div>
+    </nav>
+
+    <main class="folio">
+      <header class="hero">
+        <div class="sheet">
+          <div class="sheet-grid" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          <h1 class="title"><span class="ch lat">cl</span><span class="ch lat">au</span><span class="ch lat">de</span><span class="ch lat">-c</span><span class="ch lat">od</span><span class="ch lat">ex</span><span class="ch lat">-w</span><span class="ch lat">ec</span><span class="ch lat">ha</span><span class="ch lat">t</span><span class="ch sp"> </span><span class="ch cjk">接</span><span class="ch cjk">入</span><span class="ch cjk">指</span><span class="ch cjk">南</span></h1>
+          <span class="caret" aria-hidden="true"></span>
+          <span class="seal" aria-hidden="true">指南</span>
+        </div>
+        <div class="hero-body">
+          <p class="lede">在本机跑一个桥接程序，就能用微信直接驱动你电脑上的 Claude Code / Codex 会话。装好、启动、扫码，即可使用，全程无需改配置。</p>
+        </div>
+      </header>
+
+      <section class="step" id="s0">
+        <h2><span class="step-index">0</span>准备</h2>
+        <ul class="tips">
+          <li><b class="dot" aria-hidden="true"></b>本机已安装 <strong>Node.js ≥ 20</strong>。</li>
+          <li><b class="dot" aria-hidden="true"></b>已安装并登录好要用的 <code class="inline">claude</code> 或 <code class="inline">codex</code> 命令行。</li>
+        </ul>
+      </section>
+
+      <section class="step" id="s1">
+        <h2><span class="step-index">1</span>安装</h2>
+        <div class="code-block">
+          <div class="panel-head"><span class="panel-tag"><b aria-hidden="true"></b>终端</span><button class="copy-button" type="button">复制</button></div>
+          <pre>npm install -g claude-codex-wechat --registry=https://registry.npmmirror.com/</pre>
+        </div>
+      </section>
+
+      <section class="step" id="s2">
+        <h2><span class="step-index">2</span>启动</h2>
+        <p>后台启动即可（首次启动会自动生成接入凭据、自动连接中转，无需任何配置）：</p>
+        <div class="code-block">
+          <div class="panel-head"><span class="panel-tag"><b aria-hidden="true"></b>终端</span><button class="copy-button" type="button">复制</button></div>
+          <pre>claude-codex-wechat start</pre>
+        </div>
+        <p class="muted">用 <code class="inline">claude-codex-wechat status</code> 可随时查看运行状态。</p>
+      </section>
+
+      <section class="step" id="s3">
+        <h2><span class="step-index">3</span>扫码绑定微信</h2>
+        <p>启动后，在本机浏览器打开管理页，用微信扫码登录即可完成绑定：</p>
+        <div class="code-block">
+          <div class="panel-head"><span class="panel-tag"><b aria-hidden="true"></b>浏览器</span><button class="copy-button" type="button">复制</button></div>
+          <pre>http://127.0.0.1:8787</pre>
+        </div>
+      </section>
+
+      <section class="step" id="s4">
+        <h2><span class="step-index">4</span>开始使用</h2>
+        <ul class="tips">
+          <li><b class="dot" aria-hidden="true"></b>直接在微信里给机器人发消息，像聊天一样让它在你电脑上干活——读写代码、执行命令、改文件。</li>
+          <li><b class="dot" aria-hidden="true"></b>它跑在你自己的电脑上，用的就是你本机的 Claude / Codex 和项目文件。</li>
+          <li><b class="dot" aria-hidden="true"></b>随时离开、稍后再发消息，都能接着上次的会话继续，不用重新开始。</li>
+        </ul>
+      </section>
+
+      <section class="step" id="s5">
+        <h2><span class="step-index">↑</span>更新</h2>
+        <p>已经装过了、想升级到最新版，运行这一条即可（自动拉取新版并重启服务）：</p>
+        <div class="code-block">
+          <div class="panel-head"><span class="panel-tag"><b aria-hidden="true"></b>终端</span><button class="copy-button" type="button">复制</button></div>
+          <pre>claude-codex-wechat upgrade</pre>
+        </div>
+        <p class="muted">若提示「未知命令」，说明当前装的还是没有该命令的旧版本，改用下面两条：</p>
+        <div class="code-block">
+          <div class="panel-head"><span class="panel-tag"><b aria-hidden="true"></b>终端</span><button class="copy-button" type="button">复制</button></div>
+          <pre>npm install -g claude-codex-wechat@latest --registry=https://registry.npmmirror.com/
+claude-codex-wechat restart</pre>
+        </div>
+      </section>
+
+      <section class="step" id="s6">
+        <h2><span class="step-index">×</span>卸载</h2>
+        <p>不想用了，先停止并移除后台服务，再删除全局安装的程序：</p>
+        <div class="code-block">
+          <div class="panel-head"><span class="panel-tag"><b aria-hidden="true"></b>终端</span><button class="copy-button" type="button">复制</button></div>
+          <pre>claude-codex-wechat uninstall
+npm uninstall -g claude-codex-wechat</pre>
+        </div>
+        <p class="muted">以上两条在 macOS / Linux / Windows 上通用。如需同时清除本地配置、微信登录状态和日志，再删除数据目录：</p>
+        <p class="muted">macOS / Linux：</p>
+        <div class="code-block">
+          <div class="panel-head"><span class="panel-tag"><b aria-hidden="true"></b>终端</span><button class="copy-button" type="button">复制</button></div>
+          <pre>rm -rf ~/.claude-codex-wechat</pre>
+        </div>
+        <p class="muted">Windows（PowerShell）：</p>
+        <div class="code-block">
+          <div class="panel-head"><span class="panel-tag"><b aria-hidden="true"></b>PowerShell</span><button class="copy-button" type="button">复制</button></div>
+          <pre>Remove-Item -Recurse -Force "$env:USERPROFILE\.claude-codex-wechat"</pre>
+        </div>
+      </section>
+
+      <section class="step privacy" id="s7">
+        <h2><span class="step-index">※</span>隐私与安全承诺</h2>
+        <ul class="tips">
+          <li><b class="dot" aria-hidden="true"></b>你的对话、代码和电脑，只属于你自己。</li>
+          <li><b class="dot" aria-hidden="true"></b>服务端只做转发，不存储、不窥探、不操控。</li>
+          <li><b class="dot" aria-hidden="true"></b>没有后门，没有后台，任何人都无从下手。</li>
+        </ul>
+        <p class="warning"><strong>致试图入侵者：</strong>别白费力气了，这里没有后门、没有后台、没有任何能通往用户电脑的入口。未经授权侵入或控制他人计算机，触犯《中华人民共和国刑法》第二百八十五、二百八十六条，必将被依法追究刑事责任。</p>
+      </section>
+
+      <p class="footer">遇到问题？先跑 <code class="inline">claude-codex-wechat doctor</code> 自检。 · 当前在线 <strong>3</strong> 个客户端</p>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      function fallbackCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+        return ok;
+      }
+      function copyText(text, done) {
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(done, function () {
+            if (fallbackCopy(text)) done();
+          });
+        } else if (fallbackCopy(text)) {
+          done();
+        }
+      }
+      document.querySelectorAll('.copy-button').forEach(function (button) {
+        var label = button.textContent;
+        button.addEventListener('click', function () {
+          var block = button.closest('.code-block');
+          var pre = block && block.querySelector('pre');
+          if (!pre) return;
+          copyText(pre.textContent || '', function () {
+            button.textContent = '已复制';
+            button.classList.remove('sealed');
+            void button.offsetWidth;
+            button.classList.add('sealed');
+            window.clearTimeout(button.sealTimer);
+            button.sealTimer = window.setTimeout(function () {
+              button.textContent = label;
+              button.classList.remove('sealed');
+            }, 1500);
+          });
+        });
+      });
+
+      var links = document.querySelectorAll('.spine a');
+      if (!('IntersectionObserver' in window) || !links.length) return;
+      var map = {};
+      links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          links.forEach(function (a) { a.classList.remove('is-here'); });
+          var hit = map[entry.target.id];
+          if (hit) hit.classList.add('is-here');
+        });
+      }, { rootMargin: '-35% 0px -60% 0px' });
+      document.querySelectorAll('section.step[id]').forEach(function (s) { io.observe(s); });
+    })();
+  </script>
+<script src="vendor/swarm.js"></script></body>
+</html>
