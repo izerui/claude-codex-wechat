@@ -24,6 +24,7 @@ export class CodexAppServerClient {
   private nextId = 1;
   private disposed = false;
   private buffer = '';
+  private readonly closeHandlers = new Set<(error: Error) => void>();
 
   constructor(input: { command?: string; cwd: string }) {
     const command = input.command ?? 'codex';
@@ -37,6 +38,9 @@ export class CodexAppServerClient {
     this.child.stderr.on('data', () => {
       // Ignore stderr noise from Codex app-server unless the process dies.
     });
+    // 进程已退出时写 stdin 会报 EPIPE（例如回答在 app-server 被回收后才到）；不接住就是未捕获异常，
+    // 整个 daemon 跟着崩。退出由 close 事件报告。
+    this.child.stdin.on('error', () => undefined);
     this.child.on('error', (error) => this.failAll(error instanceof Error ? error : new Error(String(error))));
     this.child.on('close', (code) => {
       this.failAll(new Error(`codex_app_server_closed:${code ?? 'signal'}`));
@@ -93,6 +97,11 @@ export class CodexAppServerClient {
     };
   }
 
+  onClose(handler: (error: Error) => void): () => void {
+    this.closeHandlers.add(handler);
+    return () => { this.closeHandlers.delete(handler); };
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -130,6 +139,8 @@ export class CodexAppServerClient {
       }
       try {
         const result = await handler(message.id, message.params);
+        // 处理期间（例如等人作答）进程已被回收：没有人在等这个结果
+        if (this.disposed) return;
         this.child.stdin.write(`${JSON.stringify({ id: message.id, result })}\n`);
       } catch (error) {
         this.child.stdin.write(`${JSON.stringify({
@@ -160,6 +171,8 @@ export class CodexAppServerClient {
   }
 
   private failAll(error: Error): void {
+    for (const handler of this.closeHandlers) handler(error);
+    this.closeHandlers.clear();
     if (this.pending.size === 0) return;
     for (const { reject } of this.pending.values()) reject(error);
     this.pending.clear();

@@ -20,16 +20,18 @@ export function createDefaultProviders(input: {
   const claudeRunner = new ClaudeStreamingRunner({
     command: input.claudeCommand,
     mcpConfigPath: input.mcpConfigPath,
-    idleTimeoutMs: readEnvInt(process.env.BRIDGE_CLAUDE_IDLE_TIMEOUT_MS, 180_000),
+    idleTimeoutMs: readEnvInt(process.env.BRIDGE_CLAUDE_IDLE_TIMEOUT_MS, 0),
     maxProcessAgeMs: readEnvInt(process.env.BRIDGE_CLAUDE_MAX_PROCESS_AGE_MS, 2 * 60 * 60 * 1000),
     maxTurns: readEnvInt(process.env.BRIDGE_CLAUDE_MAX_TURNS, 50),
+    idleCloseMs: readEnvInt(process.env.BRIDGE_PROCESS_IDLE_CLOSE_MS, 30 * 60 * 1000),
   });
   return [
     new ClaudeCodeProvider({ runner: claudeRunner }),
     new CodexProvider({
       runner: new CodexInteractiveRunner({
         command: input.codexCommand,
-        idleTimeoutMs: readEnvInt(process.env.BRIDGE_CODEX_IDLE_TIMEOUT_MS, 180_000),
+        idleTimeoutMs: readEnvInt(process.env.BRIDGE_CODEX_IDLE_TIMEOUT_MS, 0),
+        idleCloseMs: readEnvInt(process.env.BRIDGE_PROCESS_IDLE_CLOSE_MS, 30 * 60 * 1000),
       }),
     }),
   ];

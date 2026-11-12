@@ -573,7 +573,7 @@ describe('WeixinDirectAdapter', () => {
     await adapter.stop();
   });
 
-  it('records one quota slot per logical message regardless of chunk count', async () => {
+  it('records one quota slot for each actual message chunk sent to WeChat', async () => {
     const store = {
       load: vi.fn().mockReturnValue({ contextTokens: { user_a: 'ctx_1' }, cursor: '' }),
       setContextToken: vi.fn(),
@@ -596,10 +596,10 @@ describe('WeixinDirectAdapter', () => {
     adapter.onMessage(async () => {});
     await adapter.start({ background: true });
 
-    // 4500 chars → 2 chunks (2 API calls) but ONE logical message → 1 quota slot
+    // 4500 chars -> 2 API calls -> 2 quota slots.
     await adapter.sendMessage({ chatId: 'user_a', kind: 'text', text: 'A'.repeat(4500) });
     expect(api.sendTextMessage).toHaveBeenCalledTimes(2);
-    expect(store.recordSent).toHaveBeenCalledTimes(1);
+    expect(store.recordSent).toHaveBeenCalledTimes(2);
     expect(store.recordSent).toHaveBeenCalledWith('user_a');
 
     await adapter.stop();
@@ -634,6 +634,30 @@ describe('WeixinDirectAdapter', () => {
       { encrypt_query_param: 'q', aes_key: 'k' },
       expect.objectContaining({ aeskeyOverride: '00112233445566778899aabbccddeeff', destPath: '/media/m1_0.jpg' }),
     );
+    await adapter.stop();
+  });
+
+  it('下载器抛异常时只把这个附件记为失败，消息里的文字照常送达', async () => {
+    const downloader = { download: vi.fn().mockRejectedValue(new Error('disk full')) };
+    const api = {
+      getUpdates: vi.fn()
+        .mockResolvedValueOnce({
+          nextBuffer: 'b',
+          messages: [{ id: 'm9', chatId: 'user_a', userId: 'user_a', text: '看这个', contextToken: 'ctx', attachments: [{ kind: 'file', media: { encrypt_query_param: 'q', aes_key: 'k' }, fileName: 'a.log' }] }],
+        })
+        .mockResolvedValue({ nextBuffer: 'b', messages: [] }),
+      sendTextMessage: vi.fn().mockResolvedValue(undefined),
+    };
+    const received: ChannelIncomingMessage[] = [];
+    const adapter = new WeixinDirectAdapter({ api, pollIntervalMs: 1, mediaDownloader: downloader as never, mediaDir: '/media' });
+    adapter.onMessage(async (m) => { received.push(m as ChannelIncomingMessage); });
+    await adapter.start({ background: true });
+
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]!.content).toMatchObject({
+      text: '看这个',
+      attachments: [{ kind: 'file', fileName: 'a.log', failed: true, failReason: 'disk full' }],
+    });
     await adapter.stop();
   });
 

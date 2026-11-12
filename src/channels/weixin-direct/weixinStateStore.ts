@@ -21,6 +21,10 @@ export type WeixinQuota = {
 
 /** A logical outbound message held in the per-chat queue while waiting for quota. */
 export type OutboundQueueItem = {
+  /** Correlates an in-process prompt receipt with its persisted outgoing message. */
+  deliveryId?: string;
+  /** A live confirmation must not survive the request (or daemon) that owns it. */
+  ephemeral?: boolean;
   kind: string;
   text: string;
   /** Local file path for media messages. */
@@ -28,8 +32,7 @@ export type OutboundQueueItem = {
   /** Display file name for file-type messages. */
   fileName?: string;
   /**
-   * 入队时刻。超出推送窗口的消息在 drain 时丢弃，避免几天前的回复突然冒出来。
-   * 老版本入队的消息没有该字段，一律按"无法判断"处理并照常发送。
+   * 入队时刻，仅供诊断；发送窗口过期不代表结果作废。
    */
   enqueuedAt?: number;
 };

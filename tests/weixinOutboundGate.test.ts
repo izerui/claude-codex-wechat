@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { FileWeixinStateStore } from '../src/channels/weixin-direct/weixinStateStore';
 import { CONTINUATION_HINT, WeixinOutboundGate } from '../src/channels/weixin-direct/outboundGate';
 
@@ -31,39 +31,32 @@ describe('WeixinOutboundGate.deliver', () => {
     expect(store.hasPendingOutbound('u')).toBe(false);
   });
 
-  it('buffers the final quota slot instead of sending immediately', async () => {
+  it('sends the final quota slot immediately', async () => {
     const { store, sent, gate } = setup();
     store.setContextToken('u', 'ctx');
     for (let i = 0; i < 9; i += 1) store.recordSent('u'); // remaining = 1
     await gate.deliver('u', { kind: 'text', text: '第10条' });
-    // Held back, not sent: we can't yet tell whether more will follow.
-    expect(sent).toEqual([]);
-    expect(gate.shouldInterceptReply('u')).toBe(false);
+    expect(sent).toEqual([{ chatId: 'u', kind: 'text', text: '第10条' }]);
   });
 
-  it('flushes the buffered final message WITHOUT a hint when the turn ends (genuinely last)', async () => {
+  it('does not add a continuation hint when no more output is queued', async () => {
     const { store, sent, gate } = setup();
     store.setContextToken('u', 'ctx');
     for (let i = 0; i < 9; i += 1) store.recordSent('u'); // remaining = 1
     await gate.deliver('u', { kind: 'text', text: '第10条' });
-    await gate.finalize('u');
     // Nothing followed → the last message goes out clean, no "未发完" nudge,
     // and no intercept marker that would swallow the user's next reply.
     expect(sent).toEqual([{ chatId: 'u', kind: 'text', text: '第10条' }]);
-    expect(gate.shouldInterceptReply('u')).toBe(false);
   });
 
-  it('flushes the buffered message WITH a hint once a follow-up actually arrives', async () => {
+  it('queues a later result after the final slot has already been delivered', async () => {
     const { store, sent, gate } = setup();
     store.setContextToken('u', 'ctx');
     for (let i = 0; i < 9; i += 1) store.recordSent('u'); // remaining = 1
     await gate.deliver('u', { kind: 'text', text: '第10条' });
     await gate.deliver('u', { kind: 'text', text: '第11条' });
-    // A follow-up proves more is coming → hint rides the 10th, 11th queues.
-    expect(sent).toEqual([{ chatId: 'u', kind: 'text', text: `第10条${CONTINUATION_HINT}` }]);
+    expect(sent).toEqual([{ chatId: 'u', kind: 'text', text: '第10条' }]);
     expect(store.peekOutbound('u')).toEqual([expect.objectContaining({ kind: 'text', text: '第11条' })]);
-    expect(gate.shouldInterceptReply('u')).toBe(true);
-    expect(gate.shouldInterceptReply('u')).toBe(false);
   });
 
   it('queues when quota is exhausted', async () => {
@@ -75,16 +68,13 @@ describe('WeixinOutboundGate.deliver', () => {
     expect(store.peekOutbound('u')).toEqual([expect.objectContaining({ kind: 'text', text: 'overflow' })]);
   });
 
-  it('queues everything once a backlog exists (ordering)', async () => {
+  it('sends older queued output before new output when quota permits', async () => {
     const { store, sent, gate } = setup();
     store.setContextToken('u', 'ctx');
     store.enqueueOutbound('u', { kind: 'text', text: 'earlier' });
     await gate.deliver('u', { kind: 'text', text: 'later' });
-    expect(sent).toEqual([]);
-    expect(store.peekOutbound('u')).toEqual([
-      expect.objectContaining({ kind: 'text', text: 'earlier' }),
-      expect.objectContaining({ kind: 'text', text: 'later' }),
-    ]);
+    expect(sent.map((m) => m.text)).toEqual(['earlier', 'later']);
+    expect(store.peekOutbound('u')).toEqual([]);
   });
 });
 
@@ -103,7 +93,6 @@ describe('WeixinOutboundGate.drain', () => {
       expect.objectContaining({ kind: 'text', text: 'm11' }),
       expect.objectContaining({ kind: 'text', text: 'm12' }),
     ]);
-    expect(gate.shouldInterceptReply('u')).toBe(true);
   });
 
   it('drains a queue that fits exactly, with no hint on the final message', async () => {
@@ -130,51 +119,33 @@ describe('WeixinOutboundGate.drain', () => {
     expect(store.hasPendingOutbound('u')).toBe(true);
   });
 
-  it('expires a stale continuation-hint intercept marker', async () => {
-    vi.useFakeTimers();
-    try {
-      const { store, gate } = setup();
-      store.setContextToken('u', 'ctx');
-      for (let i = 0; i < 9; i += 1) store.recordSent('u');
-
-      // A follow-up makes the hint (and its intercept marker) real.
-      await gate.deliver('u', { kind: 'text', text: '第10条' });
-      await gate.deliver('u', { kind: 'text', text: '第11条' });
-      vi.advanceTimersByTime(2 * 60 * 60 * 1000 + 1);
-
-      expect(gate.shouldInterceptReply('u')).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });
 
-describe('WeixinOutboundGate 配额耗尽提示', () => {
-  it('tells the user once when quota is already exhausted and replies start queueing', async () => {
+describe('WeixinOutboundGate 配额耗尽', () => {
+  it('keeps all results without adding more quota-warning messages to the queue', async () => {
     const { store, sent, gate } = setup();
     store.setContextToken('u', 'ctx');
     for (let i = 0; i < 10; i += 1) store.recordSent('u'); // remaining = 0
     // 配额归零时消息被静默入队：用户既收不到回复、也不知道为什么。
     // 续发提示只挂在 remaining===1 那条上，归零后反而毫无提示。
     await gate.deliver('u', { kind: 'text', text: 'overflow' });
-    expect(gate.takeQuotaExhaustedNotice('u')).toContain('回复任意消息');
     // 只提示一次，不要每条都刷。
     await gate.deliver('u', { kind: 'text', text: 'overflow2' });
-    expect(gate.takeQuotaExhaustedNotice('u')).toBeNull();
+    expect(store.peekOutbound('u').map((m) => m.text)).toEqual(['overflow', 'overflow2']);
     expect(sent).toEqual([]);
   });
 });
 
 describe('WeixinOutboundGate.discardPending', () => {
-  it('clears the queue and the buffered final message', async () => {
+  it('clears undelivered output when the session is abandoned', async () => {
     const { store, sent, gate } = setup();
     store.setContextToken('u', 'ctx');
-    for (let i = 0; i < 9; i += 1) store.recordSent('u'); // remaining = 1
+    for (let i = 0; i < 10; i += 1) store.recordSent('u');
     await gate.deliver('u', { kind: 'text', text: '缓冲在最后一格' });
     store.enqueueOutbound('u', { kind: 'text', text: '排队中' });
 
     await gate.discardPending('u');
-    await gate.finalize('u'); // 缓冲那条也该被丢掉，不能在这里冒出来
+    store.setContextToken('u', 'fresh');
     await gate.drain('u');
 
     expect(sent).toEqual([]);
@@ -182,17 +153,17 @@ describe('WeixinOutboundGate.discardPending', () => {
   });
 });
 
-describe('WeixinOutboundGate.drain 的过期丢弃', () => {
-  it('drops queued messages older than the push window instead of sending them', async () => {
+describe('WeixinOutboundGate.drain 的结果保留', () => {
+  it('delivers old queued results using the refreshed sending window', async () => {
     const { store, sent, gate } = setup();
     store.setContextToken('u', 'ctx');
-    // 26 小时前排队的陈旧消息：早已超出微信 24h 推送窗口，发出去只会让用户困惑。
+    // 内容年龄不影响结果有效性。
     store.enqueueOutbound('u', { kind: 'text', text: '两天前的旧回复', enqueuedAt: Date.now() - 26 * 60 * 60 * 1000 });
     store.enqueueOutbound('u', { kind: 'text', text: '刚排队的新回复', enqueuedAt: Date.now() });
 
     await gate.drain('u');
 
-    expect(sent.map((s) => s.text)).toEqual(['刚排队的新回复']);
+    expect(sent.map((s) => s.text)).toEqual(['两天前的旧回复', '刚排队的新回复']);
     expect(store.hasPendingOutbound('u')).toBe(false);
   });
 

@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodexInteractiveRunner } from '../src/providers/codex/codexInteractiveRunner';
 import { CodexAppServerClient } from '../src/providers/codex/codexAppServerClient';
 
 describe('CodexInteractiveRunner', () => {
+  beforeEach(() => {
+    vi.spyOn(CodexAppServerClient.prototype, 'onClose').mockReturnValue(() => {});
+  });
   it('starts and reuses an interactive Codex thread id', async () => {
     const notificationHandlers = new Map<string, (params: unknown) => void>();
     const request = vi.fn(async (method: string, params?: unknown) => {
@@ -130,7 +133,7 @@ describe('CodexInteractiveRunner', () => {
     expect(order).toContain('sync');
   });
 
-  it('emits one provider message per agent message item within a single turn', async () => {
+  it('每条助手消息各自结束，工具调用与过程说明发 tool_event，turn/completed 收尾发 turn_end', async () => {
     const notificationHandlers = new Map<string, (params: unknown) => void>();
     const request = vi.fn(async (method: string, _params?: unknown) => {
       if (method === 'initialize') return { serverInfo: { name: 'fake-codex-app-server', version: '0.0.0' } };
@@ -139,7 +142,13 @@ describe('CodexInteractiveRunner', () => {
         queueMicrotask(() => {
           notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: '第一段' });
           notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: '，继续' });
+          // 非工具条目不算干活
+          notificationHandlers.get('item/started')?.({ item: { type: 'reasoning', id: 'r-1' } });
+          notificationHandlers.get('item/started')?.({ item: { type: 'commandExecution', id: 'cmd-1' } });
           notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-2', delta: '第二段' });
+          // 标明为过程说明的消息：和工具调用前的文字一样作废
+          notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-3', delta: '我再看看' });
+          notificationHandlers.get('item/completed')?.({ item: { type: 'agentMessage', id: 'msg-3', phase: 'commentary' } });
           notificationHandlers.get('turn/completed')?.({ threadId: 'thread-multi-message', turn: { id: 'turn-multi' } });
         });
         return { turn: { id: 'turn-multi' } };
@@ -176,13 +185,125 @@ describe('CodexInteractiveRunner', () => {
       },
       { type: 'text_delta', text: '第一段，继续' },
       { type: 'message_done' },
+      { type: 'tool_event', title: 'commandExecution' },
       { type: 'text_delta', text: '第二段' },
       { type: 'message_done' },
+      { type: 'text_delta', text: '我再看看' },
+      { type: 'message_done' },
+      { type: 'tool_event', title: 'commentary' },
+      { type: 'turn_end' },
       {
         type: 'session_state',
         state: expect.objectContaining({ providerSessionId: 'thread-multi-message', cwd: '/tmp/project' }),
       },
     ]);
+  });
+
+  it('requestUserInput 转成 user_prompt，作答按题目 id 交回，等待期间不判卡死', async () => {
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    const requestHandlers = new Map<string, (id: string | number, params: unknown) => unknown>();
+    let pendingAnswer: unknown;
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(async (method: string) => {
+      if (method === 'thread/start') return { threadId: 'thread-ask' };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          pendingAnswer = requestHandlers.get('item/tool/requestUserInput')?.(7, {
+            threadId: 'thread-ask',
+            turnId: 'turn-ask',
+            itemId: 'item-ask',
+            isBlocking: true,
+            questions: [{ id: 'db', header: '数据库', question: '用哪个数据库？', isOther: true, isSecret: false, options: [{ label: 'Postgres', description: '推荐' }, { label: 'SQLite', description: '' }] }],
+          });
+        });
+        return { turn: { id: 'turn-ask' } };
+      }
+      return {};
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => undefined;
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation((method: string, handler: (id: string | number, params: unknown) => unknown) => {
+      requestHandlers.set(method, handler);
+      return () => undefined;
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+    const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume: vi.fn(async () => true), idleTimeoutMs: 20 });
+    await runner.startSession({ bridgeSessionId: 'bs_ask', cwd: '/tmp/project' });
+    const iterator = runner.sendMessage({ bridgeSessionId: 'bs_ask', text: 'hi' })[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toMatchObject({ type: 'session_state' });
+
+    const event = (await iterator.next()).value as { type: string; prompt: unknown; respond(reply: unknown): void };
+    expect(event.type).toBe('user_prompt');
+    expect(event.prompt).toEqual({
+      kind: 'question',
+      questions: [{ id: 'db', question: '用哪个数据库？', multiSelect: false, options: [{ label: 'Postgres', description: '推荐' }, { label: 'SQLite' }] }],
+    });
+
+    // 远超 idleTimeoutMs 仍没人作答：不能当成卡死收掉
+    const next = iterator.next();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    event.respond({ kind: 'answers', answers: { db: 'SQLite' } });
+    await expect(pendingAnswer).resolves.toEqual({ answers: { db: { answers: ['SQLite'] } } });
+
+    notificationHandlers.get('turn/completed')?.({ threadId: 'thread-ask', turn: { id: 'turn-ask' } });
+    expect((await next).value).toEqual({ type: 'turn_end' });
+  });
+
+  it('requestUserInput 被拒时把原因作为每道题的回答交回，不交空答案', async () => {
+    const notificationHandlers = new Map<string, (params: unknown) => void>();
+    const requestHandlers = new Map<string, (id: string | number, params: unknown) => unknown>();
+    let pendingAnswer: unknown;
+    vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(async (method: string) => {
+      if (method === 'thread/start') return { threadId: 'thread-ask' };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          pendingAnswer = requestHandlers.get('item/tool/requestUserInput')?.(7, {
+            threadId: 'thread-ask',
+            turnId: 'turn-ask',
+            itemId: 'item-ask',
+            isBlocking: true,
+            questions: [{ id: 'db', header: '数据库', question: '用哪个数据库？', isOther: true, isSecret: false, options: [{ label: 'Postgres', description: '推荐' }, { label: 'SQLite', description: '' }] }],
+          });
+        });
+        return { turn: { id: 'turn-ask' } };
+      }
+      return {};
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+    vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+      notificationHandlers.set(method, handler);
+      return () => undefined;
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation((method: string, handler: (id: string | number, params: unknown) => unknown) => {
+      requestHandlers.set(method, handler);
+      return () => undefined;
+    });
+    vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+
+    const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume: vi.fn(async () => true), idleTimeoutMs: 20 });
+    await runner.startSession({ bridgeSessionId: 'bs_ask', cwd: '/tmp/project' });
+    const iterator = runner.sendMessage({ bridgeSessionId: 'bs_ask', text: 'hi' })[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toMatchObject({ type: 'session_state' });
+
+    const event = (await iterator.next()).value as { type: string; prompt: unknown; respond(reply: unknown): void };
+    expect(event.type).toBe('user_prompt');
+    expect(event.prompt).toEqual({
+      kind: 'question',
+      questions: [{ id: 'db', question: '用哪个数据库？', multiSelect: false, options: [{ label: 'Postgres', description: '推荐' }, { label: 'SQLite' }] }],
+    });
+
+    const next = iterator.next();
+    event.respond({ kind: 'deny', message: '用户在微信上中止了这一轮。' });
+    await expect(pendingAnswer).resolves.toEqual({ answers: { db: { answers: ['用户在微信上中止了这一轮。'] } } });
+
+    notificationHandlers.get('turn/completed')?.({ threadId: 'thread-ask', turn: { id: 'turn-ask' } });
+    expect((await next).value).toEqual({ type: 'turn_end' });
   });
 
   it('flushes the previous agent message immediately when itemId changes', async () => {
@@ -327,6 +448,51 @@ describe('CodexInteractiveRunner', () => {
     for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_nodelta', text: 'hi' })) events.push(event);
 
     expect(events).toContainEqual({ type: 'text_delta', text: '已选择第 1 个视频。' });
+  });
+
+  it('从 turn/completed 兜底补发时只补结论：工具调用之前的文字与 commentary 都不补，只有 commentary 的回合一条不补', async () => {
+    async function recovered(items: unknown[]): Promise<string[]> {
+      const notificationHandlers = new Map<string, (params: unknown) => void>();
+      vi.spyOn(CodexAppServerClient.prototype, 'initialize').mockResolvedValue(undefined);
+      vi.spyOn(CodexAppServerClient.prototype, 'request').mockImplementation(async (method: string) => {
+        if (method === 'thread/start') return { threadId: 'thread-recover' };
+        if (method === 'turn/start') {
+          queueMicrotask(() => {
+            notificationHandlers.get('turn/completed')?.({ threadId: 'thread-recover', turn: { id: 't', status: 'completed', error: null, items } });
+          });
+          return { turn: { id: 't' } };
+        }
+        return {};
+      });
+      vi.spyOn(CodexAppServerClient.prototype, 'notify').mockResolvedValue(undefined);
+      vi.spyOn(CodexAppServerClient.prototype, 'onNotification').mockImplementation((method: string, handler: (params: unknown) => void) => {
+        notificationHandlers.set(method, handler);
+        return () => undefined;
+      });
+      vi.spyOn(CodexAppServerClient.prototype, 'onRequest').mockImplementation(() => () => undefined);
+      vi.spyOn(CodexAppServerClient.prototype, 'dispose').mockResolvedValue(undefined);
+      const runner = new CodexInteractiveRunner({ command: 'codex', syncThreadForResume: vi.fn(async () => true) });
+      await runner.startSession({ bridgeSessionId: 'bs_recover', cwd: '/tmp/project' });
+      const texts: string[] = [];
+      for await (const event of runner.sendMessage({ bridgeSessionId: 'bs_recover', text: 'hi' })) {
+        if (event.type === 'text_delta') texts.push(event.text);
+      }
+      return texts;
+    }
+
+    expect(await recovered([
+      { type: 'agentMessage', id: 'm1', text: '先查一下', phase: null },
+      { type: 'commandExecution', id: 'c1' },
+      { type: 'agentMessage', id: 'm2', text: '再核对一遍', phase: 'commentary' },
+      { type: 'agentMessage', id: 'm3', text: '结论：已修好', phase: 'final_answer' },
+    ])).toEqual(['结论：已修好']);
+    expect(await recovered([
+      { type: 'agentMessage', id: 'm1', text: '我看看', phase: 'commentary' },
+    ])).toEqual([]);
+    expect(await recovered([
+      { type: 'agentMessage', id: 'm1', text: '改一下配置', phase: null },
+      { type: 'fileChange', id: 'f1' },
+    ])).toEqual([]);
   });
 
   it('does not duplicate a streamed reply that also appears in turn/completed items', async () => {

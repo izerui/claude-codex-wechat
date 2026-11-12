@@ -16,6 +16,8 @@ export type InboundWeixinMessage = {
   contextToken?: string;
   attachments?: InboundAttachmentMeta[];
   quoted?: { text?: string; attachments?: InboundAttachmentMeta[] };
+  /** 收到了语音，但微信没给转写文字。 */
+  unrecognizedVoice?: true;
 };
 
 type WireItem = {
@@ -33,13 +35,16 @@ function collectInboundItems(itemList: WireItem[] | undefined): {
   texts: string[];
   attachments: InboundAttachmentMeta[];
   quoted?: { text?: string; attachments?: InboundAttachmentMeta[] };
+  unrecognizedVoice: boolean;
 } {
+  let unrecognizedVoice = false;
   const texts: string[] = [];
   const attachments: InboundAttachmentMeta[] = [];
   let quoted: { text?: string; attachments?: InboundAttachmentMeta[] } | undefined;
   for (const item of itemList ?? []) {
     if (item.type === 1 && item.text_item?.text?.trim()) texts.push(item.text_item.text.trim());
     else if (item.type === 3 && item.voice_item?.text?.trim()) texts.push(item.voice_item.text.trim());
+    else if (item.type === 3) unrecognizedVoice = true;
     else if (item.type === 2 && item.image_item) attachments.push({ kind: 'image', media: item.image_item.media, aeskey: item.image_item.aeskey });
     else if (item.type === 4 && item.file_item) attachments.push({ kind: 'file', media: item.file_item.media, fileName: item.file_item.file_name });
     else if (item.type === 5 && item.video_item) attachments.push({ kind: 'video', media: item.video_item.media });
@@ -52,7 +57,7 @@ function collectInboundItems(itemList: WireItem[] | undefined): {
       };
     }
   }
-  return { texts, attachments, quoted };
+  return { texts, attachments, quoted, unrecognizedVoice };
 }
 
 export class WeixinDirectApiClient {
@@ -159,9 +164,10 @@ export class WeixinDirectApiClient {
     const messages = (payload.msgs ?? [])
       .map((message): InboundWeixinMessage | null => {
         if (!message.from_user_id) return null;
-        const { texts, attachments, quoted } = collectInboundItems(message.item_list);
+        const { texts, attachments, quoted, unrecognizedVoice } = collectInboundItems(message.item_list);
         const text = texts.join('\n\n');
-        if (!text && attachments.length === 0 && !quoted) return null;
+        // 没识别出文字的语音也要留下：不能让用户的话悄无声息地消失，路由会告诉他改发文字
+        if (!text && attachments.length === 0 && !quoted && !unrecognizedVoice) return null;
         return {
           id: message.msg_id ?? '',
           chatId: message.from_user_id,
@@ -170,6 +176,7 @@ export class WeixinDirectApiClient {
           ...(message.context_token ? { contextToken: message.context_token } : {}),
           ...(attachments.length ? { attachments } : {}),
           ...(quoted ? { quoted } : {}),
+          ...(unrecognizedVoice ? { unrecognizedVoice: true as const } : {}),
         };
       })
       .filter((value): value is InboundWeixinMessage => value !== null);

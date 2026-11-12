@@ -1,4 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { FileWeixinStateStore } from '../src/channels/weixin-direct/weixinStateStore';
+import { WeixinOutboundGate } from '../src/channels/weixin-direct/outboundGate';
 import { describe, expect, it } from 'vitest';
 import { MockChannelAdapter } from '../src/channels/mock/mockChannelAdapter';
 import { FakeProviderAdapter } from '../src/providers/fake/fakeProviderAdapter';
@@ -9,7 +13,7 @@ import { MessageRouter } from '../src/session/messageRouter';
 import type { OutboundDeliveryGate } from '../src/session/outboundGate';
 import { LastProviderSessionStore } from '../src/storage/lastProviderSessionStore';
 import type { ActiveWeChatUserRecord } from '../src/storage/userStore';
-import type { NativeProviderAdapter, ProviderEvent, ProviderSession } from '../src/providers/types';
+import type { NativeProviderAdapter, ProviderEvent, ProviderSession, UserPrompt, UserPromptReply } from '../src/providers/types';
 import { createRuntimeUserStore } from './helpers/runtimeUserStore';
 
 const authorizedUser: ActiveWeChatUserRecord = {
@@ -99,6 +103,59 @@ class PartialWithoutDoneProviderAdapter implements NativeProviderAdapter {
   }
 }
 
+
+// 按脚本吐事件的 provider；ask() 发出 user_prompt 并等路由器交回决定。
+class ScriptedProvider implements NativeProviderAdapter {
+  readonly id = 'claude-code' as const;
+  readonly received: string[] = [];
+  readonly replies: UserPromptReply[] = [];
+  interrupted = 0;
+
+  constructor(private readonly script: (provider: ScriptedProvider) => AsyncGenerator<ProviderEvent, void, undefined>) {}
+
+  async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
+    return { bridgeSessionId: input.bridgeSessionId, providerId: this.id, providerSessionId: `scripted_${input.bridgeSessionId}`, cwd: input.cwd, status: 'idle' };
+  }
+
+  sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
+    this.received.push(input.text);
+    return this.script(this);
+  }
+
+  async *ask(prompt: UserPrompt): AsyncGenerator<ProviderEvent, UserPromptReply, undefined> {
+    let resolve!: (reply: UserPromptReply) => void;
+    const answered = new Promise<UserPromptReply>((r) => { resolve = r; });
+    yield { type: 'user_prompt', prompt, respond: (reply) => { this.replies.push(reply); resolve(reply); } };
+    return await answered;
+  }
+
+  async stopSession(): Promise<void> {}
+
+  async interruptSession(): Promise<void> {
+    this.interrupted += 1;
+  }
+}
+
+function scriptedRouter(provider: ScriptedProvider, outboundGate?: OutboundDeliveryGate) {
+  const channel = new MockChannelAdapter();
+  const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
+  const router = new MessageRouter({ channel, providers: [provider], sessions, resolveUser: () => authorizedUser, outboundGate });
+  const sent: Array<{ kind: string; text: string }> = [];
+  channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
+  return { router, sent };
+}
+
+function chat(id: string, text: string) {
+  return { id, platform: 'weixin' as const, chatId: 'chat-a', user: { id: 'wx_user_1' }, content: { type: 'text' as const, text }, timestamp: 1 };
+}
+
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let i = 0; i < 200; i += 1) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error('waitFor timed out');
+}
 
 describe('MessageRouter', () => {
   it('routes authorized chat text through a provider and sends output to the channel', async () => {
@@ -729,179 +786,596 @@ describe('MessageRouter', () => {
     expect(typings[typings.length - 1]).toBe(false);
   });
 
-  it('translates a numeric reply into the option label after a choice_prompt', async () => {
-    const received: string[] = [];
-    class ChoiceProvider implements NativeProviderAdapter {
-      readonly id = 'claude-code' as const;
-      private readonly sessions = new Map<string, ProviderSession>();
-      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
-        const session: ProviderSession = {
-          bridgeSessionId: input.bridgeSessionId,
-          providerId: this.id,
-          providerSessionId: `choice_${input.bridgeSessionId}`,
-          cwd: input.cwd,
-          status: 'idle',
-        };
-        this.sessions.set(input.bridgeSessionId, session);
-        return session;
-      }
-      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
-        received.push(input.text);
-        if (received.length === 1) {
-          yield { type: 'text_delta', text: '❓ 吃什么？\n1. 米饭\n2. 面条' };
-          yield { type: 'choice_prompt', labels: ['米饭', '面条'], multiSelect: false };
-          yield { type: 'message_done' };
-        } else {
-          yield { type: 'text_delta', text: `收到：${input.text}` };
-          yield { type: 'message_done' };
-        }
-      }
-      async stopSession(bridgeSessionId: string): Promise<void> {
-        this.sessions.delete(bridgeSessionId);
-      }
-    }
-    const channel = new MockChannelAdapter();
-    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
-    const router = new MessageRouter({
-      channel,
-      providers: [new ChoiceProvider()],
-      sessions,
-      resolveUser: () => authorizedUser,
-    });
-
-    await router.handleMessage({
-      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '问我吃什么' }, timestamp: 1,
-    });
-    await router.handleMessage({
-      id: 'm2', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '2' }, timestamp: 2,
-    });
-
-    // The bare "2" reaching the provider was translated to the option label.
-    expect(received[1]).toBe('面条');
-
-    // Mapping is consumed once: a following bare number is forwarded verbatim.
-    await router.handleMessage({
-      id: 'm3', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '1' }, timestamp: 3,
-    });
-    expect(received[2]).toBe('1');
-  });
-
-  it('does not map a numeric reply to stale options after auto-syncing external progress', async () => {
-    const received: string[] = [];
-    const attached: string[] = [];
-    let nativeFingerprint = 'claude:choice-native:conv:2:a1';
-    class ChoiceSyncProvider implements NativeProviderAdapter {
-      readonly id = 'claude-code' as const;
-      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
-        return {
-          bridgeSessionId: input.bridgeSessionId,
-          providerId: this.id,
-          providerSessionId: 'choice-native',
-          cwd: input.cwd,
-          status: 'idle',
-        };
-      }
-      async attachSession(input: { candidateId: string; bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
-        attached.push(input.candidateId);
-        return await this.startSession(input);
-      }
-      async getNativeVersion() {
-        return { fingerprint: nativeFingerprint, observedAt: Date.now() };
-      }
-      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
-        received.push(input.text);
-        if (received.length === 1) {
-          yield { type: 'text_delta', text: '❓ 吃什么？\n1. 米饭\n2. 面条' };
-          yield { type: 'choice_prompt', labels: ['米饭', '面条'], multiSelect: false };
-          yield { type: 'message_done' };
-        } else {
-          yield { type: 'text_delta', text: `收到：${input.text}` };
-          yield { type: 'message_done' };
-        }
-      }
-      async stopSession(): Promise<void> {}
-    }
-    const channel = new MockChannelAdapter();
-    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
-    const router = new MessageRouter({
-      channel,
-      providers: [new ChoiceSyncProvider()],
-      sessions,
-      resolveUser: () => authorizedUser,
-    });
-
-    await router.handleMessage({
-      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '问我吃什么' }, timestamp: 1,
-    });
-
-    // 用户转去终端继续聊过：原生会话出现了新的对话记录
-    nativeFingerprint = 'claude:choice-native:conv:6:u3';
-
-    await router.handleMessage({
-      id: 'm2', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '1' }, timestamp: 2,
-    });
-
-    // 自动同步了新历史，且旧选项已失效："1" 原样发出，而不是旧选项「米饭」
-    expect(attached).toEqual(['choice-native']);
-    expect(received[1]).toBe('1');
-  });
-
-  it('does not map a numeric reply from a previous session after /new', async () => {
-    const received: string[] = [];
-    class ChoiceProvider implements NativeProviderAdapter {
-      readonly id = 'claude-code' as const;
-      private readonly sessions = new Map<string, ProviderSession>();
-      async startSession(input: { bridgeSessionId: string; cwd: string }): Promise<ProviderSession> {
-        const session: ProviderSession = {
-          bridgeSessionId: input.bridgeSessionId,
-          providerId: this.id,
-          providerSessionId: `choice_${input.bridgeSessionId}`,
-          cwd: input.cwd,
-          status: 'idle',
-        };
-        this.sessions.set(input.bridgeSessionId, session);
-        return session;
-      }
-      async *sendMessage(input: { bridgeSessionId: string; text: string }): AsyncIterable<ProviderEvent> {
-        received.push(input.text);
-        yield { type: 'text_delta', text: '❓ 吃什么？\n1. 米饭\n2. 面条' };
-        yield { type: 'choice_prompt', labels: ['米饭', '面条'], multiSelect: false };
+  describe('只把每一轮的结论发到微信', () => {
+    it('工具调用之前的过程说明不发，一轮结束只发结论', async () => {
+      const provider = new ScriptedProvider(async function* () {
+        yield { type: 'text_delta', text: '我先看看文件' };
         yield { type: 'message_done' };
-      }
-      async stopSession(bridgeSessionId: string): Promise<void> {
-        this.sessions.delete(bridgeSessionId);
-      }
-    }
-    const channel = new MockChannelAdapter();
-    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
-    const router = new MessageRouter({
-      channel,
-      providers: [new ChoiceProvider()],
-      sessions,
-      resolveUser: () => authorizedUser,
+        yield { type: 'tool_event', title: 'Read' };
+        yield { type: 'text_delta', text: '接下来改代码' };
+        yield { type: 'message_done' };
+        yield { type: 'tool_event', title: 'Edit' };
+        yield { type: 'text_delta', text: '改好了' };
+        yield { type: 'message_done' };
+        yield { type: 'text_delta', text: '测试也过了' };
+        yield { type: 'message_done' };
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      await router.handleMessage(chat('m1', '修个 bug'));
+
+      expect(sent).toEqual([{ kind: 'text', text: '改好了\n\n测试也过了' }]);
     });
 
-    await router.handleMessage({
-      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '问我吃什么' }, timestamp: 1,
-    });
-    // Switch to a brand-new session, then reply with a bare number.
-    await router.handleMessage({
-      id: 'm2', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '/new' }, timestamp: 2,
-    });
-    await router.handleMessage({
-      id: 'm3', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '1' }, timestamp: 3,
+    it('同一次生成里排队的两轮各发一条结论', async () => {
+      const provider = new ScriptedProvider(async function* () {
+        yield { type: 'text_delta', text: '第一轮结论' };
+        yield { type: 'message_done' };
+        yield { type: 'turn_end' };
+        yield { type: 'text_delta', text: '过程' };
+        yield { type: 'tool_event', title: 'Bash' };
+        yield { type: 'text_delta', text: '第二轮结论' };
+        yield { type: 'message_done' };
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      await router.handleMessage(chat('m1', 'go'));
+
+      expect(sent.map((m) => m.text)).toEqual(['第一轮结论', '第二轮结论']);
     });
 
-    // The "1" must NOT be translated using the previous session's options.
-    expect(received[received.length - 1]).toBe('1');
+    it('最后没有结论文字时，工具调用前的说明与 Codex 的 commentary 都不拿来充数，只发状态提示', async () => {
+      const provider = new ScriptedProvider(async function* () {
+        yield { type: 'text_delta', text: '先读配置' };
+        yield { type: 'tool_event', title: 'Read' };
+        yield { type: 'text_delta', text: '我再核对一下' };
+        yield { type: 'message_done' };
+        yield { type: 'tool_event', title: 'commentary' };
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      await router.handleMessage(chat('m1', 'go'));
+
+      expect(sent).toEqual([{ kind: 'status', text: '本轮已结束，没有文字回复。' }]);
+    });
+
+    it('出错时先发已攒下的结论再报错', async () => {
+      const provider = new ScriptedProvider(async function* () {
+        yield { type: 'text_delta', text: '做了一半' };
+        yield { type: 'message_done' };
+        yield { type: 'error', error: 'boom' };
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      await router.handleMessage(chat('m1', 'go'));
+
+      expect(sent).toEqual([
+        { kind: 'text', text: '做了一半' },
+        { kind: 'status', text: 'Provider error: boom' },
+      ]);
+    });
+  });
+
+  describe('CLI 停下等人时由微信作答', () => {
+    it('只推问题本身（之前的说明是过程说明、不发），回序号译成选项原文交回，不当作新消息', async () => {
+      const provider = new ScriptedProvider(async function* (p) {
+        yield { type: 'text_delta', text: '有两种做法' };
+        yield { type: 'message_done' };
+        const reply = yield* p.ask({
+          kind: 'question',
+          questions: [{ id: 'q1', question: '用哪种？', multiSelect: false, options: [{ label: '方案A', description: '快' }, { label: '方案B' }] }],
+        });
+        yield { type: 'text_delta', text: `按 ${reply.kind === 'answers' ? reply.answers.q1 : '?'} 做完了` };
+        yield { type: 'message_done' };
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', '做个功能'));
+      await waitFor(() => sent.length === 1);
+      expect(sent[0]).toEqual({
+        kind: 'text',
+        text: '❓ 用哪种？\n1. 方案A —— 快\n2. 方案B\n（回复序号，如 1；也可以直接说你的要求）',
+      });
+
+      await router.handleMessage(chat('m2', '2'));
+      await turn;
+
+      expect(provider.replies).toEqual([{ kind: 'answers', answers: { q1: '方案B' } }]);
+      expect(provider.received).toEqual(['做个功能']);
+      // 不复述用户自己的选择：答完之后下一条就是结论
+      expect(sent.slice(1)).toEqual([{ kind: 'text', text: '按 方案B 做完了' }]);
+    });
+
+    it('多道题逐题推送，非序号的回复原样作为答案，全部答完才交回', async () => {
+      const provider = new ScriptedProvider(async function* (p) {
+        yield* p.ask({
+          kind: 'question',
+          questions: [
+            { id: 'q1', question: '颜色？', multiSelect: true, options: [{ label: '红' }, { label: '绿' }, { label: '蓝' }] },
+            { id: 'q2', question: '尺寸？', multiSelect: false, options: [{ label: '大' }, { label: '小' }] },
+          ],
+        });
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => sent.length === 1);
+      expect(sent[0]!.text).toContain('颜色？（第 1/2 题）');
+
+      await router.handleMessage(chat('m2', '1,3'));
+      expect(sent[1]!.text).toContain('尺寸？（第 2/2 题）');
+      expect(provider.replies).toEqual([]);
+
+      await router.handleMessage(chat('m3', '要中号的'));
+      await turn;
+
+      expect(provider.replies).toEqual([{ kind: 'answers', answers: { q1: '红, 蓝', q2: '要中号的' } }]);
+    });
+
+    it('计划确认：回 1 执行并照常自动放行，其他话不执行并作为修改意见', async () => {
+      const replies: UserPromptReply[] = [];
+      for (const answer of ['1', '先别动数据库']) {
+        const provider = new ScriptedProvider(async function* (p) {
+          replies.push(yield* p.ask({ kind: 'plan', plan: '1. 改表结构' }));
+          yield { type: 'turn_end' };
+        });
+        const { router, sent } = scriptedRouter(provider);
+        const turn = router.handleMessage(chat('m1', 'go'));
+        await waitFor(() => sent.length === 1);
+        expect(sent[0]!.text).toContain('📋 计划待确认');
+        await router.handleMessage(chat('m2', answer));
+        await turn;
+      }
+
+      expect(replies).toEqual([{ kind: 'approve', permissionMode: 'bypassPermissions' }, { kind: 'deny', message: '先别动数据库' }]);
+    });
+
+    it('回的是选项（允许、拒绝、2、不执行）时不复述用户自己的选择，手机上不多一条', async () => {
+      for (const [prompt, answer] of [
+        [{ kind: 'permission', toolName: 'Bash', detail: 'rm -rf build' }, '允许'],
+        [{ kind: 'permission', toolName: 'Bash', detail: 'rm -rf build' }, '拒绝'],
+        [{ kind: 'plan', plan: '计划' }, '2'],
+        [{ kind: 'plan', plan: '计划' }, '不执行'],
+      ] as Array<[UserPrompt, string]>) {
+        const provider = new ScriptedProvider(async function* (p) {
+          yield* p.ask(prompt);
+          yield { type: 'text_delta', text: '结论' };
+          yield { type: 'turn_end' };
+        });
+        const { router, sent } = scriptedRouter(provider);
+        const turn = router.handleMessage(chat('m1', 'go'));
+        await waitFor(() => sent.length === 1);
+        await router.handleMessage(chat('m2', answer));
+        await turn;
+        expect(sent.slice(1)).toEqual([{ kind: 'text', text: '结论' }]);
+      }
+    });
+
+    it('随口一句话被当成拒绝或计划的修改意见时说清楚，并写明是哪一步', async () => {
+      const notices: string[] = [];
+      for (const prompt of [
+        { kind: 'permission', toolName: 'Bash', detail: 'rm -f /tmp/out/*.png\n第二行' },
+        { kind: 'plan', plan: '1. 改表结构' },
+      ] as UserPrompt[]) {
+        const provider = new ScriptedProvider(async function* (p) {
+          yield* p.ask(prompt);
+          yield { type: 'turn_end' };
+        });
+        const { router, sent } = scriptedRouter(provider);
+        const turn = router.handleMessage(chat('m1', 'go'));
+        await waitFor(() => sent.length === 1);
+        await router.handleMessage(chat('m2', '做到什么程度了？'));
+        await turn;
+        notices.push(sent[1]!.text);
+      }
+
+      expect(notices[0]).toBe('你这句话被当作对上面确认的回复：已拒绝「rm -f /tmp/out/*.png」，并把你的话转给了 Claude，它会按你的话换个做法。想问别的事，请先回「1」或「拒绝」把确认答掉。');
+      expect(notices[1]).toBe('你这句话被当作对上面计划「1. 改表结构」的修改意见，已转给 Claude，它会按你的意见改计划。想问别的事，请先回「1」「2」或「不执行」把计划答掉。');
+    });
+
+    it('CLI 撤回了已推到手机的确认、这一轮还没结束：告诉手机已失效，之后的话照常交给 AI，不被当成回答', async () => {
+      // 复现 imux 的事故：失效的确认留在队首，用户问「做到什么程度了」被当成了拒绝
+      let release!: () => void;
+      const stillWorking = new Promise<void>((resolve) => { release = resolve; });
+      const provider = new ScriptedProvider(async function* (p) {
+        if (p.received.length === 1) {
+          yield { type: 'user_prompt', id: 'r1', prompt: { kind: 'permission', toolName: 'Bash', detail: 'rm -f /tmp/out/*.png' }, respond: (reply) => { p.replies.push(reply); } };
+          yield { type: 'user_prompt_withdrawn', id: 'r1' };
+          await stillWorking;
+        }
+        yield { type: 'text_delta', text: `答：${p.received.at(-1)}` };
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const first = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => sent.length === 2);
+      expect(sent[1]!.text).toBe('「rm -f /tmp/out/*.png」这条确认已失效，不用再回了：Claude 没有等手机的回复，这一步已经过去了。之后发的话会照常交给 Claude。');
+
+      const second = router.handleMessage(chat('m2', '做到什么程度了？'));
+      release();
+      await Promise.all([first, second]);
+
+      expect(provider.replies).toEqual([]);
+      expect(provider.received).toEqual(['go', '做到什么程度了？']);
+      expect(sent.map((m) => m.text).slice(2)).toEqual(['答：go', '答：做到什么程度了？']);
+    });
+
+    it('还在排队、没推到手机的确认被撤回：不打扰用户，队首的照常等回答', async () => {
+      const provider = new ScriptedProvider(async function* (p) {
+        let resolveA!: (r: UserPromptReply) => void;
+        const a = new Promise<UserPromptReply>((r) => { resolveA = r; });
+        yield { type: 'user_prompt', id: 'a', prompt: { kind: 'permission', toolName: 'Edit', detail: 'a.ts' }, respond: (r) => { p.replies.push(r); resolveA(r); } };
+        yield { type: 'user_prompt', id: 'b', prompt: { kind: 'permission', toolName: 'Edit', detail: 'b.ts' }, respond: (r) => { p.replies.push(r); } };
+        yield { type: 'user_prompt_withdrawn', id: 'b' };
+        await a;
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => sent.length === 1);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(sent).toHaveLength(1);
+      await router.handleMessage(chat('m2', '允许'));
+      await turn;
+
+      expect(provider.replies).toEqual([{ kind: 'approve' }]);
+      expect(sent.some((m) => m.text.includes('b.ts'))).toBe(false);
+    });
+
+    it('计划确认回了含糊的同意（「好的」）：不替用户选，再问一次 1 还是 2，确认留着；之后回 2 按逐个确认执行', async () => {
+      const provider = new ScriptedProvider(async function* (p) {
+        yield* p.ask({ kind: 'plan', plan: '# 改配置' });
+        yield { type: 'text_delta', text: '改好了' };
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => sent.length === 1);
+      await router.handleMessage(chat('m2', '好的'));
+      expect(provider.replies).toEqual([]);
+      expect(sent[1]).toEqual({ kind: 'status', text: '请回「1」或「2」选择怎么执行，回「不执行」不执行，或直接说要改什么。' });
+
+      await router.handleMessage(chat('m3', '2'));
+      await turn;
+      expect(provider.replies).toEqual([{ kind: 'approve', permissionMode: 'default' }]);
+      expect(sent.slice(2)).toEqual([{ kind: 'text', text: '改好了' }]);
+    });
+
+    it('等待作答时 /stop：拒掉请求、中断，中断前的半截不发', async () => {
+      const provider = new ScriptedProvider(async function* (p) {
+        yield* p.ask({ kind: 'permission', toolName: 'Bash', detail: 'rm -rf build' });
+        yield { type: 'text_delta', text: '半截' };
+        yield { type: 'message_done' };
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => sent.length === 1);
+      await router.handleMessage(chat('m2', '/stop'));
+      await turn;
+
+      expect(provider.replies).toEqual([{ kind: 'deny', message: '用户在微信上中止了这一轮。' }]);
+      expect(provider.interrupted).toBe(1);
+      expect(sent.map((m) => m.text)).toEqual([sent[0]!.text, '已中断当前生成，会话保留']);
+    });
+
+    it('/stop 只作用于被中断的那一轮：它的报错不发，之后排队的那一轮结论照常发出', async () => {
+      let release!: () => void;
+      const stopped = new Promise<void>((resolve) => { release = resolve; });
+      const provider = new ScriptedProvider(async function* () {
+        yield { type: 'text_delta', text: '半截' };
+        yield { type: 'message_done' };
+        await stopped;
+        // Claude 中断后的收尾：被中断那一轮以出错结束，接着跑插话排队的下一轮
+        yield { type: 'error', error: 'error_during_execution' };
+        yield { type: 'turn_end' };
+        yield { type: 'text_delta', text: '追加问题的答案' };
+        yield { type: 'message_done' };
+        yield { type: 'turn_end' };
+      });
+      provider.interruptSession = async () => { provider.interrupted += 1; release(); };
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => provider.received.length === 1);
+      await router.handleMessage(chat('m2', '/stop'));
+      await turn;
+
+      expect(sent.map((m) => m.text)).toEqual(['已中断当前生成，会话保留', '追加问题的答案']);
+    });
+
+    it('只剩后台任务时 /stop：如实说明前台已停、不假装中断，后台完成后那一轮的结论照常发出', async () => {
+      let release!: () => void;
+      const backgroundDone = new Promise<void>((resolve) => { release = resolve; });
+      const provider = new ScriptedProvider(async function* () {
+        yield { type: 'text_delta', text: '已在后台启动' };
+        yield { type: 'background_tasks', tasks: [{ id: 'b1', description: '构建' }] };
+        yield { type: 'turn_end' };
+        await backgroundDone;
+        yield { type: 'background_tasks', tasks: [] };
+        yield { type: 'text_delta', text: '构建通过' };
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => sent.length === 2);
+      await router.handleMessage(chat('m2', '/stop'));
+      release();
+      await turn;
+
+      expect(provider.interrupted).toBe(0);
+      expect(sent.map((m) => m.text)).toEqual([
+        '已在后台启动',
+        '还有后台任务在运行：\n- 构建',
+        '前台已经停下，没有正在进行的回复；后台任务仍在运行，完成后会把结果发给你。不要它的结果可以发 /new 换会话。',
+        '构建通过',
+      ]);
+    });
+
+    it('没有识别出文字的语音：告诉用户改发文字，不交给 AI', async () => {
+      const provider = new ScriptedProvider(async function* () {
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      await router.handleMessage({ ...chat('m1', ''), content: { type: 'text', unrecognizedVoice: true } });
+
+      expect(provider.received).toEqual([]);
+      expect(sent).toEqual([{ kind: 'status', text: '这条语音没有识别出文字，请改发文字。' }]);
+    });
+
+    it('续发积压期间那条确认被撤掉、没有别的在等：这句话照常交给 AI，不被吞掉', async () => {
+      let backlog = false;
+      let withdraw!: () => void;
+      const delivered: string[] = [];
+      const gate: OutboundDeliveryGate = {
+        hasPending: () => backlog,
+        deliver: async (_chatId, message) => { delivered.push(message.text); },
+        drain: async () => { backlog = false; withdraw(); await new Promise((resolve) => setTimeout(resolve, 10)); },
+      };
+      const provider = new ScriptedProvider(async function* (p) {
+        if (p.received.length === 1) {
+          let resolve!: () => void;
+          const withdrawn = new Promise<void>((r) => { resolve = r; });
+          withdraw = resolve;
+          yield { type: 'user_prompt', id: 'r1', prompt: { kind: 'plan', plan: '计划' }, respond: (reply) => { p.replies.push(reply); } };
+          await withdrawn;
+          yield { type: 'user_prompt_withdrawn', id: 'r1' };
+        }
+        yield { type: 'text_delta', text: `答：${p.received.at(-1)}` };
+        yield { type: 'turn_end' };
+      });
+      const { router } = scriptedRouter(provider, gate);
+
+      const first = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => delivered.length === 1);
+      backlog = true;
+      await router.handleMessage(chat('m2', '你在干嘛'));
+      await first;
+      await waitFor(() => provider.received.length === 2);
+
+      expect(provider.replies).toEqual([]);
+      expect(provider.received).toEqual(['go', '你在干嘛']);
+    });
+
+    it('等待作答时 /new：请求作废，CLI 不会一直卡着', async () => {
+      const provider = new ScriptedProvider(async function* (p) {
+        yield* p.ask({ kind: 'plan', plan: '计划' });
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => sent.length === 1);
+      await router.handleMessage(chat('m2', '/new'));
+      await turn;
+
+      expect(provider.replies).toEqual([{ kind: 'deny', message: '会话已切换，这次调用作废。' }]);
+    });
+
+    it('引用那条提问来回复，答案只取用户自己写的字', async () => {
+      const replies: UserPromptReply[] = [];
+      for (const prompt of [
+        { kind: 'plan', plan: '计划' } as UserPrompt,
+        { kind: 'question', questions: [{ id: 'q', question: '选哪个？', multiSelect: false, options: [{ label: '甲' }, { label: '乙' }] }] } as UserPrompt,
+      ]) {
+        const provider = new ScriptedProvider(async function* (p) {
+          replies.push(yield* p.ask(prompt));
+          yield { type: 'turn_end' };
+        });
+        const { router, sent } = scriptedRouter(provider);
+        const turn = router.handleMessage(chat('m1', 'go'));
+        await waitFor(() => sent.length === 1);
+        await router.handleMessage({
+          ...chat('m2', ''),
+          content: { type: 'text', text: prompt.kind === 'plan' ? '1' : '2', quoted: { text: sent[0]!.text } },
+        });
+        await turn;
+      }
+
+      expect(replies).toEqual([{ kind: 'approve', permissionMode: 'bypassPermissions' }, { kind: 'answers', answers: { q: '乙' } }]);
+    });
+
+    it('挂着提问时发了没执行成的 /resume（缺编号、编号无从解析），这一轮不被打断，结论照常发出', async () => {
+      for (const [command, notice] of [['/resume', '用法：/resume <编号>'], ['/resume 5', '请先用 /sessions 列出会话，再用 /resume <编号> 恢复']] as const) {
+        const provider = new ScriptedProvider(async function* (p) {
+          yield* p.ask({ kind: 'plan', plan: '计划' });
+          yield { type: 'text_delta', text: '按计划做完了' };
+          yield { type: 'message_done' };
+          yield { type: 'turn_end' };
+        });
+        const { router, sent } = scriptedRouter(provider);
+
+        const turn = router.handleMessage(chat('m1', 'go'));
+        await waitFor(() => sent.length === 1);
+        await router.handleMessage(chat('m2', command));
+        await router.handleMessage(chat('m3', '1'));
+        await turn;
+
+        expect(provider.interrupted).toBe(0);
+        expect(provider.replies).toEqual([{ kind: 'approve', permissionMode: 'bypassPermissions' }]);
+        expect(sent.map((m) => m.text).slice(1)).toEqual([notice, '按计划做完了']);
+      }
+    });
+
+    it('作答之后这一轮没有任何结论文字，照样告知用户', async () => {
+      const provider = new ScriptedProvider(async function* (p) {
+        yield* p.ask({ kind: 'plan', plan: '计划' });
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => sent.length === 1);
+      await router.handleMessage(chat('m2', '1'));
+      await turn;
+
+      expect(sent.slice(1)).toEqual([{ kind: 'status', text: '本轮已结束，没有文字回复。' }]);
+    });
+
+    it('只发图片回答计划确认：不当作拒绝，再说明一次怎么回', async () => {
+      const provider = new ScriptedProvider(async function* (p) {
+        yield* p.ask({ kind: 'plan', plan: '计划' });
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => sent.length === 1);
+      await router.handleMessage({ ...chat('m2', ''), content: { type: 'image', attachments: [{ kind: 'image', localPath: '/tmp/a.png' }] } });
+      expect(provider.replies).toEqual([]);
+      expect(sent[1]!.text).toContain('附件');
+
+      await router.handleMessage(chat('m3', '1'));
+      await turn;
+      expect(provider.replies).toEqual([{ kind: 'approve', permissionMode: 'bypassPermissions' }]);
+    });
+
+    it('一轮收尾（turn_end）时就拒掉还挂着的请求，不等整次生成结束', async () => {
+      let orphan: UserPromptReply | undefined;
+      let release!: () => void;
+      const followUpRunning = new Promise<void>((resolve) => { release = resolve; });
+      const provider = new ScriptedProvider(async function* () {
+        // CLI 发出请求后又取消了它，随即结束这一轮；同一次生成里还在跑插话排队的下一轮
+        yield { type: 'user_prompt', prompt: { kind: 'plan', plan: '计划' }, respond: (reply) => { orphan = reply; } };
+        yield { type: 'turn_end' };
+        await followUpRunning;
+        yield { type: 'turn_end' };
+      });
+      const { router } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      // 下一轮还没跑完：此时就必须已拒掉，否则用户这期间发的消息会被当成对它的回答吞掉
+      await waitFor(() => orphan !== undefined);
+      expect(orphan).toEqual({ kind: 'deny', message: '这一轮已结束。' });
+      release();
+      await turn;
+    });
+
+    it('同时到达的两个请求排队逐个推送，前一个不会被后一个顶掉', async () => {
+      const provider = new ScriptedProvider(async function* (p) {
+        const replies: Promise<UserPromptReply>[] = [];
+        let resolveA!: (r: UserPromptReply) => void;
+        let resolveB!: (r: UserPromptReply) => void;
+        replies.push(new Promise((r) => { resolveA = r; }), new Promise((r) => { resolveB = r; }));
+        yield { type: 'user_prompt', prompt: { kind: 'permission', toolName: 'Edit', detail: 'a.ts' }, respond: (r) => { p.replies.push(r); resolveA(r); } };
+        yield { type: 'user_prompt', prompt: { kind: 'permission', toolName: 'Edit', detail: 'b.ts' }, respond: (r) => { p.replies.push(r); resolveB(r); } };
+        await Promise.all(replies);
+        yield { type: 'turn_end' };
+      });
+      const { router, sent } = scriptedRouter(provider);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => sent.length === 1);
+      // 第二个请求已到达但还没推：等第一个答完
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.text).toContain('a.ts');
+      expect(provider.replies).toEqual([]);
+
+      await router.handleMessage(chat('m2', '允许'));
+      expect(sent.some((m) => m.text.includes('b.ts'))).toBe(true);
+      await router.handleMessage(chat('m3', '拒绝'));
+      await turn;
+
+      expect(provider.replies).toEqual([{ kind: 'approve' }, { kind: 'deny', message: '用户在微信上拒绝了这次调用。' }]);
+    });
+
+    it('真实微信额度闸门：剩最后一格时提问立即发出；额度用完时回复先续发提问，下一条才是答案', async () => {
+      for (const used of [9, 10]) {
+        const store = new FileWeixinStateStore(join(mkdtempSync(join(tmpdir(), 'router-gate-')), 'config.json'));
+        const delivered: string[] = [];
+        const gate = new WeixinOutboundGate({
+          store,
+          send: async (_chatId, message) => { delivered.push(message.text); store.recordSent('chat-a'); },
+        });
+        store.setContextToken('chat-a', 'ctx');
+        for (let i = 0; i < used; i += 1) store.recordSent('chat-a');
+        const provider = new ScriptedProvider(async function* (p) {
+          yield* p.ask({ kind: 'question', questions: [{ id: 'q', question: '选哪个？', multiSelect: false, options: [{ label: '甲' }, { label: '乙' }] }] });
+          yield { type: 'turn_end' };
+        });
+        const { router } = scriptedRouter(provider, gate);
+        // 与真实适配器一致：每条入站消息先刷新 token 与额度，再交给路由
+        const inbound = async (id: string, text: string) => {
+          store.setContextToken('chat-a', `ctx-${id}`);
+          await router.handleMessage(chat(id, text));
+        };
+
+        const turn = router.handleMessage(chat('m1', 'go'));
+        if (used === 9) {
+          await waitFor(() => delivered.length === 1);
+        } else {
+          await waitFor(() => store.hasPendingOutbound('chat-a'));
+          expect(delivered).toEqual([]);
+          await inbound('m2', '在吗');
+          expect(delivered[0]).toContain('选哪个？');
+          expect(provider.replies).toEqual([]);
+        }
+        expect(delivered[0]).toContain('选哪个？');
+        await inbound('m3', '2');
+        await turn;
+        expect(provider.replies).toEqual([{ kind: 'answers', answers: { q: '乙' } }]);
+      }
+    });
+
+    it('配额耗尽、提问还排着时，用户的回复先用来续发，不当作答案', async () => {
+      const queued: string[] = [];
+      const delivered: string[] = [];
+      const receipts: Array<() => void> = [];
+      const gate: OutboundDeliveryGate = {
+        hasPending: () => queued.length > 0,
+        deliver: async (_chatId, message, onDelivered) => { queued.push(message.text); if (onDelivered) receipts.push(onDelivered); return false; },
+        drain: async () => { delivered.push(...queued.splice(0)); for (const receipt of receipts.splice(0)) receipt(); },
+      };
+      const provider = new ScriptedProvider(async function* (p) {
+        yield* p.ask({ kind: 'question', questions: [{ id: 'q1', question: '选哪个？', multiSelect: false, options: [{ label: '甲' }, { label: '乙' }] }] });
+        yield { type: 'turn_end' };
+      });
+      const { router } = scriptedRouter(provider, gate);
+
+      const turn = router.handleMessage(chat('m1', 'go'));
+      await waitFor(() => queued.length === 1);
+
+      await router.handleMessage(chat('m2', '继续'));
+      expect(delivered[0]).toContain('选哪个？');
+      expect(provider.replies).toEqual([]);
+
+      await router.handleMessage(chat('m3', '2'));
+      await turn;
+      expect(provider.replies).toEqual([{ kind: 'answers', answers: { q1: '乙' } }]);
+    });
   });
 
   it('stops refreshing typing once the provider goes silent (no timer keepalive)', async () => {
@@ -1393,9 +1867,8 @@ describe('MessageRouter', () => {
     await generation;
   });
 
-  it('discards a queued chat that a later session-mutating command superseded (no wrong-session delivery)', async () => {
-    // Codex P1 回归：一条聊天排在 sessionOpChain 上还没跑，/new 从 commandChain
-    // 插队换掉 current；这条排队聊天不得再投递到新会话。
+  it('消息属于到达那一刻的会话：排队期间会话被 /new 换掉，这条消息作废，不改投新会话', async () => {
+    // 一刀切规则（AGENTS.md）：task two 到达时当前是旧会话，执行前已被 /new 换掉。
     let signalStarted: () => void = () => {};
     const started = new Promise<void>((resolve) => { signalStarted = resolve; });
     let releaseGate: () => void = () => {};
@@ -1469,6 +1942,40 @@ describe('MessageRouter', () => {
     expect(gated.seen).toEqual(['task one']);
     expect(sent.some((m) => m.text.includes('task two') || m.text === '生成中：task two')).toBe(false);
     expect(sessions.getActiveSession('chat-q')?.providerId).toBe('codex');
+  });
+
+  it('消息属于到达那一刻的会话：参数输错的 /resume 没换掉会话，排队的消息照常处理', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const provider = new ScriptedProvider(async function* (p) {
+      if (p.received.length === 1) await gate;
+      yield { type: 'text_delta', text: `答：${p.received.at(-1)}` };
+      yield { type: 'turn_end' };
+    });
+    const { router, sent } = scriptedRouter(provider);
+
+    const first = router.handleMessage(chat('m1', '一'));
+    await waitFor(() => provider.received.length === 1);
+    const second = router.handleMessage(chat('m2', '二'));
+    await router.handleMessage(chat('m3', '/resume'));
+    release();
+    await Promise.all([first, second]);
+
+    expect(provider.received).toEqual(['一', '二']);
+    expect(sent.map((m) => m.text)).toEqual(['用法：/resume <编号>', '答：一', '答：二']);
+  });
+
+  it('到达时还没有会话的消息跟着第一个建起来的会话走，连发的第二条不会被丢', async () => {
+    const provider = new ScriptedProvider(async function* (p) {
+      yield { type: 'text_delta', text: `答：${p.received.at(-1)}` };
+      yield { type: 'turn_end' };
+    });
+    const { router, sent } = scriptedRouter(provider);
+
+    await Promise.all([router.handleMessage(chat('m1', '一')), router.handleMessage(chat('m2', '二'))]);
+
+    expect(provider.received).toEqual(['一', '二']);
+    expect(sent.map((m) => m.text)).toEqual(['答：一', '答：二']);
   });
 
   it('frees the generation chain after preempting a provider that cannot be interrupted', async () => {
@@ -2321,14 +2828,13 @@ describe('MessageRouter outbound gate', () => {
     let drainCount = 0;
     const gate: OutboundDeliveryGate = {
       hasPending: () => pending,
-      shouldInterceptReply: () => false,
       deliver: async (chatId, msg) => { delivered.push({ chatId, kind: msg.kind, text: msg.text }); },
       drain: async () => { drainCount += 1; },
     };
     return { gate, delivered, getDrainCount: () => drainCount };
   }
 
-  it('drains the outbound queue and skips AI when messages are pending', async () => {
+  it('drains the outbound queue and still forwards new input to AI', async () => {
     const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const { gate, getDrainCount } = makeFakeGate(true);
     const router = new MessageRouter({
@@ -2345,38 +2851,84 @@ describe('MessageRouter outbound gate', () => {
     });
 
     expect(getDrainCount()).toBe(1);
-    // pending → message consumed for drain, never reaches the provider
-    expect(sessions.listSessions()).toHaveLength(0);
+    expect(sessions.listSessions()).toHaveLength(1);
   });
 
-  it('intercepts arbitrary replies after a continuation hint even when no pending queue remains', async () => {
-    const channel = new MockChannelAdapter();
-    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
-    const delivered: Array<{ kind: string; text: string }> = [];
+  it('有积压消息时 /stop 照常执行：先续发积压，再中止挂着确认的这一轮', async () => {
+    let drained = 0;
+    let backlog = false;
+    const delivered: string[] = [];
     const gate: OutboundDeliveryGate = {
-      hasPending: () => false,
-      shouldInterceptReply: () => true,
-      deliver: async (_chatId, message) => { delivered.push({ kind: message.kind, text: message.text }); },
-      drain: async () => undefined,
+      hasPending: () => backlog,
+      deliver: async (_chatId, message) => { delivered.push(message.text); },
+      drain: async () => { drained += 1; backlog = false; },
     };
+    const provider = new ScriptedProvider(async function* (p) {
+      yield* p.ask({ kind: 'plan', plan: '计划' });
+      yield { type: 'turn_end' };
+    });
+    const { router } = scriptedRouter(provider, gate);
+
+    const turn = router.handleMessage(chat('m1', 'go'));
+    await waitFor(() => delivered.length === 1);
+    backlog = true;
+    await router.handleMessage(chat('m2', '/stop'));
+    await turn;
+
+    expect(drained).toBe(1);
+    expect(provider.interrupted).toBe(1);
+    expect(provider.replies).toEqual([{ kind: 'deny', message: '用户在微信上中止了这一轮。' }]);
+    expect(delivered).toContain('已中断当前生成，会话保留');
+  });
+
+  it('续发积压消息失败时，/stop 照常执行', async () => {
+    let backlog = false;
+    const delivered: string[] = [];
+    const gate: OutboundDeliveryGate = {
+      hasPending: () => backlog,
+      deliver: async (_chatId, message) => { delivered.push(message.text); },
+      drain: async () => { throw new Error('sendmessage failed'); },
+    };
+    const provider = new ScriptedProvider(async function* (p) {
+      yield* p.ask({ kind: 'plan', plan: '计划' });
+      yield { type: 'turn_end' };
+    });
+    const { router } = scriptedRouter(provider, gate);
+
+    const turn = router.handleMessage(chat('m1', 'go'));
+    await waitFor(() => delivered.length === 1);
+    backlog = true;
+    await router.handleMessage(chat('m2', '/stop'));
+    await turn;
+
+    expect(provider.interrupted).toBe(1);
+    expect(provider.replies).toEqual([{ kind: 'deny', message: '用户在微信上中止了这一轮。' }]);
+  });
+
+  it('有积压消息时 /new 照常执行：先续发积压，再换新会话', async () => {
+    let backlog = true;
+    let drained = 0;
+    const gate: OutboundDeliveryGate = {
+      hasPending: () => backlog,
+      deliver: async () => undefined,
+      drain: async () => { drained += 1; backlog = false; },
+    };
+    const sessions = new SessionManager({ defaultCwd: '/tmp/project', defaultProviderId: 'claude-code' });
     const router = new MessageRouter({
-      channel,
+      channel: new MockChannelAdapter(),
       providers: [new FakeProviderAdapter('claude-code')],
       sessions,
       resolveUser: () => authorizedUser,
       outboundGate: gate,
     });
 
-    await router.handleMessage({
-      id: 'm1', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
-      content: { type: 'text', text: '随便回一句' }, timestamp: 1,
-    });
+    await router.handleMessage(chat('m1', '/new'));
 
-    expect(delivered).toEqual([]);
-    expect(sessions.listSessions()).toHaveLength(0);
+    expect(drained).toBe(1);
+    expect(sessions.listSessions()).toHaveLength(1);
   });
 
-  it('silently consumes a continuation reply while the session is still running and no queue exists yet', async () => {
+  it('queues new input while the session is still running', async () => {
     let releaseGate: () => void = () => {};
     const gateOpen = new Promise<void>((resolve) => { releaseGate = resolve; });
     let started!: () => void;
@@ -2409,13 +2961,8 @@ describe('MessageRouter outbound gate', () => {
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
     channel.onSent((message) => sent.push({ kind: message.kind, text: message.text }));
-    let interceptCount = 0;
     const outboundGate: OutboundDeliveryGate = {
       hasPending: () => false,
-      shouldInterceptReply: () => {
-        interceptCount += 1;
-        return interceptCount === 2;
-      },
       deliver: async (chatId, message) => {
         await channel.sendMessage({ chatId, kind: message.kind as 'text', text: message.text });
       },
@@ -2436,16 +2983,17 @@ describe('MessageRouter outbound gate', () => {
     });
     await generationStarted;
 
-    await router.handleMessage({
+    const followUp = router.handleMessage({
       id: 'm2', platform: 'weixin', chatId: 'chat-a', user: { id: 'wx_user_1' },
       content: { type: 'text', text: '随便回一句' }, timestamp: 2,
     });
 
     releaseGate();
-    await generation;
+    await Promise.all([generation, followUp]);
 
     expect(sent).toEqual([
       { kind: 'text', text: '第一段：开始执行第二段' },
+      { kind: 'text', text: '第一段：随便回一句第二段' },
     ]);
   });
 
@@ -2601,6 +3149,6 @@ describe('MessageRouter outbound gate', () => {
 
     expect(sent).toHaveLength(1);
     expect(sent[0]!.kind).toBe('status');
-    expect(sent[0]!.text).toContain('没有返回任何内容');
+    expect(sent[0]!.text).toContain('没有文字回复');
   });
 });

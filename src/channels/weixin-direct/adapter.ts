@@ -7,8 +7,8 @@ import type { InboundAttachmentMeta, InboundWeixinMessage } from './apiClient';
 import type { WeixinMediaDownloader } from './mediaDownloader';
 import type { WeixinMediaUploader } from './mediaUploader';
 import { TypingController } from './typingController';
+import { chunkText, MAX_TEXT_LENGTH } from './textChunks';
 
-const MAX_TEXT_LENGTH = 4_000;
 const DEFAULT_CHUNK_DELAY_MS = 300;
 const DEDUP_WINDOW_MS = 5 * 60_000;
 const MAX_RETRY_DELAY_MS = 30_000;
@@ -125,20 +125,24 @@ export class WeixinDirectAdapter implements ChannelAdapter {
     const mediaKinds = new Set(['image', 'video', 'audio', 'file'] as const);
     if (mediaKinds.has(message.kind as typeof mediaKinds extends Set<infer T> ? T : never)) {
       await this.sendMediaMessage(message, contextToken);
+      this.options.stateStore?.recordSent(message.chatId);
     } else {
       const chunks = chunkText(message.text ?? '', MAX_TEXT_LENGTH);
       const chunkDelayMs = this.options.chunkDelayMs ?? DEFAULT_CHUNK_DELAY_MS;
       for (let i = 0; i < chunks.length; i += 1) {
         if (i > 0 && chunkDelayMs > 0) await delay(chunkDelayMs);
+        if (this.options.stateStore && !this.options.stateStore.canSend(message.chatId)) {
+          throw new Error(`weixin_push_quota_exceeded:${message.chatId}`);
+        }
         await this.options.api.sendTextMessage({
           toUserId: message.chatId,
           text: chunks[i]!,
           contextToken,
         });
+        this.options.stateStore?.recordSent(message.chatId);
       }
     }
 
-    this.options.stateStore?.recordSent(message.chatId);
   }
 
   private async sendMediaMessage(message: ChannelOutgoingMessage, contextToken: string): Promise<void> {
@@ -281,6 +285,7 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       ...(message.text ? { text: message.text } : {}),
       ...(attachments.length ? { attachments } : {}),
       ...(quoted ? { quoted } : {}),
+      ...(message.unrecognizedVoice ? { unrecognizedVoice: true as const } : {}),
     };
   }
 
@@ -298,7 +303,9 @@ export class WeixinDirectAdapter implements ChannelAdapter {
       const { ext, mimeType } = mediaExtAndMime(meta);
       const destPath = join(mediaDir, `${idPrefix}_${i}${ext}`);
       const maxBytes = meta.kind === 'video' ? VIDEO_MAX_BYTES : undefined;
-      const result = await downloader.download(meta.media ?? {}, { destPath, aeskeyOverride: meta.aeskey, maxBytes });
+      // 下载途中抛异常（读取、解密、落盘）只算这个附件失败，不能连累整条消息（里面可能还有文字）
+      const result = await downloader.download(meta.media ?? {}, { destPath, aeskeyOverride: meta.aeskey, maxBytes })
+        .catch((error: unknown) => ({ ok: false as const, reason: error instanceof Error ? error.message : 'download_failed' }));
       if (result.ok) {
         out.push({ kind: meta.kind, localPath: result.localPath, ...(meta.fileName ? { fileName: meta.fileName } : {}), ...(mimeType ? { mimeType } : {}) });
       } else {
@@ -328,38 +335,6 @@ function mediaExtAndMime(meta: InboundAttachmentMeta): { ext: string; mimeType?:
   if (meta.kind === 'image') return { ext: '.jpg', mimeType: 'image/jpeg' };
   if (meta.kind === 'video') return { ext: '.mp4', mimeType: 'video/mp4' };
   return { ext: '.bin' };
-}
-
-/**
- * Split text into <=limit chunks at natural boundaries.
- * Priority: paragraph break → line break → space → hard cut.
- */
-function chunkText(text: string, limit: number): string[] {
-  if (text.length <= limit) return [text];
-  const chunks: string[] = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= limit) {
-      chunks.push(remaining);
-      break;
-    }
-    let splitAt = -1;
-    const win = remaining.slice(0, limit);
-    const para = win.lastIndexOf('\n\n');
-    if (para > limit * 0.3) splitAt = para + 2;
-    if (splitAt === -1) {
-      const line = win.lastIndexOf('\n');
-      if (line > limit * 0.3) splitAt = line + 1;
-    }
-    if (splitAt === -1) {
-      const space = win.lastIndexOf(' ');
-      if (space > limit * 0.3) splitAt = space + 1;
-    }
-    if (splitAt === -1) splitAt = limit;
-    chunks.push(remaining.slice(0, splitAt));
-    remaining = remaining.slice(splitAt);
-  }
-  return chunks.length > 0 ? chunks : [''];
 }
 
 /** Map outbound message kind to iLink MessageItemType. */

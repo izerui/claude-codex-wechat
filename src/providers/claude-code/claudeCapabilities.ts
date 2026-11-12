@@ -5,8 +5,8 @@ import { useShellForCli } from '../../shared/platform';
 // The bridge appends a fixed system prompt via that flag; on older Claude Code
 // builds the flag doesn't exist, and passing it would make every turn fail with
 // an unknown-option error. So we detect support once (cached per command) and
-// degrade gracefully — omitting the flag when unsupported, which just falls back
-// to the AskUserQuestion rendering + numeric-mapping path.
+// degrade gracefully — omitting the flag when unsupported (the session then just
+// runs without the bridge's environment context).
 export type ClaudeCapabilityProbe = (command: string) => Promise<boolean>;
 
 const cache = new Map<string, Promise<boolean>>();

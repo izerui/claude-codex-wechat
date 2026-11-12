@@ -14,7 +14,7 @@ type CodexRunner = {
   }): AsyncIterable<ProviderEvent>;
   stopSession(bridgeSessionId: string): Promise<void>;
   interruptTurn?(bridgeSessionId: string): Promise<void>;
-  steerTurn?(bridgeSessionId: string, text: string): Promise<void>;
+  steerTurn?(bridgeSessionId: string, text: string): Promise<boolean | void>;
 };
 
 export class CodexProvider implements NativeProviderAdapter {
@@ -77,7 +77,8 @@ export class CodexProvider implements NativeProviderAdapter {
     await this.options.runner.interruptTurn?.(bridgeSessionId);
   }
 
-  async steerSession(bridgeSessionId: string, text: string): Promise<void> {
-    await this.options.runner.steerTurn?.(bridgeSessionId, text);
+  async steerSession(bridgeSessionId: string, text: string): Promise<boolean | void> {
+    if (!this.options.runner.steerTurn) return false;
+    return this.options.runner.steerTurn(bridgeSessionId, text);
   }
 }

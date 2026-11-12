@@ -23,6 +23,8 @@ export type ChannelIncomingMessage = {
     localPath?: string;
     attachments?: ChannelAttachment[];
     quoted?: { text?: string; attachments?: ChannelAttachment[] };
+    /** 收到了语音，但平台没给转写文字。 */
+    unrecognizedVoice?: true;
   };
   timestamp: number;
   raw?: unknown;

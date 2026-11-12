@@ -55,17 +55,23 @@
 3. **指令解析**：`commandParser` 先识别控制指令（如新建/停止/审批等纯文本命令）；普通文本则作为对话内容。
 4. **会话归属**：从 `CurrentConversationStore` 取当前会话；若无，`providerAutoAttach` 尝试自动接入一个可恢复的原生会话（按历史绑定优先）。
 5. **转发**：选定的 `NativeProviderAdapter` 把文本送进原生 CLI（`startSession` / `sendMessage`），CLI 进程被 spawn 并通过 stdio 通信。
+6. **唤起与排队**：离线时消息 A 恢复原生会话，启动中到达的 B 走 `MessageRouter` 的普通队列。provider 尚未就绪时返回插话未提交，不在 runner 中另存、补交或改开一轮重试；只要会话未换，A、B 都按正常队列处理。
 
 ### 出站（CLI 输出 → 微信）
 
-1. Provider 适配器把 CLI 输出解析成统一的 `ProviderEvent` 流（`text_delta` / `message_done` / `tool_event` / `session_state` / `error`）。
-2. `MessageRouter` 聚合事件成可读回复。
-3. **配额门控**：真实微信通道经 `WeixinOutboundGate`（应对官方 10 条/24h 主动消息限制）后，调 `sendmessage` 推回微信。
-4. 管理页通过 SSE（`POST /api/bridge-events`）实时收到同一批事件（状态、权限请求等）。
+1. Provider 适配器把 CLI 输出解析成统一的 `ProviderEvent` 流（`text_delta` / `message_done` / `tool_event` / `turn_end` / `background_tasks` / `user_prompt` / `session_state` / `error`）。
+2. `MessageRouter` 只把每一轮的结论发出：助手文字先攒着，遇到 `tool_event`（工具调用、Codex 的 commentary）就当过程说明作废，`turn_end` 时一次发出；过程说明任何情况下都不发，一轮没有结论文字且没有后台任务时只发一条「本轮已结束，没有文字回复」的状态提示，不据此判失败或让用户重复执行任务。
+3. **后台工作**：参考 imux，一轮结算后还有后台任务时补发任务说明，同一任务集合不重复提示。Claude 使用原生后台任务快照（兼容明确标为后台的任务事件），Codex 使用原生子代理状态；不把前台子代理或内部监控算作后台提示。后台跨轮时保留原生事件读取，后续结论不依赖用户再发消息。
+4. **配额门控**：真实微信文本经 `WeixinOutboundGate`，按实际消息分段持久化、串行发送；额度不足保留未发部分，下一次刷新后继续发送，不吞用户新消息，不按内容年龄删除结果。确认使用送达回执，只有问题完整送达后才接受手机作答。已结束请求的待发确认不再推送。
+5. 管理页通过 SSE（`POST /api/bridge-events`）实时收到同一批事件（状态、权限请求等）。CLI 默认不按沉默时长自动终止；空闲超时只在显式配置后启用。
 
 ### 权限审批
 
-CLI 触发的高风险操作 → provider 发出权限请求事件 → 持久化 → 微信用户或管理页做决定 → 决定回流到 provider runtime 放行/拒绝。
+会话默认跳过权限（Claude `--dangerously-skip-permissions`、Codex `approvalMode: never`），只有必须由人决定的才停下来问：
+
+- Claude 以 `--permission-prompt-tool stdio` 启动，AskUserQuestion、ExitPlanMode 及跳过权限仍要确认的调用经 stdout 的 `can_use_tool` 控制请求到达；Codex 的提问经 app-server 的 `item/tool/requestUserInput` 到达。
+- provider 发出 `user_prompt`，`MessageRouter` 推到微信（提问逐题、多个请求排队），送达后收到的非命令纯文本消息作为回答，经 `respond` 写回 CLI（Claude 的 `control_response`、Codex 的请求结果）。不复述用户自己的选择；随口一句话被当成拒绝并转告或计划修改意见时，才说明并写明是哪一步。CLI 撤回请求或这一轮结束时，推到过手机的确认告诉用户已失效。问题尚未送达时先补推并提示再次作答；带附件的确认回复明确提示未提交。
+- 电脑端无人值守，不设超时也不代答；`/stop`、换会话或这一轮结束时一律按拒绝交回，CLI 不会卡住。等待期间 provider 的卡死判定暂停。
 
 ---
 

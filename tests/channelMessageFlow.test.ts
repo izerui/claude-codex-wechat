@@ -558,7 +558,8 @@ describe('channel message flow', () => {
     }
   });
 
-  it('sends one WeChat message per Codex agent message within a single turn', async () => {
+  it('Codex 一轮里只把结论发到微信，工具调用前的过程说明不发', async () => {
+    vi.spyOn(CodexAppServerClient.prototype, 'onClose').mockReturnValue(() => {});
     const { activeUserStore, configPath } = seededUsers('wx_user_1');
     const channel = new MockChannelAdapter();
     const sent: Array<{ kind: string; text: string }> = [];
@@ -571,6 +572,7 @@ describe('channel message flow', () => {
         queueMicrotask(() => {
           notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: '我先检查 ' });
           notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-1', delta: 'relay 是否可用。' });
+          notificationHandlers.get('item/started')?.({ item: { type: 'commandExecution', id: 'cmd-1' } });
           notificationHandlers.get('item/agentMessage/delta')?.({ itemId: 'msg-2', delta: '已经代理出去，地址如下。' });
           notificationHandlers.get('turn/completed')?.({ threadId: 'codex-session-split', turn: { id: 'turn-split' } });
         });
@@ -616,7 +618,6 @@ describe('channel message flow', () => {
     });
 
     expect(sent).toEqual([
-      { kind: 'text', text: '我先检查 relay 是否可用。' },
       { kind: 'text', text: '已经代理出去，地址如下。' },
     ]);
 

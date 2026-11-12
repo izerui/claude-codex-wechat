@@ -1,11 +1,10 @@
 import { renderClaudeSystemPrompt } from '../../media/behavior.js';
 
 // A fixed, constant instruction appended to every bridged Claude session via
-// `--append-system-prompt`. It tells the model the truth about its runtime: a
-// plain-text WeChat channel with no interactive UI, so it should present choices
-// as numbered text rather than calling AskUserQuestion (which is auto-denied in
-// headless mode and produces a confusing double message). See AGENTS.md — this
-// is honest environment context, not a reinvention of native behavior.
+// `--append-system-prompt`: honest environment context (the user is on WeChat,
+// files can be sent to their WeChat, douyin links). It does not steer how Claude
+// asks questions — AskUserQuestion / plan confirmations reach WeChat natively
+// through the stdio permission prompt. See AGENTS.md.
 //
 // IMPORTANT for prompt caching: this MUST stay a byte-stable constant. It sits
 // at the front of the prompt prefix, so any per-turn variation (timestamps,

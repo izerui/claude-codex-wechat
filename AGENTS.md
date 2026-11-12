@@ -170,10 +170,16 @@ If behavior looks wrong at runtime, start by tracing through `MessageRouter`.
 To support native-style interrupt (`/cancel`) and follow-up/insert (steer), message **intake is non-blocking** while every session-mutating operation runs under **one global lock**. Do not break either half:
 
 - **Channel adapters dispatch without awaiting the full turn.** `WeixinDirectAdapter` fires `handler(message)` with `void ... .catch(...)`, never `await`, so the long-poll loop keeps reading while a turn streams. If you re-introduce `await handler(...)` in a real adapter's read loop, `/cancel`, steer, and queued messages can never arrive mid-generation. (The `MockChannelAdapter` still awaits — that's intentional, so tests observe a settled turn.)
-- **`MessageRouter` serializes session-mutating work on one global chain.** The bridge stores a single current conversation, so `runExclusive()` chains chat generation **and** every state-changing command (`/new /use /cwd /stop /reload /resume /archive`) onto `sessionOpChain`. This prevents two turns (or a command and a turn) from clobbering the shared session/native transcript. **The chain MUST be updated synchronously** — no `await` between `handleMessage` entry and the `sessionOpChain = ...` assignment in `runExclusive`, otherwise two non-blocking dispatches race. Keep `conversationSignature()`/user resolution/parse synchronous on that path.
+- **`MessageRouter` serializes session-mutating work on one global chain.** The bridge stores a single current conversation, so `runExclusive()` chains chat generation **and** every state-changing command (`/new /use /cwd /stop /reload /resume /archive`) onto `sessionOpChain`. This prevents two turns (or a command and a turn) from clobbering the shared session/native transcript. **The chain MUST be updated synchronously** — no `await` between `handleMessage` entry and the `sessionOpChain = ...` assignment in `runExclusive`, otherwise two non-blocking dispatches race. Keep `conversationSignature()`/user resolution/parse synchronous on that path. The one exception is the WeChat quota drain (`outboundGate.drain`) awaited before a message is processed when sends are backlogged: drains are serialized per chat inside the gate, so two messages that both wait on it resume in arrival order.
 - **`/cancel` and read-only commands bypass the lock.** `isImmediateCommand` (`cancel_generation`, `help`, `status`, `list_sessions`) runs immediately, concurrent with an in-flight generation — `/cancel` must, to interrupt it. Do not move state-changing commands into the immediate set.
 - **Follow-up chat during a turn = native steer, not a second turn.** If a generation is active (`activeGenerations[chatId]`) and the provider exposes `steerSession`, a new chat message is injected into the running turn (`maybeSteer` → Codex `turn/steer { threadId, input, expectedTurnId }`) rather than queued. Providers without steer (one-shot Claude `-p`) fall back to the serialized lock (queue). This is the "insert" capability and must use the native mechanism, never a second concurrent provider turn.
+- **离线唤起与启动期间的正常排队必须保留。** 消息 A 唤起并恢复原会话；启动期间到达的 B 由路由的普通队列保留，还是同一会话就接着处理 A、B。provider 未就绪时插话返回未提交，不另建启动暂存、补交、失败后改开一轮重送的机制。已经成功交给原生 CLI 的插话照常由 CLI 处理。
 - **Interrupt is native, not a kill-all.** `interruptSession` maps to Codex `turn/interrupt { threadId, turnId }` and Claude sending `SIGTERM` to the in-flight `claude -p` child (equivalent to terminal Ctrl+C). It must stop only the current turn and leave the session resumable — never tear down the whole session (that is `/stop`).
+
+- **硬性规定：消息到达时当前是哪个会话，它就属于哪个会话，一刀切。** 消息到达那一刻记下当前会话；真正执行前当前会话已经换了（`/new`、`/resume` 换掉了它），这条消息就丢弃，不改投到新会话，也不去推算命令与聊天的先后、补发或重排。`/reload` 是重载同一个会话，不使已收到的排队消息作废。到达时还没有任何会话的消息，跟着第一个建起来的会话走。切换空档里漏掉消息可以接受，不算缺陷。按用户的直观感受定逻辑，不为中间态、瞬时态加复杂判断——这类判断本身就是 bug 的来源（曾经的序号取代机制把「参数输错的 `/resume`」也当成了换会话，打断了正在等确认的一轮）。
+  - 进行中的这一轮只会被真正执行了的换会话命令打断（经 `preemptActiveGeneration`）；命令没执行成（参数不对、找不到会话）就什么都不影响。
+  - 有请求在等人作答时，到达的非命令消息就是回答——同样按到达那一刻的状态判断。
+  - 命令（`/stop`、`/new` 等）任何时候都照常执行：微信是唯一操作入口，不能被续发积压、续发提示或等待作答吞掉。发送额度只限制出站，刷新额度后续发积压，用户的新消息仍正常处理，不作为“只续发”的空操作。确认尚未送达时收到的消息不能冒充答案，补推后明确提示用户再作答。
 
 If behaviour around interrupt/steer/queueing looks wrong, check these invariants first.
 
@@ -351,6 +357,15 @@ The current WeChat direct channel should still be treated as a chat-first surfac
   - `2. 激进方案`
   - `3. 先解释差异`
   - Follow with a short instruction such as `回复 1 / 2 / 3 选择方案。`
+- **只发每一轮的结论。** 微信推送有配额（约 10 条/24h，用户每发一条刷新）。助手文字先攒着，工具调用之前的文字与 Codex 的 commentary 是过程说明，任何情况下都不发（没有结论时也不拿它充数，只发一条状态提示）；一轮结束（`turn_end`）时把结论一次发出。
+- **手机消息行为参考本地 imux。** 一轮回复之后若仍有原生后台任务，补发「还有后台任务在运行」及任务说明；任务集合没变就不重复。继续读取后台触发的后续原生轮次，按轮发送结论，不把子代理内部输出直接转发给用户。换会话后停止旧任务监听与提示。
+- **确认先送达，回复才算答案。** 提问逐题作答，答完一次性交回；带附件的确认回复不能悄悄只取文字，明确提示尚未提交并请用户用文字回答。已经结束的原生请求，其尚未发出的确认也随之失效。CLI 撤回请求（`control_cancel_request`）或这一轮结束时还挂着的确认一律移出队列；推到过手机的要告诉用户「已失效，不用再回」，免得失效的确认占着队首把下一句话当成回答吞掉。
+- **发给手机的消息按正常沟通来。** 要让用户知道 AI 的动向（结论、完成、失败、中断、后台任务、确认已失效）；但不复述用户自己刚做的事——选了允许、拒绝、计划选项、提问答案，或发的话已照常交给 AI，都不回执。只在用户自己看不出来时才说：发的话被当成了别的用途（当作对确认的拒绝并转告、对计划的修改意见）、没有生效、没有发出；而且要写明是哪一步（如「已拒绝「rm -f …」」），不能只说「已拒绝」。
+- **额度与内容有效性分开。** 按实际微信消息条数计额，长结果分段后只续发未送出的尾部。普通结果不因排队超过 24 小时而删除，也不扣住最后一个可用发送名额。只有主动放弃旧会话时清理旧积压。
+- **不因沉默自动判定任务卡死。** 默认不启用 CLI 空闲超时；明确配置 `BRIDGE_CLAUDE_IDLE_TIMEOUT_MS` / `BRIDGE_CODEX_IDLE_TIMEOUT_MS` 时才启用。用户仍可通过 `/stop` 中断、通过换会话放弃旧任务。
+- **空闲回收进程，下一条消息自动接回。** 一次生成彻底结束（前台已停、无人作答待处理、后台任务也已结束）后空闲满 30 分钟（`BRIDGE_PROCESS_IDLE_CLOSE_MS`），关掉 Claude / Codex 进程但保留会话；用户再发消息时以原会话 `--resume` / `thread/resume` 拉起并交给它继续。进程在两条消息之间自己退出（崩溃、被关）也一样当场重新拉起，消息不丢。干活期间不计时、不回收。
+- **CLI 停下等人时由微信作答。** 电脑端无人值守，会话默认跳过权限，只有必须由人决定的（提问、计划确认、跳过权限下仍要确认的调用）才推到微信：Claude 经 `--permission-prompt-tool stdio` 的 `can_use_tool`，Codex 经 `item/tool/requestUserInput`。下一条非命令消息即回答；不设超时、不代答，`/stop`、换会话或这一轮结束时按拒绝交回。
+- **计划确认与原生确认框一致（同 imux）。** 回 1：执行，之后照常跳过权限；回 2：执行，但这个计划执行期间改动逐个推到手机确认（批准时经 `updatedPermissions` 切到 `default`，这一轮结束时 runner 以 `set_permission_mode` 切回 `bypassPermissions`）；回「不执行」不执行；直接说要改什么则作为修改意见转过去。「好」「可以」这类含糊的同意不替用户选 1——那会放宽权限——而是再问一次 1 还是 2。
 - Do not route ordinary “choose a plan/option” interactions through the permission system.
 - Reserve permission-style messages (`/approve`, `/deny`, `/abort`) for actual bridge/provider approval events only.
 

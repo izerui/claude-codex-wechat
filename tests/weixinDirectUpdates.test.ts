@@ -87,6 +87,25 @@ describe('WeixinDirectApiClient getupdates', () => {
     expect(updates.messages[0]).toMatchObject({ id: 'm2', text: '', attachments: [{ kind: 'image' }] });
   });
 
+  it('没有转写文字的语音不丢弃，标记为未识别；有转写文字的照常当文字', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      ret: 0, errcode: 0,
+      msgs: [
+        { from_user_id: 'user_a', msg_id: 'v1', item_list: [{ type: 3, voice_item: {} }] },
+        { from_user_id: 'user_a', msg_id: 'v2', item_list: [{ type: 3, voice_item: { text: '帮我看看日志' } }] },
+      ],
+      get_updates_buf: 'b',
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const client = new WeixinDirectApiClient({ baseUrl: 'https://ilinkai.weixin.qq.com', botToken: 't', wechatUin: 'u', fetchImpl: fetchMock as typeof fetch });
+
+    const updates = await client.getUpdates('');
+
+    expect(updates.messages).toEqual([
+      { id: 'v1', chatId: 'user_a', userId: 'user_a', text: '', unrecognizedVoice: true },
+      { id: 'v2', chatId: 'user_a', userId: 'user_a', text: '帮我看看日志' },
+    ]);
+  });
+
   it('parses a quoted (ref_msg) message', async () => {
     const client = clientWith({
       ret: 0, errcode: 0, get_updates_buf: 'b',

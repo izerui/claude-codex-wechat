@@ -34,8 +34,6 @@ export function renderClaudeSystemPrompt(): string {
     '## 环境说明',
     '- 用户看到的是微信聊天界面。',
     `- ${BRIDGE_RULES.sendMeansWeChat}`,
-    `- ${BRIDGE_RULES.noInteractiveUI}`,
-    '- 不要调用 AskUserQuestion 工具（此环境无法交互）。',
     '',
     '## 发送文件到用户微信',
     '- 图片 → send_image',

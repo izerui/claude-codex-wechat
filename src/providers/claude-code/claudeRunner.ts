@@ -27,5 +27,5 @@ export interface ClaudeRunner {
 
   interruptSession?(bridgeSessionId: string): Promise<void>;
 
-  steerSession?(bridgeSessionId: string, text: string): Promise<void>;
+  steerSession?(bridgeSessionId: string, text: string): Promise<boolean | void>;
 }

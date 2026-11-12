@@ -58,7 +58,12 @@ export class WeixinMediaDownloader {
       return { ok: false, reason: 'too_large' };
     }
 
-    const ciphertext = Buffer.from(await response.arrayBuffer());
+    let ciphertext: Buffer;
+    try {
+      ciphertext = Buffer.from(await response.arrayBuffer());
+    } catch {
+      return { ok: false, reason: 'read_failed' };
+    }
     if (input.maxBytes && ciphertext.length > input.maxBytes) {
       return { ok: false, reason: 'too_large' };
     }
@@ -70,8 +75,12 @@ export class WeixinMediaDownloader {
       return { ok: false, reason: 'decrypt_failed' };
     }
 
-    mkdirSync(dirname(input.destPath), { recursive: true });
-    writeFileSync(input.destPath, plaintext);
+    try {
+      mkdirSync(dirname(input.destPath), { recursive: true });
+      writeFileSync(input.destPath, plaintext);
+    } catch {
+      return { ok: false, reason: 'write_failed' };
+    }
     return { ok: true, localPath: input.destPath, bytes: plaintext.length };
   }
 }

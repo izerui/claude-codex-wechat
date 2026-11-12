@@ -1,5 +1,5 @@
 import type { ChannelAdapter, ChannelAttachment, ChannelIncomingMessage, ChannelOutgoingMessage } from '../channels/types';
-import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, ProviderEvent, ProviderSessionStatus } from '../providers/types';
+import type { NativeProviderAdapter, ProviderId, ProviderSessionCandidate, ProviderEvent, ProviderSessionStatus, UserPrompt, UserPromptReply } from '../providers/types';
 import type { ActiveWeChatUserRecord } from '../storage/userStore';
 import { parseBridgeCommand, type BridgeCommand } from './commandParser';
 import type { OutboundDeliveryGate } from './outboundGate';
@@ -12,7 +12,7 @@ import type { BridgeEventHub } from '../daemon/events';
 import { buildSessionBridgeName } from './sessionBridgeTag';
 import { upsertCodexSessionIndexEntry } from '../providers/codex/sessionIndex';
 import { ensureClaudeSessionBridgeMetadata } from '../providers/claude-code/nativeSessions';
-import { mapChoiceReply } from '../providers/claude-code/assistantContent';
+import { answerQuestion, decideConfirmation, PLAN_CHOOSE, promptStep, renderPrompt, renderQuestion } from './userPrompts';
 import type { LastProviderSessionStore } from '../storage/lastProviderSessionStore';
 
 export class MessageRouter {
@@ -27,16 +27,13 @@ export class MessageRouter {
   // generation can never block /new, /stop, etc.
   private commandChain: Promise<void> = Promise.resolve();
   private generationSeq = 0;
-  // 每条消息到达时按顺序分配一个全局序号；latestMutatingSeq 记录每个 chat
-  // 最近一次会话变更命令的序号。聊天用它判断自己是否已被更晚到达的命令取代，
-  // 从而消除「命令从 commandChain 插队到排队中的聊天前面」导致的串话。
-  private opSeq = 0;
-  private readonly latestMutatingSeq = new Map<string, number>();
-  private readonly activeGenerations = new Map<string, { genId: number; providerId: ProviderId; bridgeSessionId: string; abort: () => void }>();
-  // 最近一次 AskUserQuestion 的选项，按 chatId 暂存，并记住是哪个 bridge 会话发出的。
-  // 下一条入站消息若是纯序号，用它翻译成选项文字再转发（消费一次即清除）；不是序号、
-  // 或当前会话已变（sessionId 不匹配）则原样透传，避免旧选项串到别的会话。
-  private readonly pendingChoices = new Map<string, { sessionId: string; labels: string[]; multiSelect: boolean }>();
+  // stopped：用户 /stop 了这一轮，之后收尾时攒下的半截回复不再发出。
+  // foreground：前台此刻有没有一轮在跑；background：还有没有后台任务在跑。
+  private readonly activeGenerations = new Map<string, { genId: number; providerId: ProviderId; bridgeSessionId: string; abort: () => void; stopped?: boolean; foreground: boolean; background: boolean }>();
+  // CLI 停下等人作答的请求，按 chatId 排队。电脑端无人值守，微信是唯一的作答入口：
+  // 挂着请求时，下一条非命令消息就是对队首的回答，不进 AI、不 steer。
+  // 同时到达的多个请求（例如并行的工具调用）逐个推送；一个请求里的多道题也逐题推送，答完一次性交回。
+  private readonly pendingPrompts = new Map<string, PendingPrompt[]>();
 
   constructor(
     private readonly options: {
@@ -81,16 +78,24 @@ export class MessageRouter {
    * Single outbound exit. With a quota gate (WeChat), messages flow through it
    * (sent now, hinted, or queued). Without a gate, sent directly.
    */
-  private async sendToChat(message: ChannelOutgoingMessage): Promise<void> {
+  private async sendToChat(message: ChannelOutgoingMessage, onDelivered?: () => void, isCurrent?: () => boolean): Promise<void> {
+    let delivered = false;
+    const receipt = () => {
+      if (delivered) return;
+      delivered = true;
+      onDelivered?.();
+    };
     if (this.options.outboundGate) {
-      await this.options.outboundGate.deliver(message.chatId, {
+      const result = await this.options.outboundGate.deliver(message.chatId, {
         kind: message.kind,
         text: message.text,
         ...(message.filePath ? { filePath: message.filePath } : {}),
         ...(message.fileName ? { fileName: message.fileName } : {}),
-      });
+      }, receipt, isCurrent);
+      if (result !== false) receipt();
     } else {
       await this.options.channel.sendMessage(message);
+      receipt();
     }
   }
 
@@ -151,18 +156,7 @@ export class MessageRouter {
     if (!user) {
       return { status: 'pairing_required', code: 'pairing_required' };
     }
-    // 若有积压的待发消息(配额耗尽时排队的),用户这条消息已刷新 token+配额:
-    // 用它续发队列,这条消息本身不进 AI(纯刷新 + drain)。
-    if (this.options.outboundGate?.hasPending(message.chatId)) {
-      await this.options.outboundGate.drain(message.chatId);
-      return { status: 'accepted' };
-    }
-    if (this.options.outboundGate?.shouldInterceptReply?.(message.chatId)) {
-      return { status: 'accepted' };
-    }
     const composedText = composeInboundText(message.content);
-    if (!composedText) return { status: 'accepted' };
-
     // 媒体/引用消息按普通对话处理(不解析为 bridge 命令);纯文本仍可触发命令。
     const isPlainText = message.content.type === 'text'
       && !message.content.attachments?.length
@@ -170,23 +164,62 @@ export class MessageRouter {
     const command = isPlainText
       ? parseBridgeCommand(message.content.text ?? '')
       : { kind: 'chat' as const, text: composedText };
-    // 在到达顺序上同步分配序号（在任何 await 之前），保证命令与聊天的先后关系确定。
-    const seq = ++this.opSeq;
+    // 续发不吞新输入；尚未送达的提问不能当成用户已经看过了。
+    const arrivedIn = this.conversation.getCurrent()?.id;
+    const promptAtArrival = this.pendingPrompts.get(message.chatId)?.[0];
+    const questionAtArrival = promptAtArrival?.index;
+    const couldAnswer = promptAtArrival?.delivered === true;
+    if (this.options.outboundGate?.hasPending(message.chatId)) {
+      // 续发失败（网络、token 失效）不能连累命令：记下来，命令照常执行
+      await this.options.outboundGate.drain(message.chatId).catch((error) => {
+        console.error('[bridge] drain outbound queue failed:', message.chatId, error);
+      });
+    }
+    if (!composedText) {
+      // 语音没给转写文字：AI 听不了语音，如实告诉用户改发文字，不能让这条话悄无声息地消失
+      if (message.content.unrecognizedVoice) {
+        await this.sendToChat({ chatId: message.chatId, kind: 'status', text: '这条语音没有识别出文字，请改发文字。' });
+      }
+      return { status: 'accepted' };
+    }
+
+    // 有请求在等人作答：这条消息就是回答。命令（/stop 等）照常走命令路径。
+    // 引用那条提问来回复是微信里的自然动作：答案只取用户自己写的字，引用的提问原文不算，
+    // 否则「1」带着引用就对不上允许词或选项序号，同意会被当成拒绝。
+    const head = this.pendingPrompts.get(message.chatId)?.[0];
+    // 续发期间那条确认已经撤掉、也没有别的在等：这句话没人当答案等着，照常交给 AI，不能吞掉
+    if (command.kind === 'chat' && promptAtArrival && head) {
+      const ownText = message.content.text?.trim();
+      if (head !== promptAtArrival || head.index !== questionAtArrival) {
+        await this.sendToChat({ chatId: message.chatId, kind: 'status', text: '这条回复没有提交：它到达时要回答的问题已经换了。请看最新的问题再回复。' });
+        return { status: 'accepted' };
+      }
+      if (!couldAnswer) {
+        await this.sendToChat({ chatId: message.chatId, kind: 'status', text: '确认问题刚刚补发，请看到问题后再回复；这条消息还没有作为答案提交。' });
+        return { status: 'accepted' };
+      }
+      if (message.content.attachments?.length || message.content.localPath) {
+        await this.sendToChat({ chatId: message.chatId, kind: 'status', text: '当前正在等你确认，这条消息带有附件，尚未提交。请先用文字回答，再发送附件。' });
+        return { status: 'accepted' };
+      }
+      // 没有自己写的字（例如只引用了那条确认）：判不出同意与否，不能默认按拒绝处理，再说明一次怎么回
+      if (!ownText && head.prompt.kind !== 'question') {
+        await this.sendToChat({ chatId: message.chatId, kind: 'status', text: confirmationHint(head.prompt.kind) });
+        return { status: 'accepted' };
+      }
+      await this.answerPrompt(message.chatId, ownText || command.text);
+      return { status: 'accepted' };
+    }
     if (command.kind !== 'chat') {
       // 命令跑在独立的 commandChain 上，与生成链 sessionOpChain 互不依赖，
       // 所以卡住的生成永远不会阻塞 /new 等命令。/stop 和只读命令
       // 仍立即执行。setTyping 在回调内部切换（不在 runOnCommandChain 之前），
       // 避免被前一次生成 finally 里的 setTyping(false) 清掉。
-      if (!isImmediateCommand(command.kind)) {
-        // 会话变更命令：同步记录序号，让此刻仍排队/在跑的更早聊天据此作废。
-        this.latestMutatingSeq.set(message.chatId, seq);
-      }
       const runWithTyping = async () => {
         await this.options.channel.setTyping?.(message.chatId, true);
         try {
           await this.handleCommand(message.chatId, user, command);
         } finally {
-          await Promise.resolve(this.options.outboundGate?.finalize?.(message.chatId)).catch(() => undefined);
           await this.options.channel.setTyping?.(message.chatId, false);
         }
       };
@@ -198,18 +231,13 @@ export class MessageRouter {
       return { status: 'accepted' };
     }
 
-    // 若已有更晚到达的会话变更命令，这条聊天已被取代，直接丢弃（不 steer、不排队）。
-    if ((this.latestMutatingSeq.get(message.chatId) ?? 0) > seq) {
+    // 一刀切：消息到达那一刻是哪个会话，它就属于哪个会话（见 AGENTS.md）。
+    if (await this.maybeSteer(message.chatId, command.text, arrivedIn)) {
       return { status: 'accepted' };
     }
-    if (await this.maybeSteer(message.chatId, command.text)) {
-      return { status: 'accepted' };
-    }
-    // 排队消息的选项解析延后到 runChatGeneration 的 freshness 检查之后：若期间会话在
-    // 另一端被推进并自动重挂载，旧选项已随之清除，纯序号不能再被翻译成过期选项文字。
     await this.runExclusive(async () => {
       try {
-        await this.runChatGeneration(message, user, command.text, seq);
+        await this.runChatGeneration(message, user, command.text, arrivedIn);
       } finally {
         // 无论正常结束、/stop、出错还是抛异常，本轮结束都回到「就绪」。provider 只在回合开始时
         // 报 running、结束时不会报 idle，所以由这里收口；仍有新生成在跑（被新消息抢占）时不动它。
@@ -222,28 +250,138 @@ export class MessageRouter {
     return { status: 'accepted' };
   }
 
-  // 消费一次上一轮暂存的 AskUserQuestion 选项：纯序号回复翻译成对应选项文字，
-  // 其它情况原样透传。取用后即清除，避免过期映射误伤后续消息。若暂存所属会话
-  // 与当前会话不一致（用户已 /new、/resume 或切换 provider），也一律不翻译，
-  // 防止旧会话的选项串到新会话。
-  private resolveChoiceReply(chatId: string, text: string): string {
-    const pending = this.pendingChoices.get(chatId);
-    if (!pending) return text;
-    this.pendingChoices.delete(chatId);
-    if (pending.sessionId !== this.conversation.getCurrent()?.id) return text;
-    return mapChoiceReply(text, pending.labels, pending.multiSelect) ?? text;
+  // 登记等人作答的请求；前面没有在等的就立即推送。
+  private async openPrompt(
+    chatId: string,
+    genId: number,
+    prompt: UserPrompt,
+    respond: (reply: UserPromptReply) => void,
+    id?: string,
+  ): Promise<void> {
+    const queue = this.pendingPrompts.get(chatId) ?? [];
+    queue.push({ id, genId, prompt, index: 0, answers: {}, respond, delivered: false });
+    this.pendingPrompts.set(chatId, queue);
+    if (queue.length === 1) await this.pushPrompt(chatId, queue[0]!);
+  }
+
+  private async pushPrompt(chatId: string, pending: PendingPrompt): Promise<void> {
+    const text = pending.index === 0 ? renderPrompt(pending.prompt) : renderQuestionOf(pending);
+    pending.delivered = false;
+    const questionIndex = pending.index;
+    await this.sendToChat(
+      { chatId, kind: 'text', text },
+      () => { pending.delivered = true; },
+      () => this.pendingPrompts.get(chatId)?.includes(pending) === true && pending.index === questionIndex,
+    );
+    // 停下等人：没人在干活，不显示「正在输入」
+    await this.options.channel.setTyping?.(chatId, false);
+  }
+
+  private async answerPrompt(chatId: string, text: string): Promise<void> {
+    const queue = this.pendingPrompts.get(chatId);
+    const pending = queue?.[0];
+    if (!queue || !pending) return;
+    const { prompt } = pending;
+    let reply: UserPromptReply;
+    let asFeedback = false;
+    if (prompt.kind === 'question') {
+      const question = prompt.questions[pending.index]!;
+      pending.answers[question.id] = answerQuestion(question, text);
+      pending.index += 1;
+      if (pending.index < prompt.questions.length) {
+        await this.pushPrompt(chatId, pending);
+        return;
+      }
+      reply = { kind: 'answers', answers: pending.answers };
+    } else {
+      const decision = decideConfirmation(prompt.kind, text);
+      // 计划确认里回了含糊的同意：判不出选 1 还是 2，确认留着，再问一次
+      if (!decision) {
+        await this.sendToChat({ chatId, kind: 'status', text: PLAN_CHOOSE });
+        return;
+      }
+      reply = decision.reply;
+      asFeedback = decision.asFeedback;
+    }
+    queue.shift();
+    if (queue.length === 0) this.pendingPrompts.delete(chatId);
+    pending.respond(reply);
+    // 不复述用户自己刚做的选择（选了允许、拒绝、计划选项、提问答案）；只有这句话被当成了
+    // 别的用途（拒绝并转告、计划的修改意见）时说清楚——用户自己看不出来
+    if (asFeedback && prompt.kind !== 'question') {
+      const name = providerLabel(this.activeGenerations.get(chatId)?.providerId);
+      await this.sendToChat({
+        chatId,
+        kind: 'status',
+        text: prompt.kind === 'plan'
+          ? `你这句话被当作对上面计划「${promptStep(prompt)}」的修改意见，已转给 ${name}，它会按你的意见改计划。想问别的事，请先回「1」「2」或「不执行」把计划答掉。`
+          : `你这句话被当作对上面确认的回复：已拒绝「${promptStep(prompt)}」，并把你的话转给了 ${name}，它会按你的话换个做法。想问别的事，请先回「1」或「拒绝」把确认答掉。`,
+      });
+    }
+    const next = queue[0];
+    if (next) {
+      await this.pushPrompt(chatId, next);
+      return;
+    }
+    await this.options.channel.setTyping?.(chatId, true);
+  }
+
+  /** 拒掉这个 chat 挂着的全部请求（中止、换会话、这一轮已结束）；没有请求时什么都不做。 */
+  private denyPrompts(chatId: string, message: string): void {
+    const queue = this.pendingPrompts.get(chatId);
+    if (!queue) return;
+    this.pendingPrompts.delete(chatId);
+    for (const pending of queue) pending.respond({ kind: 'deny', message });
+  }
+
+  /**
+   * 这一轮或这次生成已结束（不是用户 /stop、换会话撤掉的）：还挂着的请求拒掉。
+   * 推到过手机的要告诉用户已失效——手机上那条还在，不说的话他回过去会落空或被当成别的话。
+   */
+  private async denyPromptsOf(chatId: string, genId: number): Promise<void> {
+    const queue = this.pendingPrompts.get(chatId);
+    if (!queue?.some((pending) => pending.genId === genId)) return;
+    const seen = queue.filter((pending) => pending.delivered);
+    this.denyPrompts(chatId, '这一轮已结束。');
+    for (const pending of seen) await this.notifyExpired(chatId, pending);
+  }
+
+  /** CLI 撤回了这个请求（不再等回答）：移出队列，推到过手机的告诉用户已失效，后面排着的接着推。 */
+  private async withdrawPrompt(chatId: string, id: string): Promise<void> {
+    const queue = this.pendingPrompts.get(chatId);
+    const index = queue?.findIndex((pending) => pending.id === id) ?? -1;
+    if (!queue || index < 0) return;
+    const [removed] = queue.splice(index, 1);
+    if (queue.length === 0) this.pendingPrompts.delete(chatId);
+    if (removed!.delivered) await this.notifyExpired(chatId, removed!);
+    if (index === 0 && queue[0]) await this.pushPrompt(chatId, queue[0]);
+  }
+
+  private async notifyExpired(chatId: string, pending: PendingPrompt): Promise<void> {
+    const name = providerLabel(this.activeGenerations.get(chatId)?.providerId);
+    const what = pending.prompt.kind === 'question' ? '这个问题' : '这条确认';
+    await this.sendToChat({
+      chatId,
+      kind: 'status',
+      text: `「${promptStep(pending.prompt)}」${what}已失效，不用再回了：${name} 没有等手机的回复，这一步已经过去了。之后发的话会照常交给 ${name}。`,
+    });
   }
 
   // A chat message arriving while a turn is in flight: if the provider supports
   // native steer (Codex turn/steer), inject it into the running turn instead of
   // queueing a new turn. Otherwise fall back to the serialized lock (queue).
-  private maybeSteer(chatId: string, text: string): Promise<boolean> {
+  private maybeSteer(chatId: string, text: string, arrivedIn: string | undefined): Promise<boolean> {
     const active = this.activeGenerations.get(chatId);
-    if (!active) return Promise.resolve(false);
+    // 一刀切：只插进消息到达时那个会话的生成
+    if (!active || (arrivedIn !== undefined && active.bridgeSessionId !== arrivedIn)) return Promise.resolve(false);
     const provider = this.providers.get(active.providerId);
     if (!provider?.steerSession) return Promise.resolve(false);
-    // 注入进行中的这一轮：选项正是这一轮产生的，可直接把纯序号翻译成选项文字。
-    return provider.steerSession(active.bridgeSessionId, this.resolveChoiceReply(chatId, text)).then(() => true);
+    return provider.steerSession(active.bridgeSessionId, text).then((accepted) => {
+      if (accepted === false) return false;
+      // 插话会开出新的一轮
+      active.foreground = true;
+      return true;
+    });
   }
 
   // Serialize session-mutating work onto one global chain. The chain is updated
@@ -272,6 +410,8 @@ export class MessageRouter {
     const active = this.activeGenerations.get(chatId);
     if (!active) return;
     this.activeGenerations.delete(chatId);
+    // CLI 正停着等回答：先拒掉，它才能收尾
+    this.denyPrompts(chatId, '会话已切换，这次调用作废。');
     active.abort();
     // 中断 provider 仅作尽力而为的清理，且不等待：abort 已让生成跳出循环、让出
     // 生成链，而 interruptSession 本身可能在卡死的 CLI 上挂起，绝不能让它拖住命令。
@@ -327,10 +467,6 @@ export class MessageRouter {
     provider: NativeProviderAdapter,
   ): Promise<void> {
     if (!current.providerSessionId || !provider.attachSession) return;
-    // 与手动 /reload 一致：重挂载后旧轮次留下的待选项已失效，一并清除。
-    for (const [chatId, pending] of this.pendingChoices) {
-      if (pending.sessionId === current.id) this.pendingChoices.delete(chatId);
-    }
     this.recycleProviderProcess(current);
     const reattached = await provider.attachSession({
       candidateId: current.providerSessionId,
@@ -372,15 +508,12 @@ export class MessageRouter {
     message: ChannelIncomingMessage,
     user: ActiveWeChatUserRecord,
     rawText: string,
-    seq: number,
+    arrivedIn: string | undefined,
   ): Promise<void> {
-    const superseded = () => (this.latestMutatingSeq.get(message.chatId) ?? 0) > seq;
-    // 若此刻已有更晚到达的会话变更命令，这条聊天已被取代：直接放弃，不创建会话、
-    // 不发任何消息，避免投递到被命令换掉的会话。注意：这里不等待 commandChain——
-    // 命令与聊天分属两条链、互不阻塞，所以一条卡住的命令绝不会堵住后续聊天。
-    // 代价仅是：在同一拍内同时发出 /new 和紧随的 prompt 时，prompt 可能按当下
-    // current 跑（极小概率，真人操作几乎不会触发），但绝不会卡死或写坏状态。
-    if (superseded()) return;
+    // 到达时所属的会话已被换掉：这条消息作废，不改投新会话（切换空档漏消息可以接受）。
+    // 到达时还没有会话的，跟着第一个建起来的会话走。
+    const switchedAway = () => arrivedIn !== undefined && this.conversation.getCurrent()?.id !== arrivedIn;
+    if (switchedAway()) return;
     const sessionResumeTitle = buildSessionBridgeName({
       platform: 'weixin',
       platformUserId: message.user.id,
@@ -389,15 +522,9 @@ export class MessageRouter {
     });
     let session = this.conversation.getCurrent();
     if (!session) {
-      // auto-attach 自身会写 current（attachProviderSessionToBridge → setCurrent）。
-      // 调用前先判取代，避免在已有命令到达后还启动一次会覆盖其选择的 attach。
-      if (superseded()) return;
-      // 把取代检查下沉到 auto-attach 的写入处：若 attach 进行中有命令到达，
-      // 这次 attach 不再 setCurrent 覆盖命令选定的会话（providerAutoAttach 内执行）。
-      const attached = await this.options.autoAttachSession?.(message, user, { shouldCommit: () => !superseded() });
-      // auto-attach 可能涉及文件系统/provider 工作；其间若有 /new、/resume 到达，
-      // 这条旧聊天必须让位，不能再 attach/create 覆盖新命令选定的会话。
-      if (superseded()) return;
+      // auto-attach 自身会写 current（attachProviderSessionToBridge → setCurrent）；
+      // 期间 /new、/resume 已建好会话时，不能再覆盖它
+      const attached = await this.options.autoAttachSession?.(message, user, { shouldCommit: () => !this.conversation.getCurrent() });
       session = this.conversation.getCurrent()
         ?? attached
         ?? this.conversation.create({
@@ -446,26 +573,74 @@ export class MessageRouter {
       await this.sendToChat({ chatId: message.chatId, kind: 'status', text: freshness.message });
       return;
     }
-    // 若上一轮发出过 AskUserQuestion 选项且这条是纯序号，翻译成选项文字。
-    const text = this.resolveChoiceReply(message.chatId, rawText);
 
+    // 准备期间（拉起 provider 等）会话被换掉了：同样作废。登记为进行中的生成之后，
+    // 换会话的命令会经 preemptActiveGeneration 主动抢占它，不再需要判断
+    if (switchedAway()) return;
     const genId = ++this.generationSeq;
     let abortGeneration!: () => void;
     const aborted = new Promise<'aborted'>((resolve) => { abortGeneration = () => resolve('aborted'); });
-    this.activeGenerations.set(message.chatId, {
+    const entry = {
       genId,
       providerId: session.providerId,
       bridgeSessionId: session.id,
       abort: abortGeneration,
-    });
-    // 存活判定同时覆盖两种取代：被新生成顶替（genId 不匹配），
-    // 或被更晚到达的会话变更命令取代（latestMutatingSeq 越过本次序号）。
-    const isLive = () => this.activeGenerations.get(message.chatId)?.genId === genId
-      && (this.latestMutatingSeq.get(message.chatId) ?? 0) <= seq;
+      foreground: true,
+      background: false,
+    };
+    this.activeGenerations.set(message.chatId, entry);
+    // 存活判定：没被新生成顶替、也没被换会话的命令抢占（两者都会换掉 activeGenerations 里的登记）。
+    const isLive = () => this.activeGenerations.get(message.chatId)?.genId === genId;
+    // 只把每一轮的结论发给用户（微信推送有配额）：助手文字先攒着，调用工具时之前的
+    // 文字只是过程说明、直接作废；一轮结束（turn_end）时把攒下的一次发出。
     let bufferedText = '';
-    // 本轮是否向用户产出过任何东西（正文或错误）。全程静默是异常，收尾时要告知用户，
-    // 否则 provider 侧任何"内容丢失"类缺陷都会表现为微信永远等不到回复、且毫无线索。
-    let deliveredSomething = false;
+    let turnReply = '';
+    const commitBuffered = () => {
+      if (bufferedText.trim()) turnReply = turnReply ? `${turnReply}\n\n${bufferedText}` : bufferedText;
+      bufferedText = '';
+    };
+    const takeReply = (): string => {
+      commitBuffered();
+      const reply = turnReply.trim();
+      turnReply = '';
+      return reply;
+    };
+    // /stop 到达时正在跑的那一轮：收尾前的输出都不发（已回过「已中断」），它一收尾就撤掉标记。
+    // Claude 在同一次生成里还会接着跑之后插话排队的轮次，那些轮次照常发。
+    const stoppedByUser = () => this.activeGenerations.get(message.chatId)?.stopped === true;
+    const sendReply = async () => {
+      const reply = takeReply();
+      // 用户 /stop 的那一轮，中断前的半截不再发出
+      if (!reply || stoppedByUser()) return;
+      await this.sendToChat({ chatId: message.chatId, kind: 'text', text: reply });
+      deliveredThisTurn = true;
+    };
+    // 当前这一轮是否向用户产出过结论或错误（提问不算：答完之后这一轮仍要有个交代）。
+    // 一轮收尾时什么都没给是异常，要告知用户，否则 provider 侧任何「内容丢失」类缺陷
+    // 都会表现为微信永远等不到回复、且毫无线索。turnOpen：上次 turn_end 之后是否又开了一轮。
+    let deliveredThisTurn = false;
+    let turnOpen = true;
+    let backgroundTasks: Array<{ id: string; description?: string }> = [];
+    let lastBackgroundHint = '';
+    const sendBackgroundHint = async () => {
+      const signature = JSON.stringify(backgroundTasks.map((task) => task.id).sort());
+      if (backgroundTasks.length && signature !== lastBackgroundHint) {
+        await this.sendToChat({
+          chatId: message.chatId, kind: 'status',
+          text: `还有后台任务在运行：\n${backgroundTasks.map((task) => `- ${taskLabel(task.description)}`).join('\n')}`,
+        });
+        deliveredThisTurn = true;
+      }
+      lastBackgroundHint = signature;
+    };
+    const notifyIfSilent = async () => {
+      if (deliveredThisTurn || stoppedByUser()) return;
+      await this.sendToChat({
+        chatId: message.chatId,
+        kind: 'status',
+        text: '本轮已结束，没有文字回复。',
+      });
+    };
     // Typing is event-driven: refreshed as provider events arrive (throttled to
     // typingKeepaliveMs), never on a timer. A silent or wedged provider stops
     // emitting → we stop refreshing → WeChat's ~60s TTL clears the indicator on
@@ -485,23 +660,63 @@ export class MessageRouter {
     try {
       // 手动驱动迭代器并与 abort 信号竞速：被抢占时即便 provider 卡死、迭代器永不
       // 返回下一个事件，也能立即跳出循环、释放 sessionOpChain，后续聊天不再永久排队。
-      iterator = provider.sendMessage({ bridgeSessionId: session.id, text })[Symbol.asyncIterator]();
+      iterator = provider.sendMessage({ bridgeSessionId: session.id, text: rawText })[Symbol.asyncIterator]();
       while (isLive()) {
         const step = await Promise.race([iterator.next(), aborted]);
         if (step === 'aborted' || step.done) break;
-        if (!isLive()) break;
+        if (!isLive()) {
+          // 已被抢占：这个请求没人会推给用户，直接拒掉，CLI 才不会一直等
+          if (step.value.type === 'user_prompt') step.value.respond({ kind: 'deny', message: '会话已切换，这次调用作废。' });
+          break;
+        }
         refreshTyping(); // an event arrived → provider is alive, keep typing lit (throttled)
         const event = step.value;
+        if (event.type !== 'turn_end' && event.type !== 'session_state' && event.type !== 'background_tasks') {
+          turnOpen = true;
+          entry.foreground = true;
+        }
+        if (event.type === 'background_tasks') {
+          entry.background = event.tasks.length > 0;
+          backgroundTasks = event.tasks;
+          if (backgroundTasks.length === 0) lastBackgroundHint = '';
+        }
         if (event.type === 'text_delta' && event.text) {
+          this.setConversationStatus(session.id, 'running');
           bufferedText += event.text;
         }
-        if (event.type === 'message_done' && bufferedText.trim()) {
-          await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
+        if (event.type === 'message_done') commitBuffered();
+        if (event.type === 'tool_event') {
           bufferedText = '';
-          deliveredSomething = true;
+          turnReply = '';
         }
-        if (event.type === 'choice_prompt' && event.labels.length > 0) {
-          this.pendingChoices.set(message.chatId, { sessionId: session.id, labels: event.labels, multiSelect: event.multiSelect });
+        if (event.type === 'turn_end') {
+          // 前台这一轮已停：先记下，收尾（发结论、后台提醒）期间到达的 /stop 才不会被当成中断前台
+          entry.foreground = false;
+          // 请求只活在它所在的那一轮：还挂着（例如 CLI 取消了它）就拒掉，免得吞掉用户下一条消息
+          await this.denyPromptsOf(message.chatId, genId);
+          await sendReply();
+          await sendBackgroundHint();
+          await notifyIfSilent();
+          this.setConversationStatus(session.id, 'idle');
+          await this.options.channel.setTyping?.(message.chatId, false);
+          const binding = this.conversation.getCurrent();
+          if (binding?.id === session.id) {
+            await this.persistBridgeMetadata(binding).catch(() => undefined);
+            await this.refreshNativeFingerprint(binding, provider).catch(() => undefined);
+          }
+          const active = this.activeGenerations.get(message.chatId);
+          if (active?.genId === genId) active.stopped = false;
+          deliveredThisTurn = false;
+          turnOpen = false;
+        }
+        if (event.type === 'user_prompt') {
+          // 提问之前的文字同样是过程说明，不随问题发出：手机上只推问题本身
+          bufferedText = '';
+          turnReply = '';
+          await this.openPrompt(message.chatId, genId, event.prompt, event.respond, event.id);
+        }
+        if (event.type === 'user_prompt_withdrawn') {
+          await this.withdrawPrompt(message.chatId, event.id);
         }
         if (event.type === 'session_state') {
           const updated = this.conversation.update({
@@ -517,11 +732,11 @@ export class MessageRouter {
           }
           await this.persistBridgeMetadata(updated);
         }
-        if (event.type === 'error' && event.error) {
-          if (bufferedText.trim()) {
-            await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
-            bufferedText = '';
-          }
+        if (event.type === 'error' && event.error && stoppedByUser()) {
+          // 被中断的那一轮以出错收尾是中断本身造成的，不再报错、不多占一条
+          takeReply();
+        } else if (event.type === 'error' && event.error) {
+          await sendReply();
           const errorText = event.code === 'idle_timeout'
             ? '⚠️ 上一轮长时间无响应(疑似工具卡死),已自动终止并保留会话。直接重发消息即可继续。'
             : `Provider error: ${event.error}`;
@@ -530,23 +745,13 @@ export class MessageRouter {
             kind: 'status',
             text: errorText,
           });
-          deliveredSomething = true;
+          deliveredThisTurn = true;
         }
       }
-      if (isLive() && bufferedText.trim()) {
-        await this.sendToChat({ chatId: message.chatId, kind: 'text', text: bufferedText });
-        bufferedText = '';
-        deliveredSomething = true;
-      }
-      // 兜底：一轮跑完却什么都没发给用户，说明 provider 的内容在中途丢了。
-      // 与其让用户对着空白干等，不如明确告知一声。
-      if (isLive() && !deliveredSomething) {
-        await this.sendToChat({
-          chatId: message.chatId,
-          kind: 'status',
-          text: '⚠️ 本轮没有返回任何内容（provider 已结束但未产出回复）。可重发消息重试。',
-        });
-      }
+      // provider 没报 turn_end 就结束了（被中断、不报 turn_end 的 provider）：攒下的照样发出，
+      // 最后这一轮什么都没给也要说一声；已由 turn_end 收尾的轮次不重复提示
+      if (isLive()) await sendReply();
+      if (isLive() && turnOpen) await notifyIfSilent();
       // The session .jsonl is only fully on disk once the turn ends. Re-persist
       // now so normalizeClaudeSessionFileForResume can rewrite the just-flushed
       // sdk-cli entrypoint records to cli; the in-turn persist (on session_state)
@@ -563,21 +768,13 @@ export class MessageRouter {
         }
       }
     } finally {
+      // 生成已结束（正常、出错或被抢占）：还挂着的请求没人会再等它的回答
+      await this.denyPromptsOf(message.chatId, genId).catch(() => undefined);
       void iterator?.return?.().catch(() => undefined);
       // 只有当 entry 仍是本次生成时才清除并复位 typing；被抢占时新生成会自行管理，
       // 这里不能动，避免抹掉它的 entry 或清掉它的 typing。
       const stillMine = this.activeGenerations.get(message.chatId)?.genId === genId;
       if (stillMine) this.activeGenerations.delete(message.chatId);
-      // Flush any message held back on the final quota slot. The turn is over, so
-      // it had no follow-up and goes out without a continuation hint. Best-effort:
-      // a failed flush must not skip the typing reset below.
-      await Promise.resolve(this.options.outboundGate?.finalize?.(message.chatId)).catch(() => undefined);
-      // 配额归零导致本轮回复被静默入队时，告知用户一次——否则他只会看到"没反应"。
-      // 这条提示本身也走 gate，会一并排队，但用户下次发消息 drain 时就能看到原因。
-      const quotaNotice = this.options.outboundGate?.takeQuotaExhaustedNotice?.(message.chatId);
-      if (quotaNotice) {
-        await this.sendToChat({ chatId: message.chatId, kind: 'status', text: quotaNotice }).catch(() => undefined);
-      }
       if (stillMine) await this.options.channel.setTyping?.(message.chatId, false);
     }
   }
@@ -603,18 +800,32 @@ export class MessageRouter {
         await this.sendToChat({ chatId, kind: 'status', text: '当前没有正在进行的生成' });
         return;
       }
+      // 前台已停、只在等后台任务：没有可中断的一轮，如实说（中断标记也不能设，否则没有一轮会结束来撤掉它，
+      // 之后的回复都会被当成被中断那一轮的半截吞掉）
+      if (!active.foreground) {
+        await this.sendToChat({
+          chatId,
+          kind: 'status',
+          text: active.background
+            ? '前台已经停下，没有正在进行的回复；后台任务仍在运行，完成后会把结果发给你。不要它的结果可以发 /new 换会话。'
+            : '当前没有正在进行的生成',
+        });
+        return;
+      }
       const provider = this.providers.get(active.providerId);
       if (!provider?.interruptSession) {
         await this.sendToChat({ chatId, kind: 'status', text: `${active.providerId} 暂不支持中断` });
         return;
       }
+      active.stopped = true;
+      // CLI 正停着等回答：先拒掉，中断才能生效
+      this.denyPrompts(chatId, '用户在微信上中止了这一轮。');
       await provider.interruptSession(active.bridgeSessionId);
       await this.sendToChat({ chatId, kind: 'status', text: '已中断当前生成，会话保留' });
       return;
     }
 
     if (command.kind === 'reload_session') {
-      this.pendingChoices.delete(chatId);
       const current = this.conversation.getCurrent();
       if (!current) {
         await this.sendToChat({ chatId, kind: 'status', text: 'No active session' });
@@ -637,7 +848,6 @@ export class MessageRouter {
     }
 
     if (command.kind === 'new_session') {
-      this.pendingChoices.delete(chatId);
       const previousSession = this.conversation.getCurrent();
       await this.preemptActiveGeneration(chatId);
       this.recycleProviderProcess(previousSession);
@@ -723,14 +933,12 @@ export class MessageRouter {
     }
 
     if (command.kind === 'resume_session') {
-      this.pendingChoices.delete(chatId);
       const ref = command.ref.trim();
       if (!ref) {
         await this.sendToChat({ chatId, kind: 'status', text: '用法：/resume <编号>' });
         return;
       }
       const previousSession = this.conversation.getCurrent();
-      await this.preemptActiveGeneration(chatId);
       let providerId = previousSession?.providerId ?? this.options.defaults?.defaultProvider ?? 'claude-code';
       // 纯数字按最近一次 /sessions 列表的编号解析：用缓存翻译成真实会话 id，
       // 并沿用列表当时的 provider（列表与恢复之间 current 可能已变）。
@@ -760,6 +968,8 @@ export class MessageRouter {
         await this.sendToChat({ chatId, kind: 'status', text: `找不到会话 ${ref}` });
         return;
       }
+      // 校验都通过、确定要换会话了才打断当前这一轮：编号输错不该把挂着的确认当成拒绝
+      await this.preemptActiveGeneration(chatId);
       this.recycleProviderProcess(previousSession);
       const cwdUnresolved = !candidate.cwd;
       const attached = await attachProviderSessionToBridge({
@@ -774,6 +984,7 @@ export class MessageRouter {
         recoverySource: 'manual_attach',
         resumeTitle: candidate.resumeTitle,
       });
+      await this.options.outboundGate?.discardPending?.(chatId);
       const head = `已恢复会话 ${attached.id} · ${attached.providerId}`;
       const text = cwdUnresolved
         ? `${head}\n⚠️ 无法确定该会话的原始目录，已使用默认目录 ${attached.cwd}，如需切换请用 /new <目录> 开新会话`
@@ -813,6 +1024,39 @@ export class MessageRouter {
       });
     }
   }
+}
+
+type PendingPrompt = {
+  /** provider 给的请求 id，CLI 撤回时据此找到它。 */
+  id?: string;
+  delivered: boolean;
+  genId: number;
+  prompt: UserPrompt;
+  /** 提问推到第几题（从 0 起）。 */
+  index: number;
+  answers: Record<string, string>;
+  respond: (reply: UserPromptReply) => void;
+};
+
+/** 后台任务的说明只取第一行、截短：Codex 会拿子代理的整段指令当说明。 */
+function taskLabel(description: string | undefined): string {
+  const line = description?.split('\n').map((part) => part.trim()).find(Boolean);
+  if (!line) return '后台任务';
+  return line.length > 40 ? `${line.slice(0, 40)}…` : line;
+}
+
+function providerLabel(providerId: ProviderId | undefined): string {
+  return providerId === 'codex' ? 'Codex' : 'Claude';
+}
+
+function confirmationHint(kind: 'plan' | 'permission'): string {
+  return kind === 'plan'
+    ? `还在等你确认计划：${PLAN_CHOOSE}`
+    : '还在等你确认权限：回复 1 允许，回复 2 拒绝，或直接用文字说你的意见。';
+}
+
+function renderQuestionOf(pending: PendingPrompt): string {
+  return pending.prompt.kind === 'question' ? renderQuestion(pending.prompt.questions, pending.index) : renderPrompt(pending.prompt);
 }
 
 // 0.1.59 及之前的原生指纹格式：<provider>:<sessionId>:<mtimeMs>:<size>

@@ -41,6 +41,15 @@ describe('WeixinMediaDownloader', () => {
     expect(fetchImpl.mock.calls[0][0]).toContain('/download?encrypted_query_param=q');
   });
 
+  it('读取内容中途出错时返回失败，不抛异常', async () => {
+    const response = { ok: true, status: 200, headers: { get: () => null }, arrayBuffer: async () => { throw new Error('socket hang up'); } } as unknown as Response;
+    const dl = new WeixinMediaDownloader({ fetchImpl: vi.fn().mockResolvedValue(response) as unknown as typeof fetch });
+
+    const result = await dl.download({ encrypt_query_param: 'q', aes_key: keyBuf.toString('base64') }, { destPath: destPath() });
+
+    expect(result).toEqual({ ok: false, reason: 'read_failed' });
+  });
+
   it('prefers full_url when provided', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(fakeResponse(encryptEcb(Buffer.from('x'))));
     const dl = new WeixinMediaDownloader({ fetchImpl: fetchImpl as unknown as typeof fetch });
